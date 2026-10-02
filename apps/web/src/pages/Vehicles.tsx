@@ -11,7 +11,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
-import { FUEL, OWNERSHIP, PARTY_FOR_OWNERSHIP, PARTY_KIND, TIER } from "../labels";
+import { FUEL, OWNERSHIP, PARTY_FOR_OWNERSHIP, PARTY_KIND, TIER, TRUST } from "../labels";
 import { Card, ErrorBanner, errorMessage, Field } from "../ui";
 
 export const EMPTY_VEHICLE: VehicleInput = {
@@ -387,6 +387,7 @@ export default function Vehicles() {
                   <th>Ownership</th>
                   <th>Depot</th>
                   <th>Odometer</th>
+                  <th>Trust</th>
                 </tr>
               </thead>
               <tbody>
@@ -399,6 +400,7 @@ export default function Vehicles() {
                     <td>{OWNERSHIP[v.ownership_type]}</td>
                     <td>{depotName(v.depot_id)}</td>
                     <td>{v.odometer_km.toLocaleString()} km</td>
+                    <td>{v.trust_level ? TRUST[v.trust_level] : ""}</td>
                   </tr>
                 ))}
               </tbody>

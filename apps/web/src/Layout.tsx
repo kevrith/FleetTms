@@ -83,7 +83,7 @@ export default function Layout() {
     }
   }
 
-  const items = navItems.filter((n) => !n.permission || can(n.permission));
+  const items = navItems.filter((n) => !n.permission || [n.permission].flat().some((p) => can(p)));
 
   return (
     <div className="shell">

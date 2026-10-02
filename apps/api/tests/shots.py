@@ -28,8 +28,15 @@ def now_iso(minutes_ago=0) -> str:
     return (datetime.now(UTC) - timedelta(minutes=minutes_ago)).isoformat()
 
 
-async def upload(client, tokens, kind="odometer", *, data=None, source="camera", captured_at="now", lat=-1.29, lng=36.82):
+async def upload(
+    client, tokens, kind="odometer", *, data=None, source="camera", captured_at="now", lat=-1.29, lng=36.82,
+    client_id=None, offline=False,
+):
     form = {"kind": kind, "source": source}
+    if client_id:
+        form["client_id"] = str(client_id)
+    if offline:
+        form["offline"] = "true"
     if captured_at == "now":
         captured_at = now_iso()
     if captured_at is not None:
@@ -96,3 +103,15 @@ async def start(client, tokens, trip_id, value=125100, **reading):
     return await client.post(
         f"/trips/{trip_id}/start", headers=bearer(tokens), json={"photo_id": pid, "value": value, **reading}
     )
+
+
+def ago(**delta) -> str:
+    """An ISO time in the past, for records a phone made while it was offline."""
+    return (datetime.now(UTC) - timedelta(**delta)).isoformat()
+
+
+async def sync(client, tokens, actions, device=None):
+    body = {"actions": actions}
+    if device:
+        body["device"] = device
+    return await client.post("/sync", headers=bearer(tokens), json=body)

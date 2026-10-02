@@ -103,6 +103,7 @@ class PhotoKind(enum.StrEnum):
     ODOMETER = "odometer"
     CARGO = "cargo"
     DEFECT = "defect"
+    RECEIPT = "receipt"
 
 
 class PhotoSource(enum.StrEnum):
@@ -373,7 +374,10 @@ class Photo(TenantMixin, Base):
     """A photo in private storage. Viewed only through short-lived signed links."""
 
     __tablename__ = "photos"
-    __table_args__ = (UniqueConstraint("business_id", "sha256"),)
+    __table_args__ = (
+        UniqueConstraint("business_id", "sha256"),
+        UniqueConstraint("business_id", "client_id", name="uq_photos_business_client"),
+    )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
     kind: Mapped[PhotoKind] = mapped_column(_enum(PhotoKind))
     source: Mapped[PhotoSource] = mapped_column(_enum(PhotoSource))
@@ -388,6 +392,9 @@ class Photo(TenantMixin, Base):
     lng: Mapped[float | None] = mapped_column(Float)
     uploaded_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # a photo backs one record only
+    # Chosen by the phone, so a photo queued offline and re-sent after a lost reply is stored once.
+    client_id: Mapped[uuid.UUID | None] = mapped_column(index=True)
+    late: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))  # synced after the fresh window
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -492,3 +499,69 @@ class OdometerReading(TenantMixin, Base):
     flags: Mapped[list[str]] = mapped_column(JSONB, default=list)
     recorded_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class FuelEntry(TenantMixin, Base):
+    __tablename__ = "fuel_entries"
+    __table_args__ = (
+        UniqueConstraint("business_id", "client_id"),
+        UniqueConstraint("business_id", "mpesa_code"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True)
+    trip_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("trips.id", ondelete="SET NULL"), index=True)
+    litres: Mapped[Decimal] = mapped_column(Numeric(8, 2))
+    price_per_litre_cents: Mapped[int] = mapped_column(Integer)
+    amount_cents: Mapped[int] = mapped_column(BigInteger)
+    station: Mapped[str | None] = mapped_column(String(120))
+    mpesa_code: Mapped[str | None] = mapped_column(String(12))
+    receipt_photo_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("photos.id", ondelete="SET NULL"))
+    flags: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    client_id: Mapped[uuid.UUID | None] = mapped_column()
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))  # when the driver recorded it
+    recorded_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)  # when the server got it
+
+
+class FloatTransfer(TenantMixin, Base):
+    """Money the owner sends a driver for tolls, parking, food. Recording only; expenses arrive in Sprint 5."""
+
+    __tablename__ = "float_transfers"
+    __table_args__ = (UniqueConstraint("business_id", "mpesa_code"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    driver_membership_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("memberships.id", ondelete="CASCADE"), index=True
+    )
+    amount_cents: Mapped[int] = mapped_column(BigInteger)
+    mpesa_code: Mapped[str | None] = mapped_column(String(12))
+    note: Mapped[str | None] = mapped_column(String(255))
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SyncReceipt(TenantMixin, Base):
+    """One row per offline action the server has applied, so a retried batch never applies anything twice."""
+
+    __tablename__ = "sync_receipts"
+    __table_args__ = (UniqueConstraint("business_id", "client_id"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    client_id: Mapped[uuid.UUID] = mapped_column()
+    action_type: Mapped[str] = mapped_column(String(40))
+    result: Mapped[dict] = mapped_column(JSONB, default=dict)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class DeviceCheck(TenantMixin, Base):
+    """A phone reported something suspicious: a mock-location app, root access, or a clock that is off."""
+
+    __tablename__ = "device_checks"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    vehicle_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True)
+    device_id: Mapped[str] = mapped_column(String(80))
+    flags: Mapped[list[str]] = mapped_column(JSONB)
+    clock_offset_s: Mapped[int | None] = mapped_column(Integer)
+    app_version: Mapped[str | None] = mapped_column(String(40))
+    reported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

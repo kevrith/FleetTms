@@ -222,16 +222,17 @@ Keep a project guide at the root of the repository (`PROJECT_GUIDE.md`) and read
 **Goal:** the driver app works with no network, phones can't be easily faked, and fuel and floats are recorded.
 
 **Stories**
-- **Offline-first:** encrypted local storage, queued actions (inspections, trips, photos, fuel, expenses), automatic sync, sync status badge, original capture time kept, conflict rules, clear on logout.
-- **Backend:** idempotent batched sync (no duplicates on retry).
-- **Device integrity:** detect mock-location apps, rooted phones, and clock changes; flag (don't silently block) and record on the vehicle's trust level.
-- **Fuel:** entries with litres, price, amount, station, M-Pesa code, receipt photo.
-- **Floats:** owner records M-Pesa floats; driver sees the balance.
+- [x] **Offline-first:** encrypted local storage (XChaCha20-Poly1305; the key lives in the phone's secure keystore), queued actions (inspections, trip start/loading/delivery/end, photos, fuel), automatic sync (when the network returns, when the app opens, every minute), sync status badge, original capture time kept, conflict rules, clear on logout. *Conflicts: the server's rules decide. A record it cannot accept stays on the phone with the reason and a Try again or Delete choice. Signing out wipes the vault after warning about anything unsent; an expired session keeps the vault until a different person signs in. Expenses join the queue in Sprint 5.*
+- [x] **Backend:** idempotent batched sync (`POST /sync`, up to 50 actions, each applied in its own savepoint; an action id already applied is answered as a duplicate). Photos carry a phone-chosen id so a retried upload stores once. *Records use the time the driver did them (up to 7 days old); a photo must have been taken within 15 minutes of the record it backs.*
+- [x] **Device integrity:** the app reports a mock-location sighting, a rooted phone, and its clock; the server compares the clock itself. Flags are recorded and lower the vehicle's trust level (High, Medium, Low, starting from the tracking tier). They never block anyone. *The mock-location check reads Android's `mocked` flag on locations; it has not been tried against a real fake-GPS app.*
+- [x] **Fuel:** entries with litres, price, amount, station, M-Pesa code, receipt photo. *The receipt is optional but flagged when missing; a total that does not match litres times price is flagged; a repeated M-Pesa code is refused.*
+- [x] **Floats:** owner or manager records M-Pesa floats; the driver sees the balance (offline too). *Recording only: expenses are subtracted from Sprint 5.*
+- [x] **Web:** Expenses area (floats, fuel), trust column and trust card on vehicles. **Mobile:** sync badge and "could not be sent" list, Expenses tab (float balance, fuel entry), everything working from the phone's saved data.
 
 **Acceptance criteria**
-- In airplane mode a driver completes inspection, trip, and fuel; everything syncs correctly later.
-- The same batch sent twice creates no duplicates.
-- A phone running a fake-GPS app is flagged.
+- [~] In airplane mode a driver completes inspection, trip, and fuel; everything syncs correctly later. *On the Android emulator in airplane mode: the inspection and a fuel entry were saved, then synced on reconnect with the times they were done. The trip steps use the same code and are covered by unit and API tests, but a full trip could not be photographed on the emulator (its camera returns black frames, which the server correctly refuses), so a whole offline morning including the trip has not been run on a device.*
+- [x] The same batch sent twice creates no duplicates. *API tests, including a split batch and a lost reply on the phone side.*
+- [~] A phone running a fake-GPS app is flagged. *Server side: tested, and shown on the web (vehicle trust drops, with the reason). On the phone: the check is built but untested against a real fake-GPS app.*
 
 **Kickoff brief**
 > Make the mobile app offline-first per masterplan Sections 4 and 13, add device integrity checks (Section 10), fuel entries (5.5), and floats (5.6, recording only). Offline records keep their original capture time, are stored encrypted, and sync idempotently.
@@ -555,7 +556,7 @@ Keep a project guide at the root of the repository (`PROJECT_GUIDE.md`) and read
 | S1 | 2026-10-02 | ✅ Done, with carry-overs | Tenancy, auth (OTP + password + TOTP or SMS second step), roles, audit log, depots, support access, web + mobile screens, draft legal docs | advocate review of `docs/legal/` | Tenant isolation is ORM-level; RLS planned for S16. Dev-only: OTP codes are printed to the API console. |
 | S2 | 2026-10-02 | ✅ Done, with carry-overs | Vehicles, ownership, lessors/lenders, staff profiles, crew with history, documents with SMS expiry reminders, Excel import (vehicles, staff), demo seed, web pages, mobile vehicle list and My vehicle card | Import of clients, suppliers and opening balances (tables do not exist yet); document file upload (needs storage bucket) | Reminders run daily at 07:00 Africa/Nairobi through the arq worker. Supervisor scope now enforced. |
 | S3 | 2026-10-02 | 🟨 Built; mobile capture partly verified | Pre-trip inspection with configurable checklist, critical-fault block and manager override, trips with start/loading/delivered/end, odometer photos with flags and distance, private photo storage with signed links, web trips and checklist pages, mobile inspection and trip flow | Automatic odometer reading from the photo (needs a development build); odometer confirm and submit screens on mobile not run end to end (the emulator's camera returns black stills); S3 bucket for photos | Photos refused if stale (10 min), blank, too small or repeated. Local-disk photo storage in `media_store/` (git-ignored). |
-| S4 | | ⬜ | | | |
+| S4 | 2026-10-02 | 🟨 Built; on-device checks partly done | Idempotent offline sync, encrypted offline vault and queue, sync badge and rejected-record handling, fuel entries, floats, device integrity and vehicle trust, web Expenses and trust pages, mobile Expenses tab | A full offline morning with a real odometer photo on a device; a real fake-GPS app test; receipt photo flow on a device | Receipts optional but flagged. Records older than 7 days are refused. Mobile has its own test suite now (`pnpm test`). |
 | S5 | | ⬜ | | | |
 | S6 | | ⬜ | | | |
 | S7 | | ⬜ | | | |

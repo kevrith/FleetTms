@@ -17,8 +17,8 @@ export interface NavItem {
   path: string;
   label: string;
   icon: LucideIcon;
-  /** Permission (from /auth/me) needed to see this item. Omit for everyone. */
-  permission?: string;
+  /** Permission (from /auth/me) needed to see this item; with a list, any one is enough. Omit for everyone. */
+  permission?: string | string[];
 }
 
 // Navigation per masterplan Section 6. Items appear as their sprint ships; until then they
@@ -29,7 +29,12 @@ export const navItems: NavItem[] = [
   { path: "/vehicles", label: "Vehicles", icon: Truck, permission: "vehicles.view" },
   { path: "/trips", label: "Trips", icon: FileText, permission: "trips.view" },
   { path: "/clients", label: "Clients & Debts", icon: Handshake, permission: "finance.view" },
-  { path: "/expenses", label: "Expenses", icon: Wallet, permission: "finance.view" },
+  {
+    path: "/expenses",
+    label: "Expenses",
+    icon: Wallet,
+    permission: ["finance.view", "floats.manage", "vehicles.view"],
+  },
   { path: "/workshop", label: "Workshop", icon: Wrench, permission: "workshop.manage" },
   { path: "/leases", label: "Leases & Finance", icon: Building2, permission: "finance.view" },
   { path: "/staff", label: "Staff & Payroll", icon: Users, permission: "staff.view" },

@@ -102,6 +102,20 @@ on the dev machine.
 - **Mobile capture** uses `src/capture.tsx` (live camera only; do not add an image picker). In the Android emulator
   the still camera returns a black frame, so end-to-end photo capture needs a real phone.
 
+- **Offline sync.** The phone queues what the driver does (`apps/mobile/src/offline/`): an encrypted vault (key in
+  SecureStore), a store, and an engine that uploads photos (with phone-chosen ids) then sends actions to
+  `POST /sync`. Every action has a client id; the server records a `SyncReceipt`, so a resend is a "duplicate".
+  Server core functions (`do_start_trip`, `do_submit_inspection`, `do_add_fuel`, ...) are shared by the online
+  endpoints and sync, take the time the driver did it, and never commit; callers commit. Keep new offline actions in
+  `app/routers/sync.py` HANDLERS and `src/offline/runtime.tsx`, and add engine tests in `offline.test.ts`.
+- **Device integrity and trust.** `POST /devices/integrity` (or the `device` part of a sync) records `mock_location`,
+  `rooted` and `clock_changed`. Flags lower a vehicle's trust (`app/trust.py`) and never block work.
+- **Fuel and floats.** Money is in cents. M-Pesa codes are 10 capital letters and numbers and unique per business.
+  A float is recorded by owner or manager (`floats.manage`); `/me/float` is the driver's balance.
+- **Emulator limits.** The Android emulator's still camera returns black frames, which the server refuses as blank, so
+  photo steps cannot be completed there. Use a real phone for those. Airplane mode works:
+  `adb shell cmd connectivity airplane-mode enable|disable`.
+
 ## Testing against a real phone/emulator
 
 - API tests use a separate `fleettms_test` database that they create and migrate themselves.
@@ -115,11 +129,11 @@ See docs/sprint-plan.md Section 1.3.
 ## Current sprint
 
 Sprints 0 and 1 are done apart from carry-overs (staging, storage bucket, external applications, advocate
-review). Sprint 2 (vehicles, ownership, staff, crews, documents, Excel import) is done: tested, the web was
-driven end to end in headless Chrome, and the mobile screens were run on the Android emulator. Sprint 3 (trips, odometer capture, pre-trip inspection)
-is built and tested (web driven in headless Chrome; mobile flow checked on the emulator up to the camera). Not yet
-built: automatic odometer reading (needs a development build). Next: Sprint 4 (offline sync, fuel, floats, device
-integrity).
+review). Sprint 2 (vehicles, ownership, staff, crews, documents, Excel import) is done. Sprint 3 (trips, odometer
+capture, pre-trip inspection) is built and tested; automatic odometer reading needs a development build. Sprint 4
+(offline sync, fuel, floats, device integrity) is built and tested; on a device, a full offline morning including a
+real odometer photo and a real fake-GPS app are still to be tried. Next: Sprint 5 (expenses, reconciliation,
+services, dashboard).
 
 Create the first platform admin with `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_NAME` and `PLATFORM_ADMIN_PASSWORD`
 set in `.env`, then `cd apps/api && .venv/bin/python -m app.cli create-platform-admin`.

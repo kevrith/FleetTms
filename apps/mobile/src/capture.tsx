@@ -1,15 +1,16 @@
-import type { PhotoKind, PhotoRef } from "@fleettms/types";
+import type { PhotoKind } from "@fleettms/types";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Location from "expo-location";
 import { useRef, useState } from "react";
 import { Image, Text, View } from "react-native";
-import { api } from "./api";
+import type { LocalPhoto } from "./offline/types";
+import { useOffline } from "./offline/runtime";
 import { Body, Button, ErrorText, errorMessage, useTheme } from "./ui";
 
 const MIN_SHORT_SIDE = 640;
 
 /** Where the phone is right now, or null if the person said no or there is no fix within a few seconds. */
-async function currentPosition(): Promise<{ lat: number; lng: number } | null> {
+async function currentPosition(): Promise<{ lat: number; lng: number; mocked: boolean } | null> {
   try {
     const perm = await Location.requestForegroundPermissionsAsync();
     if (perm.status !== "granted") return null;
@@ -17,7 +18,9 @@ async function currentPosition(): Promise<{ lat: number; lng: number } | null> {
       Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
       new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000)),
     ]);
-    return fix ? { lat: fix.coords.latitude, lng: fix.coords.longitude } : null;
+    return fix
+      ? { lat: fix.coords.latitude, lng: fix.coords.longitude, mocked: fix.mocked === true }
+      : null;
   } catch {
     return null;
   }
@@ -25,7 +28,8 @@ async function currentPosition(): Promise<{ lat: number; lng: number } | null> {
 
 /**
  * Live camera only. There is deliberately no gallery picker anywhere in the app: every photo is taken on the spot,
- * stamped with the time and GPS position, and uploaded straight away (masterplan 5.4).
+ * stamped with the time and GPS position, and kept encrypted on the phone until it can be sent (masterplan 5.4).
+ * Nothing here needs the network.
  */
 export function CaptureScreen({
   kind,
@@ -40,10 +44,11 @@ export function CaptureScreen({
   hint: string;
   /** Draws a frame to line the odometer up in. */
   guide?: boolean;
-  onDone: (photo: PhotoRef, localUri: string) => void;
+  onDone: (photo: LocalPhoto) => void;
   onCancel: () => void;
 }) {
   const t = useTheme();
+  const offline = useOffline();
   const [permission, requestPermission] = useCameraPermissions();
   const camera = useRef<CameraView>(null);
   const [shot, setShot] = useState<{ uri: string; takenAt: string } | null>(null);
@@ -88,14 +93,18 @@ export function CaptureScreen({
     setError(null);
     try {
       const where = await currentPosition();
-      const photo = await api.uploadPhoto(
-        { uri: shot.uri, name: "photo.jpg", type: "image/jpeg" },
-        { kind, source: "camera", captured_at: shot.takenAt, lat: where?.lat, lng: where?.lng },
+      if (where?.mocked) offline.noteMockLocation(); // a fake-GPS app is feeding this phone its position
+      onDone(
+        await offline.capturePhoto({
+          kind,
+          uri: shot.uri,
+          capturedAt: shot.takenAt,
+          lat: where?.lat ?? null,
+          lng: where?.lng ?? null,
+        }),
       );
-      onDone(photo, shot.uri);
     } catch (e) {
       setError(errorMessage(e));
-      setShot(null); // a rejected photo (too old, repeated) cannot be reused, so go back to the camera
     } finally {
       setBusy(false);
     }

@@ -9,6 +9,7 @@ import { navItems } from "./nav";
 import ExpiringDocuments from "./pages/ExpiringDocuments";
 import AcceptInvite from "./pages/AcceptInvite";
 import Login from "./pages/Login";
+import Expenses from "./pages/Expenses";
 import Settings from "./pages/Settings";
 import Staff from "./pages/Staff";
 import TripDetail from "./pages/TripDetail";
@@ -92,6 +93,7 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/vehicles" element={<Vehicles />} />
         <Route path="/vehicles/:id" element={<VehicleDetail />} />
+        <Route path="/expenses/*" element={<Expenses />} />
         <Route path="/trips" element={<Trips />} />
         <Route path="/trips/:id" element={<TripDetail />} />
         <Route path="/staff" element={<Staff />} />

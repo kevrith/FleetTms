@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import storage
+from app.clock import MAX_OFFLINE_AGE
 from app.config import settings
 from app.deps import Principal, error
 from app.models import Photo, PhotoKind, PhotoSource
@@ -18,6 +19,7 @@ from app.reminders import NAIROBI
 
 ALLOWED = {"JPEG": ("image/jpeg", "jpg"), "PNG": ("image/png", "png"), "WEBP": ("image/webp", "webp")}
 MIN_SHORT_SIDE = 480
+PHOTO_ACTION_WINDOW_MINUTES = 15  # a photo must be taken within this of the record it backs
 BLANK_SHARE = 0.92  # a photo that is this much near-black or near-white is a covered lens or a dark pocket
 MAX_SIDE = 12_000
 FUTURE_SKEW = timedelta(minutes=5)  # tolerated clock difference between a phone and the server
@@ -44,8 +46,9 @@ def _mostly_blank(img: Image.Image) -> bool:
     return sum(histogram[:17]) / total > BLANK_SHARE or sum(histogram[240:]) / total > BLANK_SHARE
 
 
-def check_fresh(captured_at: datetime, now: datetime) -> None:
-    oldest = now - timedelta(minutes=settings.photo_fresh_minutes)
+def check_fresh(captured_at: datetime, now: datetime, *, offline: bool = False) -> None:
+    """Online photos must be minutes old. A phone that was offline may send older ones, up to a week."""
+    oldest = now - (MAX_OFFLINE_AGE if offline else timedelta(minutes=settings.photo_fresh_minutes))
     if captured_at < oldest or captured_at > now + FUTURE_SKEW:
         raise error(
             422, "photo_not_fresh",
@@ -63,7 +66,14 @@ async def ingest_photo(
     captured_at: datetime | None,
     lat: float | None,
     lng: float | None,
+    client_id: uuid.UUID | None = None,
+    offline: bool = False,
 ) -> Photo:
+    if client_id is not None:
+        # A retry after a lost reply: hand back the photo that is already stored instead of making a second one.
+        again = (await db.execute(select(Photo).where(Photo.client_id == client_id))).scalar_one_or_none()
+        if again is not None and again.uploaded_by_user_id == principal.user.id:
+            return again
     if len(data) > settings.max_photo_bytes:
         raise error(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "photo_too_large", "That photo is too large.")
     try:
@@ -93,7 +103,8 @@ async def ingest_photo(
         raise error(422, "captured_at_required", "The photo needs its capture time.")
     elif captured_at.tzinfo is None:
         captured_at = captured_at.replace(tzinfo=UTC)
-    check_fresh(captured_at, now)
+    check_fresh(captured_at, now, offline=offline and source == PhotoSource.CAMERA)
+    late = captured_at < now - timedelta(minutes=settings.photo_fresh_minutes)
 
     digest = hashlib.sha256(data).hexdigest()
     if (await db.execute(select(Photo.id).where(Photo.sha256 == digest))).first() is not None:
@@ -104,6 +115,7 @@ async def ingest_photo(
     photo = Photo(
         kind=kind, source=source, storage_key=key, content_type=content_type, size_bytes=len(data), sha256=digest,
         width=width, height=height, captured_at=captured_at, lat=lat, lng=lng, uploaded_by_user_id=principal.user.id,
+        client_id=client_id, late=late,
     )  # fmt: skip
     storage.save(key, data)
     db.add(photo)
@@ -121,19 +133,33 @@ def photo_out(photo: Photo | None) -> dict | None:
         "captured_at": photo.captured_at,
         "lat": photo.lat,
         "lng": photo.lng,
+        "late": photo.late,
+        "client_id": photo.client_id,
         "url": storage.signed_url(photo.storage_key),  # short-lived; fetch it again when it expires
     }
 
 
 async def claim_photo(
-    db: AsyncSession, principal: Principal, photo_id: uuid.UUID | None, kind: PhotoKind, *, required: bool
+    db: AsyncSession,
+    principal: Principal,
+    photo_id: uuid.UUID | None,
+    kind: PhotoKind,
+    *,
+    required: bool,
+    client_id: uuid.UUID | None = None,
+    near: datetime | None = None,
 ) -> Photo | None:
-    """Looks up an uploaded photo for attaching to a record. It must be this person's, unused, and the right kind."""
-    if photo_id is None:
+    """Looks up an uploaded photo for attaching to a record. It must be this person's, unused, and the right kind.
+
+    The photo can be named by its server id, or by the id the phone gave it when it was queued offline. `near` is
+    when the record was made: the photo must have been taken around then, so an old photo cannot back a new record.
+    """
+    if photo_id is None and client_id is None:
         if required:
             raise error(422, "photo_required", "A photo is required.")
         return None
-    photo = (await db.execute(select(Photo).where(Photo.id == photo_id))).scalar_one_or_none()
+    column = Photo.id if photo_id is not None else Photo.client_id
+    photo = (await db.execute(select(Photo).where(column == (photo_id or client_id)))).scalar_one_or_none()
     if (
         photo is None
         or photo.kind != kind
@@ -141,5 +167,7 @@ async def claim_photo(
         or photo.uploaded_by_user_id != principal.user.id
     ):
         raise error(422, "photo_invalid", "That photo cannot be used here. Take a new one.")
+    if near is not None and abs(photo.captured_at - near) > timedelta(minutes=PHOTO_ACTION_WINDOW_MINUTES):
+        raise error(422, "photo_time_mismatch", "That photo was not taken when this was recorded. Take a new one.")
     photo.used_at = datetime.now(UTC)
     return photo

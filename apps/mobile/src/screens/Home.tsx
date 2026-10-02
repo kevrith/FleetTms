@@ -1,46 +1,45 @@
-import { ROLE_LABELS } from "@fleettms/business-rules";
-import type { MyVehicle } from "@fleettms/types";
-import { useEffect, useState } from "react";
+import { formatKes, ROLE_LABELS } from "@fleettms/business-rules";
 import { ScrollView, Text, View } from "react-native";
-import { api } from "../api";
 import { useAuth } from "../auth";
 import { Body, Screen, Title, useTheme } from "../ui";
+import { useOffline } from "../offline/runtime";
+import { AttentionList, SyncBadge } from "./SyncStatus";
 import TripPanel from "./TripPanel";
 
 function MyVehicleCard() {
   const t = useTheme();
-  const [mine, setMine] = useState<MyVehicle | null | undefined>(undefined);
-
-  useEffect(() => {
-    api
-      .myVehicle()
-      .then(setMine)
-      .catch(() => setMine(null));
-  }, []);
-
-  if (mine === undefined) return null;
+  const { vehicle: mine } = useOffline().state.cache;
+  if (!mine) return null;
   return (
     <View style={{ padding: 16, borderRadius: 12, backgroundColor: t.surface, gap: 4 }}>
       <Body muted>My vehicle</Body>
-      {mine === null ? (
-        <Text style={{ color: t.text, fontSize: 20 }}>No vehicle assigned yet</Text>
-      ) : (
-        <>
-          <Text style={{ color: t.text, fontSize: 24, fontWeight: "600" }}>
-            {mine.vehicle.registration}
-          </Text>
-          <Body>{[mine.vehicle.make, mine.vehicle.model].filter(Boolean).join(" ")}</Body>
-          <Body muted>
-            {mine.vehicle.capacity_tonnes ? `${mine.vehicle.capacity_tonnes} t, ` : ""}
-            {mine.vehicle.odometer_km.toLocaleString()} km
-          </Body>
-          {mine.crew.map((c) => (
-            <Body key={`${c.role}-${c.name}`} muted>
-              {c.role === "driver" ? "Driver" : "Turnboy"}: {c.name}
-            </Body>
-          ))}
-        </>
-      )}
+      <Text style={{ color: t.text, fontSize: 24, fontWeight: "600" }}>
+        {mine.vehicle.registration}
+      </Text>
+      <Body>{[mine.vehicle.make, mine.vehicle.model].filter(Boolean).join(" ")}</Body>
+      <Body muted>
+        {mine.vehicle.capacity_tonnes ? `${mine.vehicle.capacity_tonnes} t, ` : ""}
+        {mine.vehicle.odometer_km.toLocaleString()} km
+      </Body>
+      {mine.crew.map((c) => (
+        <Body key={`${c.role}-${c.name}`} muted>
+          {c.role === "driver" ? "Driver" : "Turnboy"}: {c.name}
+        </Body>
+      ))}
+    </View>
+  );
+}
+
+function FloatCard() {
+  const t = useTheme();
+  const { float } = useOffline().state.cache;
+  if (!float) return null;
+  return (
+    <View style={{ padding: 16, borderRadius: 12, backgroundColor: t.surface, gap: 4 }}>
+      <Body muted>Float balance</Body>
+      <Text style={{ color: t.text, fontSize: 24, fontWeight: "600" }}>
+        {formatKes(float.balance_cents)}
+      </Text>
     </View>
   );
 }
@@ -53,9 +52,11 @@ function DriverHome() {
       keyboardShouldPersistTaps="handled"
     >
       <Title>Hello, {me?.user.name.split(" ")[0]}</Title>
+      <SyncBadge />
+      <AttentionList />
       <MyVehicleCard />
+      <FloatCard />
       <TripPanel />
-      <Body muted>Expenses and float balance arrive in the next updates.</Body>
     </ScrollView>
   );
 }

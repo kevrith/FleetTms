@@ -1,47 +1,53 @@
-import type { ChecklistItem, Inspection, InspectionAnswer } from "@fleettms/types";
-import { useEffect, useState } from "react";
+import type { ChecklistItem } from "@fleettms/types";
+import { useState } from "react";
 import { Text, View } from "react-native";
-import { api } from "../api";
 import { CaptureScreen } from "../capture";
+import type { LocalPhoto } from "../offline/types";
+import { useOffline } from "../offline/runtime";
 import { Body, Button, ErrorText, errorMessage, Input, useTheme } from "../ui";
 
 interface Answer {
   ok: boolean;
   note: string;
-  photoId: string | null;
+  photo: LocalPhoto | null;
 }
 
-/** The daily pre-trip checklist. Every item is answered; a fault needs a note and, where set, a photo. */
+/**
+ * The daily pre-trip checklist, done entirely on the phone. Every item is answered; a fault needs a note and, where
+ * set, a photo. The result is queued and sent when there is a network.
+ */
 export default function InspectionFlow({
   vehicleId,
   onDone,
   onCancel,
 }: {
   vehicleId: string;
-  onDone: (result: Inspection) => void;
+  onDone: (outcome: "passed" | "passed_with_defects" | "blocked") => void;
   onCancel: () => void;
 }) {
   const t = useTheme();
-  const [items, setItems] = useState<ChecklistItem[] | null>(null);
+  const offline = useOffline();
+  const items = offline.state.cache.checklist;
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
   const [photoFor, setPhotoFor] = useState<ChecklistItem | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    api
-      .checklist()
-      .then((list) => {
-        setItems(list);
-        setAnswers(
-          Object.fromEntries(list.map((i) => [i.id, { ok: true, note: "", photoId: null }])),
-        );
-      })
-      .catch((e) => setError(errorMessage(e)));
-  }, []);
-
+  const answer = (id: string): Answer => answers[id] ?? { ok: true, note: "", photo: null };
   const set = (id: string, patch: Partial<Answer>) =>
-    setAnswers((a) => ({ ...a, [id]: { ...a[id]!, ...patch } }));
+    setAnswers((a) => ({ ...a, [id]: { ...answer(id), ...patch } }));
+
+  if (items.length === 0) {
+    return (
+      <View style={{ gap: 12 }}>
+        <Text style={{ color: t.text, fontSize: 22, fontWeight: "700" }}>Pre-trip inspection</Text>
+        <Body muted>
+          The checklist has not been downloaded yet. Connect to the internet once, then try again.
+        </Body>
+        <Button label="Back" kind="secondary" onPress={onCancel} />
+      </View>
+    );
+  }
 
   if (photoFor) {
     return (
@@ -50,7 +56,7 @@ export default function InspectionFlow({
         title={`Photo of the fault: ${photoFor.label}`}
         hint="Show the problem clearly."
         onDone={(photo) => {
-          set(photoFor.id, { photoId: photo.id });
+          set(photoFor.id, { photo });
           setPhotoFor(null);
         }}
         onCancel={() => setPhotoFor(null)}
@@ -58,25 +64,26 @@ export default function InspectionFlow({
     );
   }
 
-  const incomplete = (items ?? []).some((i) => {
-    const a = answers[i.id];
-    return a && !a.ok && (!a.note.trim() || (i.photo_on_fault && !a.photoId));
+  const incomplete = items.some((i) => {
+    const a = answer(i.id);
+    return !a.ok && (!a.note.trim() || (i.photo_on_fault && !a.photo));
   });
 
   async function submit() {
     setBusy(true);
     setError(null);
-    const results: InspectionAnswer[] = (items ?? []).map((i) => {
-      const a = answers[i.id]!;
-      return {
-        item_id: i.id,
-        ok: a.ok,
-        note: a.ok ? null : a.note.trim(),
-        photo_id: a.ok ? null : a.photoId,
-      };
-    });
     try {
-      onDone(await api.submitInspection(vehicleId, results));
+      onDone(
+        await offline.submitInspection(
+          vehicleId,
+          items.map((i) => ({
+            itemId: i.id,
+            label: i.label,
+            critical: i.critical,
+            ...answer(i.id),
+          })),
+        ),
+      );
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -88,10 +95,8 @@ export default function InspectionFlow({
     <View style={{ gap: 12 }}>
       <Text style={{ color: t.text, fontSize: 22, fontWeight: "700" }}>Pre-trip inspection</Text>
       <Body muted>Check each item. Tap "Fault" if something is wrong.</Body>
-      {items === null && !error && <Body muted>Loading the checklist...</Body>}
-      {items?.map((i) => {
-        const a = answers[i.id];
-        if (!a) return null;
+      {items.map((i) => {
+        const a = answer(i.id);
         return (
           <View
             key={i.id}
@@ -126,7 +131,7 @@ export default function InspectionFlow({
                 />
                 {i.photo_on_fault && (
                   <Button
-                    label={a.photoId ? "Photo taken. Retake" : "Take photo of the fault"}
+                    label={a.photo ? "Photo taken. Retake" : "Take photo of the fault"}
                     kind="secondary"
                     onPress={() => setPhotoFor(i)}
                   />
@@ -137,12 +142,7 @@ export default function InspectionFlow({
         );
       })}
       <ErrorText message={error} />
-      <Button
-        label="Submit inspection"
-        onPress={submit}
-        busy={busy}
-        disabled={!items || incomplete}
-      />
+      <Button label="Submit inspection" onPress={submit} busy={busy} disabled={incomplete} />
       <Button label="Cancel" kind="secondary" onPress={onCancel} disabled={busy} />
     </View>
   );

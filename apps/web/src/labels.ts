@@ -78,3 +78,14 @@ export const FLAG_TEXT: Record<string, string> = {
   no_location: "No GPS location on the photo",
 };
 export const fmtTime = (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-KE") : "");
+
+export const TRUST: Record<string, string> = { high: "High", medium: "Medium", low: "Low" };
+export const DEVICE_FLAG: Record<string, string> = {
+  mock_location: "A fake-GPS app was running",
+  rooted: "The phone is rooted",
+  clock_changed: "The phone's clock was wrong",
+};
+export const FUEL_FLAG: Record<string, string> = {
+  amount_mismatch: "Litres times price does not match the amount",
+  no_receipt: "No receipt photo",
+};

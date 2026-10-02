@@ -1,8 +1,9 @@
 import { ROLE_LABELS } from "@fleettms/business-rules";
 import { useState } from "react";
-import { ScrollView } from "react-native";
+import { Alert, ScrollView } from "react-native";
 import { api } from "../api";
 import { useAuth } from "../auth";
+import { useOffline } from "../offline/runtime";
 import { Body, Button, ErrorText, errorMessage, Screen, Title } from "../ui";
 
 export function Placeholder({ title }: { title: string }) {
@@ -16,7 +17,31 @@ export function Placeholder({ title }: { title: string }) {
 
 export default function MoreScreen() {
   const { me, views, view, setView, reload, signOut } = useAuth();
+  const offline = useOffline();
   const [error, setError] = useState<string | null>(null);
+
+  /** Signing out wipes the phone's saved work, so send what is waiting first and warn if some cannot go. */
+  async function confirmLeave(): Promise<boolean> {
+    await offline.syncNow();
+    const left = offline.unsent();
+    if (left === 0) return true;
+    return new Promise((resolve) =>
+      Alert.alert(
+        "Some records have not been sent",
+        `${left} record${left === 1 ? " has" : "s have"} not reached the office. If you sign out now, ${left === 1 ? "it" : "they"} will be deleted from this phone.`,
+        [
+          { text: "Stay signed in", style: "cancel", onPress: () => resolve(false) },
+          { text: "Delete and sign out", style: "destructive", onPress: () => resolve(true) },
+        ],
+      ),
+    );
+  }
+
+  async function leave() {
+    if (!(await confirmLeave())) return;
+    await signOut();
+    await offline.wipe();
+  }
 
   async function switchCompany(id: string) {
     setError(null);
@@ -29,6 +54,7 @@ export default function MoreScreen() {
   }
 
   async function signOutEverywhere() {
+    if (!(await confirmLeave())) return;
     try {
       await api.logoutAll();
     } catch (e) {
@@ -36,6 +62,7 @@ export default function MoreScreen() {
       return;
     }
     await reload();
+    await offline.wipe();
   }
 
   return (
@@ -72,7 +99,7 @@ export default function MoreScreen() {
           </>
         )}
 
-        <Button kind="secondary" label="Sign out" onPress={signOut} />
+        <Button kind="secondary" label="Sign out" onPress={leave} />
         <Button kind="danger" label="Sign out of all devices" onPress={signOutEverywhere} />
       </ScrollView>
     </Screen>

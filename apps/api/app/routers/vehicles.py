@@ -26,6 +26,7 @@ from app.models import (
     Vehicle,
 )
 from app.phone import normalize_phone
+from app.trust import flag_summary, trust_out
 from app.vehicle_scope import require_vehicle_in_scope, scope_vehicles
 
 router = APIRouter(tags=["vehicles"])
@@ -138,7 +139,9 @@ def duplicate_registration() -> Exception:
 @router.get("/vehicles")
 async def list_vehicles(principal: Principal = Depends(require("vehicles.view")), db: AsyncSession = Depends(get_db)):
     query = scope_vehicles(select(Vehicle).order_by(Vehicle.registration), principal)
-    return [vehicle_out(v) for v in (await db.execute(query)).scalars()]
+    vehicles = (await db.execute(query)).scalars().all()
+    flags = await flag_summary(db, [v.id for v in vehicles])
+    return [vehicle_out(v) | {"trust_level": trust_out(v, flags.get(v.id, {}))["level"]} for v in vehicles]
 
 
 @router.post("/vehicles", status_code=status.HTTP_201_CREATED)

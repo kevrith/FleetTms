@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
@@ -7,6 +7,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import audit
+from app.clock import capture_time
 from app.db import get_db
 from app.deps import Principal, error, require, require_any
 from app.models import (
@@ -26,7 +27,8 @@ from app.models import (
 )
 from app.odometer import OdometerError, check_value, reading_flags, trip_distance_km
 from app.photos import claim_photo, photo_out
-from app.routers.inspections import OK_FOR_TRIP, latest_inspection_today
+from app.reminders import NAIROBI
+from app.routers.inspections import OK_FOR_TRIP, latest_inspection_on
 from app.routers.vehicles import get_vehicle
 from app.vehicle_scope import scope_vehicles, vehicle_in_scope
 
@@ -46,14 +48,22 @@ class TripIn(BaseModel):
 
 
 class ReadingIn(BaseModel):
-    photo_id: uuid.UUID
+    photo_id: uuid.UUID | None = None
+    photo_client_id: uuid.UUID | None = None  # the id the phone gave the photo while offline
     value: int  # what the person confirmed
     auto_read_value: int | None = None  # what the number reader saw, when it ran
+    captured_at: datetime | None = None  # when the driver did it; missing means now
 
 
 class LoadingIn(BaseModel):
-    photo_id: uuid.UUID
+    photo_id: uuid.UUID | None = None
+    photo_client_id: uuid.UUID | None = None
     loaded_weight_kg: int | None = Field(default=None, gt=0, le=200_000)
+    captured_at: datetime | None = None
+
+
+class ActionIn(BaseModel):
+    captured_at: datetime | None = None
 
 
 def _is_crew(principal: Principal, trip: Trip) -> bool:
@@ -225,7 +235,13 @@ async def read_trip(
 
 
 async def _record_reading(
-    db: AsyncSession, principal: Principal, trip: Trip, vehicle: Vehicle, phase: ReadingPhase, body: ReadingIn
+    db: AsyncSession,
+    principal: Principal,
+    trip: Trip,
+    vehicle: Vehicle,
+    phase: ReadingPhase,
+    body: ReadingIn,
+    at: datetime,
 ) -> tuple[OdometerReading, Photo]:
     try:
         check_value(body.value)
@@ -233,7 +249,9 @@ async def _record_reading(
             check_value(body.auto_read_value)
     except OdometerError as exc:
         raise error(422, "invalid_odometer", str(exc)) from None
-    photo = await claim_photo(db, principal, body.photo_id, PhotoKind.ODOMETER, required=True)
+    photo = await claim_photo(
+        db, principal, body.photo_id, PhotoKind.ODOMETER, required=True, client_id=body.photo_client_id, near=at
+    )
     assert photo is not None  # required=True
     reading = OdometerReading(
         trip_id=trip.id, vehicle_id=vehicle.id, phase=phase, photo_id=photo.id,
@@ -247,20 +265,21 @@ async def _record_reading(
     return reading, photo
 
 
-@router.post("/trips/{trip_id}/start")
-async def start_trip(
-    trip_id: uuid.UUID,
-    body: ReadingIn,
-    principal: Principal = Depends(require_any("trips.own", "trips.manage")),
-    db: AsyncSession = Depends(get_db),
-):
+def _not_before_start(trip: Trip, at: datetime) -> None:
+    if trip.started_at is not None and at < trip.started_at:
+        raise error(422, "time_travel", "That is earlier than when the trip started. Check the phone's clock.")
+
+
+async def do_start_trip(db: AsyncSession, principal: Principal, trip_id: uuid.UUID, body: ReadingIn) -> Trip:
+    """Starts a trip as of the time the driver did it. The caller commits."""
+    at = capture_time(body.captured_at)
     trip = await get_trip(db, principal, trip_id)
     require_actor(principal, trip)
     if trip.status != TripStatus.SCHEDULED:
         raise error(status.HTTP_409_CONFLICT, "wrong_status", "This trip has already started.")
     vehicle = await get_vehicle(db, principal, trip.vehicle_id)
 
-    inspection = await latest_inspection_today(db, vehicle.id)
+    inspection = await latest_inspection_on(db, vehicle.id, at.astimezone(NAIROBI).date())
     if inspection is None:
         raise error(status.HTTP_409_CONFLICT, "inspection_required", "Complete today's pre-trip inspection before starting.")
     if inspection.status not in OK_FOR_TRIP:
@@ -280,9 +299,9 @@ async def start_trip(
     if busy is not None:
         raise error(status.HTTP_409_CONFLICT, "already_on_trip", "This vehicle or driver is already on another trip.")
 
-    reading, _ = await _record_reading(db, principal, trip, vehicle, ReadingPhase.START, body)
+    reading, _ = await _record_reading(db, principal, trip, vehicle, ReadingPhase.START, body, at)
     trip.status = TripStatus.IN_PROGRESS
-    trip.started_at = datetime.now(UTC)
+    trip.started_at = at
     trip.inspection_id = inspection.id
     vehicle.odometer_km = max(vehicle.odometer_km, body.value)
     await db.flush()
@@ -290,63 +309,51 @@ async def start_trip(
         db, actor_user_id=principal.user.id, action="trip.started", entity_type="trip", entity_id=trip.id,
         after={"odometer_km": body.value, "flags": reading.flags, "inspection_id": str(inspection.id)},
     )  # fmt: skip
-    await db.commit()
-    return await trip_out(db, trip)
+    return trip
 
 
-@router.post("/trips/{trip_id}/loading")
-async def record_loading(
-    trip_id: uuid.UUID,
-    body: LoadingIn,
-    principal: Principal = Depends(require_any("trips.own", "trips.manage")),
-    db: AsyncSession = Depends(get_db),
-):
+async def do_record_loading(db: AsyncSession, principal: Principal, trip_id: uuid.UUID, body: LoadingIn) -> Trip:
+    at = capture_time(body.captured_at)
     trip = await get_trip(db, principal, trip_id)
     require_actor(principal, trip)
     if trip.status != TripStatus.IN_PROGRESS:
         raise error(status.HTTP_409_CONFLICT, "wrong_status", "Loading is recorded while the trip is in progress.")
-    photo = await claim_photo(db, principal, body.photo_id, PhotoKind.CARGO, required=True)
+    _not_before_start(trip, at)
+    photo = await claim_photo(
+        db, principal, body.photo_id, PhotoKind.CARGO, required=True, client_id=body.photo_client_id, near=at
+    )
     assert photo is not None
     trip.cargo_photo_id = photo.id
-    trip.loaded_at = datetime.now(UTC)
+    trip.loaded_at = at
     trip.loaded_weight_kg = body.loaded_weight_kg
     audit.record(
         db, actor_user_id=principal.user.id, action="trip.loaded", entity_type="trip", entity_id=trip.id,
         after={"loaded_weight_kg": body.loaded_weight_kg},
     )  # fmt: skip
-    await db.commit()
-    return await trip_out(db, trip)
+    return trip
 
 
-@router.post("/trips/{trip_id}/deliver")
-async def mark_delivered(
-    trip_id: uuid.UUID,
-    principal: Principal = Depends(require_any("trips.own", "trips.manage")),
-    db: AsyncSession = Depends(get_db),
-):
+async def do_mark_delivered(db: AsyncSession, principal: Principal, trip_id: uuid.UUID, body: ActionIn) -> Trip:
     """Marks the cargo as delivered. Full proof of delivery (photos, signature, code) arrives in Sprint 8."""
+    at = capture_time(body.captured_at)
     trip = await get_trip(db, principal, trip_id)
     require_actor(principal, trip)
     if trip.status != TripStatus.IN_PROGRESS:
         raise error(status.HTTP_409_CONFLICT, "wrong_status", "Only a trip in progress can be delivered.")
+    _not_before_start(trip, at)
     trip.status = TripStatus.DELIVERED
-    trip.delivered_at = datetime.now(UTC)
+    trip.delivered_at = at
     audit.record(db, actor_user_id=principal.user.id, action="trip.delivered", entity_type="trip", entity_id=trip.id)
-    await db.commit()
-    return await trip_out(db, trip)
+    return trip
 
 
-@router.post("/trips/{trip_id}/end")
-async def end_trip(
-    trip_id: uuid.UUID,
-    body: ReadingIn,
-    principal: Principal = Depends(require_any("trips.own", "trips.manage")),
-    db: AsyncSession = Depends(get_db),
-):
+async def do_end_trip(db: AsyncSession, principal: Principal, trip_id: uuid.UUID, body: ReadingIn) -> Trip:
+    at = capture_time(body.captured_at)
     trip = await get_trip(db, principal, trip_id)
     require_actor(principal, trip)
     if trip.status not in (TripStatus.IN_PROGRESS, TripStatus.DELIVERED):
         raise error(status.HTTP_409_CONFLICT, "wrong_status", "Only a trip in progress can be ended.")
+    _not_before_start(trip, at)
     vehicle = await get_vehicle(db, principal, trip.vehicle_id)
     start = (
         await db.execute(
@@ -359,13 +366,13 @@ async def end_trip(
         raise error(422, "odometer_backward", str(exc)) from None
 
     # The vehicle's last known reading is now the start of this trip, so only a jump within the trip is flagged.
-    reading, photo = await _record_reading(db, principal, trip, vehicle, ReadingPhase.END, body)
+    reading, photo = await _record_reading(db, principal, trip, vehicle, ReadingPhase.END, body, at)
     reading.flags = reading_flags(
         body.value, body.auto_read_value, start.confirmed_value,
         has_location=photo.lat is not None and photo.lng is not None,
     )  # fmt: skip
     trip.status = TripStatus.COMPLETED
-    trip.ended_at = datetime.now(UTC)
+    trip.ended_at = at
     trip.distance_km = distance
     vehicle.odometer_km = max(vehicle.odometer_km, body.value)
     await db.flush()
@@ -373,6 +380,53 @@ async def end_trip(
         db, actor_user_id=principal.user.id, action="trip.completed", entity_type="trip", entity_id=trip.id,
         after={"odometer_km": body.value, "distance_km": distance, "flags": reading.flags},
     )  # fmt: skip
+    return trip
+
+
+@router.post("/trips/{trip_id}/start")
+async def start_trip(
+    trip_id: uuid.UUID,
+    body: ReadingIn,
+    principal: Principal = Depends(require_any("trips.own", "trips.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    trip = await do_start_trip(db, principal, trip_id, body)
+    await db.commit()
+    return await trip_out(db, trip)
+
+
+@router.post("/trips/{trip_id}/loading")
+async def record_loading(
+    trip_id: uuid.UUID,
+    body: LoadingIn,
+    principal: Principal = Depends(require_any("trips.own", "trips.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    trip = await do_record_loading(db, principal, trip_id, body)
+    await db.commit()
+    return await trip_out(db, trip)
+
+
+@router.post("/trips/{trip_id}/deliver")
+async def mark_delivered(
+    trip_id: uuid.UUID,
+    body: ActionIn | None = None,
+    principal: Principal = Depends(require_any("trips.own", "trips.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    trip = await do_mark_delivered(db, principal, trip_id, body or ActionIn())
+    await db.commit()
+    return await trip_out(db, trip)
+
+
+@router.post("/trips/{trip_id}/end")
+async def end_trip(
+    trip_id: uuid.UUID,
+    body: ReadingIn,
+    principal: Principal = Depends(require_any("trips.own", "trips.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    trip = await do_end_trip(db, principal, trip_id, body)
     await db.commit()
     return await trip_out(db, trip)
 

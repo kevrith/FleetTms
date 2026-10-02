@@ -141,9 +141,11 @@ export interface Vehicle {
   gvw_limit_kg: number | null;
   axle_config: string | null;
   is_active: boolean;
+  /** Only on the vehicle list. */
+  trust_level?: TrustLevel;
 }
 
-export type VehicleInput = Omit<Vehicle, "id">;
+export type VehicleInput = Omit<Vehicle, "id" | "trust_level">;
 
 export interface Party {
   id: string;
@@ -226,7 +228,7 @@ export interface ImportResult {
   invite_tokens: { row: number; name: string; invite_token: string }[];
 }
 
-export type PhotoKind = "odometer" | "cargo" | "defect";
+export type PhotoKind = "odometer" | "cargo" | "defect" | "receipt";
 
 export interface PhotoRef {
   id: string;
@@ -333,4 +335,88 @@ export interface PhotoUpload {
   captured_at?: string;
   lat?: number | null;
   lng?: number | null;
+}
+
+export interface FuelEntry {
+  id: string;
+  vehicle_id: string;
+  trip_id: string | null;
+  litres: string;
+  price_per_litre_cents: number;
+  amount_cents: number;
+  station: string | null;
+  mpesa_code: string | null;
+  has_receipt: boolean;
+  flags: ("amount_mismatch" | "no_receipt")[];
+  captured_at: string;
+  client_id: string | null;
+}
+
+export interface FuelInput {
+  vehicle_id: string;
+  trip_id?: string | null;
+  litres: string;
+  price_per_litre_cents: number;
+  amount_cents: number;
+  station?: string | null;
+  mpesa_code?: string | null;
+  receipt_photo_id?: string | null;
+  receipt_photo_client_id?: string | null;
+  client_id?: string | null;
+  captured_at?: string | null;
+}
+
+export interface FloatTransfer {
+  id: string;
+  driver_membership_id: string;
+  amount_cents: number;
+  mpesa_code: string | null;
+  note: string | null;
+  sent_at: string;
+}
+
+export interface MyFloat {
+  balance_cents: number;
+  received_cents: number;
+  recent: FloatTransfer[];
+}
+
+export type TrustLevel = "high" | "medium" | "low";
+export type DeviceFlag = "mock_location" | "rooted" | "clock_changed";
+
+export interface VehicleTrust {
+  level: TrustLevel;
+  score: number;
+  tier: TrackingTier;
+  flags: { flag: DeviceFlag; count: number; last_at: string }[];
+}
+
+export interface DeviceReport {
+  device_id: string;
+  mock_location?: boolean;
+  rooted?: boolean;
+  device_time?: string;
+  app_version?: string;
+  vehicle_id?: string | null;
+}
+
+export interface SyncAction {
+  client_id: string;
+  type: string;
+  payload: Record<string, unknown>;
+}
+
+export interface SyncResult {
+  client_id: string;
+  status: "ok" | "duplicate" | "rejected";
+  result?: Record<string, unknown>;
+  code?: string;
+  message?: string;
+  retryable?: boolean;
+}
+
+export interface SyncResponse {
+  server_time: string;
+  device_flags: DeviceFlag[];
+  results: SyncResult[];
 }

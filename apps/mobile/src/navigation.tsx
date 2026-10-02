@@ -7,7 +7,8 @@ import { useAuth } from "./auth";
 import { Screen } from "./ui";
 import HomeScreen from "./screens/Home";
 import LoginScreen from "./screens/Login";
-import MoreScreen, { Placeholder } from "./screens/More";
+import ExpensesScreen from "./screens/Expenses";
+import MoreScreen from "./screens/More";
 import NoticesScreen from "./screens/Notices";
 import TripPanel from "./screens/TripPanel";
 import TwoFactorScreen from "./screens/TwoFactor";
@@ -27,13 +28,12 @@ const Trips = () => (
     <TripPanel />
   </Screen>
 );
-const Expenses = () => <Placeholder title="Expenses" />;
 
 // Driver tabs per masterplan Section 6; the owner view is leaner until later sprints add content.
 const DRIVER_TABS: TabDef[] = [
   { name: "Home", icon: "home-outline", component: HomeScreen },
   { name: "Trips", icon: "navigate-outline", component: Trips },
-  { name: "Expenses", icon: "cash-outline", component: Expenses },
+  { name: "Expenses", icon: "cash-outline", component: ExpensesScreen },
   { name: "More", icon: "menu-outline", component: MoreScreen },
 ];
 const OWNER_TABS: TabDef[] = [

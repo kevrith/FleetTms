@@ -7,13 +7,14 @@ import type {
   StaffProfile,
   Vehicle,
   VehicleInput,
+  VehicleTrust,
 } from "@fleettms/types";
 import { UserMinus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
-import { CREW, OWNERSHIP, VEHICLE_DOC_TYPES } from "../labels";
+import { CREW, DEVICE_FLAG, fmtTime, OWNERSHIP, TIER, TRUST, VEHICLE_DOC_TYPES } from "../labels";
 import { Card, ErrorBanner, errorMessage, Field } from "./../ui";
 import DocumentsPanel from "./DocumentsPanel";
 import InspectionCard from "./InspectionCard";
@@ -107,6 +108,45 @@ function Crew({ vehicle, canManage }: { vehicle: Vehicle; canManage: boolean }) 
             </span>
             <span className="muted">
               {h.started_at.slice(0, 10)} to {h.ended_at ? h.ended_at.slice(0, 10) : "now"}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+function Trust({ vehicleId }: { vehicleId: string }) {
+  const [trust, setTrust] = useState<VehicleTrust | null>(null);
+  useEffect(() => {
+    api
+      .vehicleTrust(vehicleId)
+      .then(setTrust)
+      .catch(() => setTrust(null));
+  }, [vehicleId]);
+  if (!trust) return null;
+  return (
+    <Card title="Data trust">
+      <p>
+        <span
+          className={`status ${trust.level === "high" ? "ok" : trust.level === "low" ? "bad" : "warn"}`}
+        >
+          {TRUST[trust.level]}
+        </span>{" "}
+        <span className="muted">
+          Starts from the tracking tier ({TIER[trust.tier]}) and drops when a phone used on this
+          vehicle is flagged.
+        </span>
+      </p>
+      {trust.flags.length === 0 && (
+        <p className="muted">No phone checks have failed in the last 30 days.</p>
+      )}
+      <ul className="list">
+        {trust.flags.map((f) => (
+          <li key={f.flag}>
+            <span>{DEVICE_FLAG[f.flag] ?? f.flag}</span>
+            <span className="muted">
+              {f.count} time{f.count === 1 ? "" : "s"}, last {fmtTime(f.last_at)}
             </span>
           </li>
         ))}
@@ -213,6 +253,7 @@ export default function VehicleDetail() {
         </Card>
       )}
       <Crew vehicle={vehicle} canManage={manage} />
+      <Trust vehicleId={vehicle.id} />
       <Inspections vehicleId={vehicle.id} />
       <DocumentsPanel
         owner={{ vehicleId: vehicle.id }}

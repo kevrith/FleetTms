@@ -5,13 +5,18 @@ import type {
   CrewAssignment,
   CrewRole,
   Depot,
+  DeviceReport,
   DocumentInput,
+  FloatTransfer,
+  FuelEntry,
+  FuelInput,
   HealthResponse,
   ImportResult,
   Inspection,
   InspectionAnswer,
   InviteInput,
   Me,
+  MyFloat,
   MyVehicle,
   Party,
   PartyInput,
@@ -25,12 +30,15 @@ import type {
   StaffMember,
   StaffProfile,
   SupportGrant,
+  SyncAction,
+  SyncResponse,
   TokenResponse,
   Tokens,
   Trip,
   TripInput,
   Vehicle,
   VehicleInput,
+  VehicleTrust,
 } from "@fleettms/types";
 
 /** Where tokens live. Web uses localStorage, mobile uses the secure keystore. */
@@ -250,7 +258,7 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
     /** Turns a relative photo link from the API into an address an image view can load. */
     mediaUrl: (path: string) => `${baseUrl}${path}`,
     /** `file` is a Blob on the web, or { uri, name, type } in React Native. */
-    uploadPhoto: (file: unknown, meta: PhotoUpload) => {
+    uploadPhoto: (file: unknown, meta: PhotoUpload & { client_id?: string; offline?: boolean }) => {
       const form = new FormData();
       form.append("kind", meta.kind);
       form.append("source", meta.source);
@@ -259,6 +267,8 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
         form.append("lat", String(meta.lat));
         form.append("lng", String(meta.lng));
       }
+      if (meta.client_id) form.append("client_id", meta.client_id);
+      if (meta.offline) form.append("offline", "true");
       form.append("file", file as never);
       return request<PhotoRef>("POST", "/photos", form);
     },
@@ -298,6 +308,27 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
     deliverTrip: (id: string) => post<Trip>(`/trips/${id}/deliver`),
     endTrip: (id: string, reading: ReadingInput) => post<Trip>(`/trips/${id}/end`, reading),
     cancelTrip: (id: string) => post<Trip>(`/trips/${id}/cancel`),
+
+    // ---- fuel, floats, sync, device checks ----
+    fuel: (vehicleId?: string) =>
+      get<FuelEntry[]>(`/fuel${vehicleId ? `?vehicle_id=${vehicleId}` : ""}`),
+    addFuel: (input: FuelInput) => post<FuelEntry>("/fuel", input),
+    floats: (driverMembershipId?: string) =>
+      get<FloatTransfer[]>(
+        `/floats${driverMembershipId ? `?driver_membership_id=${driverMembershipId}` : ""}`,
+      ),
+    sendFloat: (input: {
+      driver_membership_id: string;
+      amount_cents: number;
+      mpesa_code?: string | null;
+      note?: string | null;
+    }) => post<FloatTransfer>("/floats", input),
+    myFloat: () => get<MyFloat>("/me/float"),
+    vehicleTrust: (vehicleId: string) => get<VehicleTrust>(`/vehicles/${vehicleId}/trust`),
+    reportDevice: (report: DeviceReport) =>
+      post<{ flags: string[]; server_time: string }>("/devices/integrity", report),
+    sync: (actions: SyncAction[], device?: DeviceReport) =>
+      post<SyncResponse>("/sync", { actions, device: device ?? null }),
 
     // ---- audit, privacy, support ----
     audit: (params: { action?: string; limit?: number; offset?: number } = {}) => {

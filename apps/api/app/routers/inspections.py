@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import audit
+from app.clock import capture_time
 from app.db import get_db
 from app.deps import Principal, error, require, require_any
 from app.models import (
@@ -21,7 +22,7 @@ from app.models import (
     Vehicle,
 )
 from app.photos import claim_photo, photo_out
-from app.reminders import nairobi_today
+from app.reminders import NAIROBI, nairobi_today
 from app.routers.vehicles import get_vehicle
 from app.vehicle_scope import vehicle_in_scope
 
@@ -54,11 +55,13 @@ class ResultIn(BaseModel):
     ok: bool
     note: str | None = Field(default=None, max_length=1000)
     photo_id: uuid.UUID | None = None
+    photo_client_id: uuid.UUID | None = None  # the id the phone gave the photo while offline
 
 
 class InspectionIn(BaseModel):
     results: list[ResultIn] = Field(min_length=1)
     notes: str | None = Field(default=None, max_length=1000)
+    captured_at: datetime | None = None  # when the driver did it; missing means now
 
 
 class OverrideIn(BaseModel):
@@ -98,10 +101,15 @@ async def can_act_on_vehicle(db: AsyncSession, principal: Principal, vehicle: Ve
 
 
 async def latest_inspection_today(db: AsyncSession, vehicle_id: uuid.UUID) -> Inspection | None:
+    return await latest_inspection_on(db, vehicle_id, nairobi_today())
+
+
+async def latest_inspection_on(db: AsyncSession, vehicle_id: uuid.UUID, day: date) -> Inspection | None:
+    """The newest inspection for a vehicle on a given Nairobi day. An offline trip is judged on the day it was driven."""
     return (
         await db.execute(
             select(Inspection)
-            .where(Inspection.vehicle_id == vehicle_id, Inspection.local_date == nairobi_today())
+            .where(Inspection.vehicle_id == vehicle_id, Inspection.local_date == day)
             .order_by(Inspection.performed_at.desc())
             .limit(1)
         )
@@ -190,13 +198,11 @@ async def update_checklist_item(
 # ---- Inspections ---------------------------------------------------------------------------------
 
 
-@router.post("/vehicles/{vehicle_id}/inspections", status_code=status.HTTP_201_CREATED)
-async def submit_inspection(
-    vehicle_id: uuid.UUID,
-    body: InspectionIn,
-    principal: Principal = Depends(require_any("trips.own", "trips.manage")),
-    db: AsyncSession = Depends(get_db),
-):
+async def do_submit_inspection(
+    db: AsyncSession, principal: Principal, vehicle_id: uuid.UUID, body: InspectionIn
+) -> Inspection:
+    """Records an inspection, as of the time the driver did it. The caller commits."""
+    captured_at = capture_time(body.captured_at)
     vehicle = await get_vehicle(db, principal, vehicle_id)
     if not await can_act_on_vehicle(db, principal, vehicle):
         raise error(status.HTTP_403_FORBIDDEN, "not_your_vehicle", "You are not assigned to this vehicle.")
@@ -211,12 +217,18 @@ async def submit_inspection(
     for r in body.results:
         item = items[r.item_id]
         photo = None
+        has_photo = r.photo_id is not None or r.photo_client_id is not None
         if not r.ok:
             if not (r.note and r.note.strip()):
                 raise error(422, "fault_needs_note", f"Say what is wrong with: {item.label}.")
-            photo = await claim_photo(db, principal, r.photo_id, PhotoKind.DEFECT, required=item.photo_on_fault)
-        elif r.photo_id is not None:
-            photo = await claim_photo(db, principal, r.photo_id, PhotoKind.DEFECT, required=False)
+            photo = await claim_photo(
+                db, principal, r.photo_id, PhotoKind.DEFECT, required=item.photo_on_fault,
+                client_id=r.photo_client_id, near=captured_at,
+            )  # fmt: skip
+        elif has_photo:
+            photo = await claim_photo(
+                db, principal, r.photo_id, PhotoKind.DEFECT, required=False, client_id=r.photo_client_id, near=captured_at
+            )  # fmt: skip
         results.append(
             InspectionResult(
                 item_id=item.id, label=item.label, critical=item.critical, sort_order=item.sort_order,
@@ -232,8 +244,8 @@ async def submit_inspection(
         result_status = InspectionStatus.PASSED
 
     inspection = Inspection(
-        vehicle_id=vehicle.id, inspector_user_id=principal.user.id, local_date=nairobi_today(),
-        status=result_status, notes=body.notes, results=results,
+        vehicle_id=vehicle.id, inspector_user_id=principal.user.id, performed_at=captured_at,
+        local_date=captured_at.astimezone(NAIROBI).date(), status=result_status, notes=body.notes, results=results,
     )  # fmt: skip
     db.add(inspection)
     await db.flush()
@@ -250,6 +262,17 @@ async def submit_inspection(
         entity_id=inspection.id,
         after={"vehicle_id": str(vehicle.id), "status": result_status.value, "faults": [f.label for f in faults]},
     )  # fmt: skip
+    return inspection
+
+
+@router.post("/vehicles/{vehicle_id}/inspections", status_code=status.HTTP_201_CREATED)
+async def submit_inspection(
+    vehicle_id: uuid.UUID,
+    body: InspectionIn,
+    principal: Principal = Depends(require_any("trips.own", "trips.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    inspection = await do_submit_inspection(db, principal, vehicle_id, body)
     await db.commit()
     return await inspection_out(db, inspection)
 

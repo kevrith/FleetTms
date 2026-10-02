@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 from typing import Annotated
 
@@ -23,13 +24,16 @@ async def upload_photo(
     captured_at: Annotated[datetime | None, Form()] = None,
     lat: Annotated[float | None, Form()] = None,
     lng: Annotated[float | None, Form()] = None,
+    client_id: Annotated[uuid.UUID | None, Form()] = None,
+    offline: Annotated[bool, Form()] = False,
     principal: Principal = Depends(require_any("trips.own", "trips.manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Uploads one photo. The response carries the id to attach it to a record, and a short-lived viewing link."""
     data = await file.read(settings.max_photo_bytes + 1)
     photo = await ingest_photo(
-        db, principal, kind=kind, source=source, data=data, captured_at=captured_at, lat=lat, lng=lng
+        db, principal, kind=kind, source=source, data=data, captured_at=captured_at, lat=lat, lng=lng,
+        client_id=client_id, offline=offline,
     )
     await db.commit()
     return photo_out(photo)

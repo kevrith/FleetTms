@@ -1,9 +1,9 @@
-import { odometerProblem, parseOdometer } from "@fleettms/business-rules";
-import type { Inspection, MyVehicle, Trip } from "@fleettms/types";
-import { useCallback, useEffect, useState } from "react";
-import { Image, ScrollView, Text, View } from "react-native";
-import { api } from "../api";
+import { nairobiDay, odometerProblem, parseOdometer } from "@fleettms/business-rules";
+import { useState } from "react";
+import { ScrollView, Text, View } from "react-native";
 import { CaptureScreen } from "../capture";
+import type { LocalPhoto } from "../offline/types";
+import { useOffline } from "../offline/runtime";
 import { Body, Button, ErrorText, errorMessage, Input, useTheme } from "../ui";
 import InspectionFlow from "./InspectionFlow";
 
@@ -11,43 +11,25 @@ type Mode =
   | { kind: "idle" }
   | { kind: "inspection" }
   | { kind: "odometer"; phase: "start" | "end" }
-  | { kind: "reading"; phase: "start" | "end"; photoId: string; uri: string }
+  | { kind: "reading"; phase: "start" | "end"; photo: LocalPhoto }
   | { kind: "cargo" };
 
-/** The driver's current trip and the one next step. Everything the trip needs is done from here. */
+/**
+ * The driver's current trip and the one next step. Everything works with no network: each step is saved on the phone
+ * at once and sent later, with the time the driver did it.
+ */
 export default function TripPanel() {
   const t = useTheme();
-  const [trip, setTrip] = useState<Trip | null | undefined>(undefined);
-  const [mine, setMine] = useState<MyVehicle | null>(null);
-  const [today, setToday] = useState<{
-    inspection: Inspection | null;
-    can_start_trip: boolean;
-  } | null>(null);
+  const offline = useOffline();
+  const { trip, vehicle, inspection } = offline.state.cache;
   const [mode, setMode] = useState<Mode>({ kind: "idle" });
   const [typed, setTyped] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      const [trips, vehicle] = await Promise.all([api.myTrips(), api.myVehicle()]);
-      const current = trips[0] ?? null;
-      setTrip(current);
-      setMine(vehicle);
-      setToday(current ? await api.inspectionToday(current.vehicle_id) : null);
-    } catch (e) {
-      setError(errorMessage(e));
-      setTrip(null);
-    }
-  }, []);
-  useEffect(() => {
-    void load();
-  }, [load]);
-
   const finish = () => {
     setMode({ kind: "idle" });
     setTyped("");
-    void load();
   };
 
   async function run(action: () => Promise<unknown>) {
@@ -63,31 +45,30 @@ export default function TripPanel() {
     }
   }
 
-  if (trip === undefined) return <Body muted>Loading...</Body>;
+  if (!offline.ready) return <Body muted>Loading...</Body>;
   if (trip === null) {
     return (
       <View style={{ padding: 16, borderRadius: 12, backgroundColor: t.surface, gap: 4 }}>
         <Body muted>Today's trip</Body>
         <Text style={{ color: t.text, fontSize: 20 }}>No trip assigned yet</Text>
-        <ErrorText message={error} />
+        {offline.state.cache.refreshedAt === null && (
+          <Body muted>Connect once to download today's trip.</Body>
+        )}
       </View>
     );
   }
 
-  const lastKnown = mine?.vehicle.odometer_km ?? 0;
+  const lastKnown = vehicle?.vehicle.odometer_km ?? 0;
+  const today =
+    inspection &&
+    inspection.vehicleId === trip.vehicle_id &&
+    inspection.day === nairobiDay(new Date());
+  const status = today ? inspection.status : null;
+  const blocked = status === "blocked";
+  const cleared = status !== null && !blocked;
 
   if (mode.kind === "inspection") {
-    return (
-      <InspectionFlow
-        vehicleId={trip.vehicle_id}
-        onCancel={() => setMode({ kind: "idle" })}
-        onDone={(result) => {
-          setMode({ kind: "idle" });
-          setToday({ inspection: result, can_start_trip: result.status !== "blocked" });
-          void load();
-        }}
-      />
-    );
+    return <InspectionFlow vehicleId={trip.vehicle_id} onCancel={finish} onDone={finish} />;
   }
   if (mode.kind === "odometer") {
     return (
@@ -96,10 +77,8 @@ export default function TripPanel() {
         title={mode.phase === "start" ? "Odometer at the start" : "Odometer at the end"}
         hint="Line the odometer up in the frame. Avoid glare, and keep the numbers sharp."
         guide
-        onCancel={() => setMode({ kind: "idle" })}
-        onDone={(photo, uri) =>
-          setMode({ kind: "reading", phase: mode.phase, photoId: photo.id, uri })
-        }
+        onCancel={finish}
+        onDone={(photo) => setMode({ kind: "reading", phase: mode.phase, photo })}
       />
     );
   }
@@ -109,8 +88,8 @@ export default function TripPanel() {
         kind="cargo"
         title="Photo of the cargo"
         hint="Show the load on the vehicle."
-        onCancel={() => setMode({ kind: "idle" })}
-        onDone={(photo) => run(() => api.recordLoading(trip.id, photo.id))}
+        onCancel={finish}
+        onDone={(photo) => void run(() => offline.recordLoading(photo))}
       />
     );
   }
@@ -125,22 +104,17 @@ export default function TripPanel() {
       : null;
     const value = parseOdometer(typed);
     const submit = () =>
-      run(() => {
-        const reading = { photo_id: mode.photoId, value: value as number };
-        return mode.phase === "start"
-          ? api.startTrip(trip.id, reading)
-          : api.endTrip(trip.id, reading);
-      });
+      run(() =>
+        mode.phase === "start"
+          ? offline.startTrip(mode.photo, value as number)
+          : offline.endTrip(mode.photo, value as number),
+      );
     return (
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
         <Text style={{ color: t.text, fontSize: 22, fontWeight: "700" }}>Confirm the odometer</Text>
-        <Image
-          source={{ uri: mode.uri }}
-          style={{ width: "100%", height: 200, borderRadius: 12 }}
-          resizeMode="cover"
-        />
+        <Body muted>The photo is saved. Type the number you see on the odometer.</Body>
         <Input
-          label="Type the number you see (km)"
+          label="Odometer (km)"
           value={typed}
           onChangeText={setTyped}
           keyboardType="number-pad"
@@ -154,18 +128,20 @@ export default function TripPanel() {
           busy={busy}
           disabled={value === null}
         />
-        <Button
-          label="Cancel"
-          kind="secondary"
-          onPress={() => setMode({ kind: "idle" })}
-          disabled={busy}
-        />
+        <Button label="Cancel" kind="secondary" onPress={finish} disabled={busy} />
       </ScrollView>
     );
   }
 
-  const inspection = today?.inspection ?? null;
-  const blocked = inspection?.status === "blocked";
+  const waiting = offline.pending > 0;
+  const stateText =
+    trip.status === "scheduled"
+      ? "Not started"
+      : trip.status === "in_progress"
+        ? "In progress"
+        : trip.status === "delivered"
+          ? "Delivered"
+          : "Completed";
   return (
     <View style={{ gap: 12 }}>
       <View style={{ padding: 16, borderRadius: 12, backgroundColor: t.surface, gap: 4 }}>
@@ -175,13 +151,13 @@ export default function TripPanel() {
         </Text>
         {trip.cargo_description && <Body>{trip.cargo_description}</Body>}
         <Body muted>
-          {trip.status === "scheduled"
-            ? "Not started"
-            : trip.status === "in_progress"
-              ? "In progress"
-              : "Delivered"}
+          {stateText}
           {trip.start_reading ? `, started at ${trip.start_reading.value.toLocaleString()} km` : ""}
+          {trip.distance_km != null ? `, ${trip.distance_km.toLocaleString()} km driven` : ""}
         </Body>
+        {waiting && (
+          <Body muted>Saved on this phone. It will be sent when there is a connection.</Body>
+        )}
       </View>
       <ErrorText message={error} />
       {trip.status === "scheduled" && (
@@ -191,15 +167,15 @@ export default function TripPanel() {
               The inspection found a critical fault. A manager must clear it before you can start.
             </Body>
           )}
-          {!inspection && <Body muted>Do the pre-trip inspection first.</Body>}
-          {today?.can_start_trip ? (
+          {!status && <Body muted>Do the pre-trip inspection first.</Body>}
+          {cleared ? (
             <Button
               label="Start trip"
               onPress={() => setMode({ kind: "odometer", phase: "start" })}
             />
           ) : (
             <Button
-              label={inspection ? "Redo inspection" : "Pre-trip inspection"}
+              label={status ? "Redo inspection" : "Pre-trip inspection"}
               onPress={() => setMode({ kind: "inspection" })}
             />
           )}
@@ -207,7 +183,7 @@ export default function TripPanel() {
       )}
       {trip.status === "in_progress" && (
         <>
-          {!trip.cargo_photo && (
+          {!trip.loaded_at && (
             <Button
               label="Photograph the cargo"
               kind="secondary"
@@ -217,7 +193,7 @@ export default function TripPanel() {
           <Button
             label="Mark delivered"
             kind="secondary"
-            onPress={() => run(() => api.deliverTrip(trip.id))}
+            onPress={() => void run(() => offline.markDelivered())}
             busy={busy}
           />
           <Button label="End trip" onPress={() => setMode({ kind: "odometer", phase: "end" })} />
