@@ -1,0 +1,11 @@
+{
+  "expo": {
+    "name": "FleetTms",
+    "slug": "fleettms",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "android": { "package": "com.kastra.fleettms" },
+    "ios": { "bundleIdentifier": "com.kastra.fleettms" }
+  }
+}

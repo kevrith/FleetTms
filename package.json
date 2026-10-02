@@ -1,0 +1,26 @@
+{
+  "name": "fleettms",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.30.0",
+  "scripts": {
+    "dev": "./scripts/dev.sh",
+    "dev:web": "pnpm --filter @fleettms/web dev",
+    "dev:mobile": "pnpm --filter @fleettms/mobile start",
+    "dev:api": "cd apps/api && .venv/bin/uvicorn app.main:app --reload --port 8010",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down",
+    "lint": "eslint . && pnpm -r --if-present lint",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^17.13.0",
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.71.0"
+  }
+}

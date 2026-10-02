@@ -1,0 +1,6 @@
+node_modules
+dist
+.venv
+.expo
+pnpm-lock.yaml
+docs
