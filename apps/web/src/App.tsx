@@ -9,7 +9,10 @@ import { navItems } from "./nav";
 import ExpiringDocuments from "./pages/ExpiringDocuments";
 import AcceptInvite from "./pages/AcceptInvite";
 import Login from "./pages/Login";
+import Dashboard from "./pages/Dashboard";
 import Expenses from "./pages/Expenses";
+import Reports from "./pages/Reports";
+import Workshop from "./pages/Workshop";
 import Settings from "./pages/Settings";
 import Staff from "./pages/Staff";
 import TripDetail from "./pages/TripDetail";
@@ -31,13 +34,17 @@ function Home() {
       .catch(() => setFailed(true));
   }, []);
 
+  const dashboard = [
+    "finance.view",
+    "vehicles.view",
+    "expenses.view",
+    "reconciliations.approve",
+  ].some((p) => me?.permissions.includes(p));
   return (
     <>
       <h2>How is my business doing right now?</h2>
-      <p>
-        Welcome, {me?.user.name}. Your dashboard fills up as vehicles, trips and expenses are added.
-      </p>
-      <ExpiringDocuments />
+      <p>Welcome, {me?.user.name}.</p>
+      {dashboard ? <Dashboard /> : <ExpiringDocuments />}
       {health && (
         <p className="status ok">
           <CheckCircle2 size={18} /> Connected to FleetTms API (v{health.version})
@@ -95,6 +102,8 @@ export default function App() {
         <Route path="/vehicles/:id" element={<VehicleDetail />} />
         <Route path="/expenses/*" element={<Expenses />} />
         <Route path="/trips" element={<Trips />} />
+        <Route path="/workshop/*" element={<Workshop />} />
+        <Route path="/reports" element={<Reports />} />
         <Route path="/trips/:id" element={<TripDetail />} />
         <Route path="/staff" element={<Staff />} />
         <Route path="/settings/*" element={<Settings />} />

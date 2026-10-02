@@ -131,6 +131,71 @@ class ReadingPhase(enum.StrEnum):
     END = "end"
 
 
+class ExpenseCategory(enum.StrEnum):
+    # Daily trip expenses: drivers record these.
+    TOLL = "toll"
+    PARKING = "parking"
+    FOOD = "food"
+    LOADING = "loading"
+    POLICE_COUNTY = "police_county"
+    # Other expenses and overheads: managers and accountants record these.
+    REPAIR = "repair"
+    TYRES = "tyres"
+    INSURANCE = "insurance"
+    LICENCE = "licence"
+    PERMIT = "permit"
+    GARAGE = "garage"
+    SERVICE = "service"
+    OVERHEAD = "overhead"
+    OTHER = "other"
+
+
+TRIP_CATEGORIES = {
+    ExpenseCategory.TOLL,
+    ExpenseCategory.PARKING,
+    ExpenseCategory.FOOD,
+    ExpenseCategory.LOADING,
+    ExpenseCategory.POLICE_COUNTY,
+}
+
+
+class ExpenseStatus(enum.StrEnum):
+    RECORDED = "recorded"  # counts straight away
+    AWAITING_APPROVAL = "awaiting_approval"  # over a spend limit: does not count until the owner approves
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+COUNTED = (ExpenseStatus.RECORDED, ExpenseStatus.APPROVED)
+
+
+class ReconciliationStatus(enum.StrEnum):
+    SUBMITTED = "submitted"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class WorkOrderStatus(enum.StrEnum):
+    OPEN = "open"
+    IN_PROGRESS = "in_progress"
+    WAITING_PARTS = "waiting_parts"
+    DONE = "done"
+    CANCELLED = "cancelled"
+
+
+class WorkOrderSource(enum.StrEnum):
+    DEFECT = "defect"
+    SERVICE = "service"
+    MANUAL = "manual"
+
+
+class Priority(enum.StrEnum):
+    URGENT = "urgent"
+    HIGH = "high"
+    NORMAL = "normal"
+    LOW = "low"
+
+
 def _enum(e: type[enum.Enum]) -> Enum:
     return Enum(e, native_enum=False, length=30, values_callable=lambda x: [m.value for m in x])
 
@@ -179,6 +244,23 @@ class AuthSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DeviceLogin(Base):
+    """Quick sign-in on one phone: a secret only that phone holds, plus a PIN the person types."""
+
+    __tablename__ = "device_logins"
+    __table_args__ = (UniqueConstraint("user_id", "device_id"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    device_id: Mapped[str] = mapped_column(String(80))
+    label: Mapped[str | None] = mapped_column(String(120))
+    secret_hash: Mapped[str] = mapped_column(String(64))
+    pin_hash: Mapped[str] = mapped_column(String(255))
+    failed_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class OtpChallenge(Base):
@@ -456,6 +538,7 @@ class Defect(TenantMixin, Base):
     note: Mapped[str | None] = mapped_column(Text)
     photo_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("photos.id", ondelete="SET NULL"))
     status: Mapped[str] = mapped_column(String(20), default="open")
+    work_order_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("work_orders.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -565,3 +648,153 @@ class DeviceCheck(TenantMixin, Base):
     clock_offset_s: Mapped[int | None] = mapped_column(Integer)
     app_version: Mapped[str | None] = mapped_column(String(40))
     reported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class Expense(TenantMixin, Base):
+    __tablename__ = "expenses"
+    __table_args__ = (
+        UniqueConstraint("business_id", "client_id"),
+        UniqueConstraint("business_id", "mpesa_code"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    vehicle_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("vehicles.id", ondelete="SET NULL"), index=True)
+    trip_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("trips.id", ondelete="SET NULL"), index=True)
+    # Whose float it came out of (the person who spent it). Overheads have no one.
+    driver_membership_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("memberships.id", ondelete="SET NULL"), index=True
+    )
+    category: Mapped[ExpenseCategory] = mapped_column(_enum(ExpenseCategory))
+    amount_cents: Mapped[int] = mapped_column(BigInteger)
+    note: Mapped[str | None] = mapped_column(String(255))
+    mpesa_code: Mapped[str | None] = mapped_column(String(12))
+    receipt_photo_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("photos.id", ondelete="SET NULL"))
+    status: Mapped[ExpenseStatus] = mapped_column(_enum(ExpenseStatus), default=ExpenseStatus.RECORDED, index=True)
+    from_float: Mapped[bool] = mapped_column(Boolean, default=False)  # paid out of the driver's float
+    flags: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    work_order_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("work_orders.id", ondelete="SET NULL"))
+    client_id: Mapped[uuid.UUID | None] = mapped_column()
+    spent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)  # when it happened
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    decided_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decision_note: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SpendLimit(TenantMixin, Base):
+    """An amount above which an expense waits for the owner. Blank category or role means "any"."""
+
+    __tablename__ = "spend_limits"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    category: Mapped[ExpenseCategory | None] = mapped_column(_enum(ExpenseCategory))
+    role: Mapped[Role | None] = mapped_column(_enum(Role))
+    limit_cents: Mapped[int] = mapped_column(BigInteger)
+
+
+class RouteCost(TenantMixin, Base):
+    """What a category usually costs on a route (the tolls from Mombasa to Nairobi). A claim well above it is flagged."""
+
+    __tablename__ = "route_costs"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    origin: Mapped[str] = mapped_column(String(160))
+    destination: Mapped[str] = mapped_column(String(160))
+    category: Mapped[ExpenseCategory] = mapped_column(_enum(ExpenseCategory))
+    usual_cents: Mapped[int] = mapped_column(BigInteger)
+    tolerance_pct: Mapped[int] = mapped_column(Integer, default=50)
+
+
+class Reconciliation(TenantMixin, Base):
+    """One driver's float for one Nairobi day: opening + floats - expenses = closing, approved by someone senior."""
+
+    __tablename__ = "reconciliations"
+    __table_args__ = (UniqueConstraint("business_id", "driver_membership_id", "day"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    driver_membership_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("memberships.id", ondelete="CASCADE"), index=True
+    )
+    day: Mapped[date] = mapped_column(Date, index=True)
+    opening_cents: Mapped[int] = mapped_column(BigInteger)
+    floats_cents: Mapped[int] = mapped_column(BigInteger)
+    expenses_cents: Mapped[int] = mapped_column(BigInteger)
+    closing_cents: Mapped[int] = mapped_column(BigInteger)
+    status: Mapped[ReconciliationStatus] = mapped_column(_enum(ReconciliationStatus))
+    balance_action: Mapped[str | None] = mapped_column(String(20))  # carry_forward or returned
+    note: Mapped[str | None] = mapped_column(String(255))
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    decided_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ServiceSchedule(TenantMixin, Base):
+    """A repeating service: every so many kilometres, every so many months, whichever comes first."""
+
+    __tablename__ = "service_schedules"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    every_km: Mapped[int | None] = mapped_column(Integer)
+    every_months: Mapped[int | None] = mapped_column(Integer)
+    last_done_km: Mapped[int] = mapped_column(Integer, default=0)
+    last_done_on: Mapped[date | None] = mapped_column(Date)
+    advance_km: Mapped[int] = mapped_column(Integer, default=500)
+    advance_days: Mapped[int] = mapped_column(Integer, default=14)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ServiceRecord(TenantMixin, Base):
+    """Service history: what was done to a vehicle, when, at what reading, and what it cost."""
+
+    __tablename__ = "service_records"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True)
+    schedule_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("service_schedules.id", ondelete="SET NULL"))
+    work_order_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("work_orders.id", ondelete="SET NULL"))
+    done_on: Mapped[date] = mapped_column(Date)
+    odometer_km: Mapped[int] = mapped_column(Integer)
+    cost_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    notes: Mapped[str | None] = mapped_column(Text)
+
+
+class ServiceReminder(TenantMixin, Base):
+    """One row per service reminder sent, so a due service is announced once, not every day."""
+
+    __tablename__ = "service_reminders"
+    __table_args__ = (UniqueConstraint("schedule_id", "due_key"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    schedule_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("service_schedules.id", ondelete="CASCADE"))
+    due_key: Mapped[str] = mapped_column(String(60))  # the km and date this service falls due at
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class WorkOrder(TenantMixin, Base):
+    """Preventive and corrective work share one system: from a defect, a service reminder, or raised by hand."""
+
+    __tablename__ = "work_orders"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True)
+    source: Mapped[WorkOrderSource] = mapped_column(_enum(WorkOrderSource))
+    defect_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("defects.id", ondelete="SET NULL"))
+    schedule_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("service_schedules.id", ondelete="SET NULL"))
+    title: Mapped[str] = mapped_column(String(160))
+    description: Mapped[str | None] = mapped_column(Text)
+    priority: Mapped[Priority] = mapped_column(_enum(Priority), default=Priority.NORMAL)
+    status: Mapped[WorkOrderStatus] = mapped_column(_enum(WorkOrderStatus), default=WorkOrderStatus.OPEN, index=True)
+    assignee_kind: Mapped[str | None] = mapped_column(String(20))  # mechanic or garage
+    assignee_name: Mapped[str | None] = mapped_column(String(160))
+    labour_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    odometer_km: Mapped[int | None] = mapped_column(Integer)
+    opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+    parts: Mapped[list["WorkOrderPart"]] = relationship(lazy="selectin", cascade="all, delete-orphan")
+
+
+class WorkOrderPart(TenantMixin, Base):
+    __tablename__ = "work_order_parts"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    work_order_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("work_orders.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    quantity: Mapped[int] = mapped_column(Integer, default=1)
+    unit_cost_cents: Mapped[int] = mapped_column(BigInteger, default=0)

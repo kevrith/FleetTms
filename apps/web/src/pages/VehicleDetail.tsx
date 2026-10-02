@@ -18,6 +18,7 @@ import { CREW, DEVICE_FLAG, fmtTime, OWNERSHIP, TIER, TRUST, VEHICLE_DOC_TYPES }
 import { Card, ErrorBanner, errorMessage, Field } from "./../ui";
 import DocumentsPanel from "./DocumentsPanel";
 import InspectionCard from "./InspectionCard";
+import ServiceCard from "./ServiceCard";
 import { VehicleForm } from "./Vehicles";
 
 function Crew({ vehicle, canManage }: { vehicle: Vehicle; canManage: boolean }) {
@@ -253,6 +254,7 @@ export default function VehicleDetail() {
         </Card>
       )}
       <Crew vehicle={vehicle} canManage={manage} />
+      <ServiceCard vehicleId={vehicle.id} />
       <Trust vehicleId={vehicle.id} />
       <Inspections vehicleId={vehicle.id} />
       <DocumentsPanel

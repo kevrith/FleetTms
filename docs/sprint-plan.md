@@ -246,21 +246,22 @@ Keep a project guide at the root of the repository (`PROJECT_GUIDE.md`) and read
 **Goal:** daily operations run in FleetTms. 🚚 **Milestone: your own lorries go live.**
 
 **Stories**
-- **Expenses:** categories, receipt photos, links to vehicle/trip/float, approval status.
-- **Spend limits** per category/role, and **duplicate receipt / M-Pesa code detection**.
-- **Expected costs per route** → flag unusual claims.
-- **Daily reconciliation:** float − expenses = balance; approvals by Supervisor, Manager, or Owner.
-- **Service schedules** by km and/or time, with reminders.
-- **Work orders:** created from inspection defects and service reminders; mechanic or garage, parts, labour, status.
-- **Owner dashboard v1** (web + mobile) and basic daily/weekly reports.
-- **Owner-driver mode** alert rules.
-- **Driver app:** Add Expense in four taps or fewer; float balance in large text.
+- [x] **Expenses:** categories (trip, other, overhead), receipt photos, M-Pesa code, links to vehicle, trip and float, approval status. *Drivers record trip expenses; managers and accountants record the rest. A driver's vehicle and trip in progress are filled in for them.*
+- [x] **Spend limits** per category and role (most specific rule wins; the owner sets them), and **duplicate receipt / M-Pesa code detection**. *An over-limit expense waits for the owner and does not count until approved. The same M-Pesa code cannot back an expense or a fuel entry twice; the same receipt photo cannot be used twice.*
+- [x] **Expected costs per route** flag unusual claims (flagged, never blocked).
+- [x] **Daily reconciliation:** opening + floats - expenses = closing, by driver and Nairobi day. Approved by a supervisor (their own vehicles), manager or owner; the balance is carried forward or the cash is returned. *A day cannot be approved while an expense waits for the owner.*
+- [x] **Service schedules** by km and/or time (whichever comes first), advance reminders by SMS (once per due service), service history and cost.
+- [x] **Work orders:** every inspection defect becomes one automatically; service reminders raise one too. Mechanic or garage, parts, labour, status. Completing one records its cost as a repair or service expense on the vehicle and restarts the service schedule.
+- [~] **Owner dashboard v1** (web and mobile) and basic daily/weekly/monthly/custom reports. *Today's numbers and "needs attention" alerts, red before amber. Income, profit and money owed show "not yet" until billing exists. Reports: totals, expenses by type, by vehicle (km per litre), by day. Not built: PDF and Excel export, and scheduled reports by email or WhatsApp. The owner's mobile dashboard type-checks but has not been run on a device.*
+- [x] **Owner-driver mode** alert rules: an owner who also drives is never asked to approve their own spending or their own day.
+- [x] **Driver app:** Add Expense in two taps plus the amount (category, then Save); float balance in very large text; end-of-day report; everything works offline through the sync queue.
+- [x] **Quick sign-in on the phone** (requested alongside this sprint): the first sign-in on a phone always needs an SMS code. After that a driver can turn on a 6-digit PIN in More. Five wrong PINs switch it off; "sign out of all devices" and turning it off end it.
 
 **Acceptance criteria**
-- A driver logs expenses; a supervisor approves the evening reconciliation.
-- An expense over the limit waits for owner approval; a reused receipt is rejected.
-- An inspection defect becomes a work order automatically.
-- **Kelvin runs his own fleet on FleetTms for a full week.**
+- [x] A driver logs expenses; a supervisor approves the evening reconciliation. *API tests; web approval driven in Chrome; the driver side on the Android emulator.*
+- [x] An expense over the limit waits for owner approval; a reused receipt is rejected. *API tests and the web.*
+- [x] An inspection defect becomes a work order automatically. *API tests and the web.*
+- [ ] **Kelvin runs his own fleet on FleetTms for a full week.** *Not something I can do. This is the milestone: use it daily and log every problem.*
 
 **Kickoff brief**
 > Implement expenses with spend limits and duplicate detection (5.7), reconciliation (5.6), service schedules (5.8), work orders (5.19), owner-driver alert rules (Section 3), and dashboard v1 with basic reports (5.15, Section 6).
@@ -557,7 +558,7 @@ Keep a project guide at the root of the repository (`PROJECT_GUIDE.md`) and read
 | S2 | 2026-10-02 | ✅ Done, with carry-overs | Vehicles, ownership, lessors/lenders, staff profiles, crew with history, documents with SMS expiry reminders, Excel import (vehicles, staff), demo seed, web pages, mobile vehicle list and My vehicle card | Import of clients, suppliers and opening balances (tables do not exist yet); document file upload (needs storage bucket) | Reminders run daily at 07:00 Africa/Nairobi through the arq worker. Supervisor scope now enforced. |
 | S3 | 2026-10-02 | 🟨 Built; mobile capture partly verified | Pre-trip inspection with configurable checklist, critical-fault block and manager override, trips with start/loading/delivered/end, odometer photos with flags and distance, private photo storage with signed links, web trips and checklist pages, mobile inspection and trip flow | Automatic odometer reading from the photo (needs a development build); odometer confirm and submit screens on mobile not run end to end (the emulator's camera returns black stills); S3 bucket for photos | Photos refused if stale (10 min), blank, too small or repeated. Local-disk photo storage in `media_store/` (git-ignored). |
 | S4 | 2026-10-02 | 🟨 Built; on-device checks partly done | Idempotent offline sync, encrypted offline vault and queue, sync badge and rejected-record handling, fuel entries, floats, device integrity and vehicle trust, web Expenses and trust pages, mobile Expenses tab | A full offline morning with a real odometer photo on a device; a real fake-GPS app test; receipt photo flow on a device | Receipts optional but flagged. Records older than 7 days are refused. Mobile has its own test suite now (`pnpm test`). |
-| S5 | | ⬜ | | | |
+| S5 | 2026-10-02 | 🟨 Built and tested; the real-world week is yours | Expenses with limits, duplicate and route checks; reconciliation; service schedules and reminders; work orders from defects and services; dashboard v1 and reports; owner-driver rules; mobile Expenses and offline expenses; quick sign-in with a PIN | PDF/Excel export and scheduled reports; owner mobile dashboard not run on a device; a real week of use on your own lorries | Reminders run daily at 07:00 and 07:05 Africa/Nairobi. Income, profit and money owed wait for billing (Sprints 8 to 10). |
 | S6 | | ⬜ | | | |
 | S7 | | ⬜ | | | |
 | S8 | | ⬜ | | | |

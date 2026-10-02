@@ -420,3 +420,228 @@ export interface SyncResponse {
   device_flags: DeviceFlag[];
   results: SyncResult[];
 }
+
+export type ExpenseCategory =
+  | "toll"
+  | "parking"
+  | "food"
+  | "loading"
+  | "police_county"
+  | "repair"
+  | "tyres"
+  | "insurance"
+  | "licence"
+  | "permit"
+  | "garage"
+  | "service"
+  | "overhead"
+  | "other";
+export type ExpenseStatus = "recorded" | "awaiting_approval" | "approved" | "rejected";
+
+export interface Expense {
+  id: string;
+  vehicle_id: string | null;
+  trip_id: string | null;
+  driver_membership_id: string | null;
+  category: ExpenseCategory;
+  amount_cents: number;
+  note: string | null;
+  mpesa_code: string | null;
+  status: ExpenseStatus;
+  from_float: boolean;
+  flags: ("over_limit" | "unusual_for_route" | "no_receipt")[];
+  spent_at: string;
+  decision_note: string | null;
+  decided_at: string | null;
+  client_id: string | null;
+  has_receipt: boolean;
+  receipt: PhotoRef | null;
+}
+
+export interface ExpenseInput {
+  category: ExpenseCategory;
+  amount_cents: number;
+  vehicle_id?: string | null;
+  trip_id?: string | null;
+  note?: string | null;
+  mpesa_code?: string | null;
+  receipt_photo_id?: string | null;
+  receipt_photo_client_id?: string | null;
+  client_id?: string | null;
+  captured_at?: string | null;
+  driver_membership_id?: string | null;
+  from_float?: boolean | null;
+}
+
+export interface SpendLimit {
+  id?: string;
+  category: ExpenseCategory | null;
+  role: Role | null;
+  limit_cents: number;
+}
+
+export interface RouteCost {
+  id: string;
+  origin: string;
+  destination: string;
+  category: ExpenseCategory;
+  usual_cents: number;
+  tolerance_pct: number;
+}
+
+export type ReconciliationStatus = "open" | "submitted" | "approved" | "rejected";
+
+export interface Reconciliation {
+  id: string;
+  driver_membership_id: string;
+  driver_name: string | null;
+  day: string;
+  opening_cents: number;
+  floats_cents: number;
+  expenses_cents: number;
+  closing_cents: number;
+  status: ReconciliationStatus;
+  balance_action: "carry_forward" | "returned" | null;
+  note: string | null;
+  submitted_at: string;
+  decided_at: string | null;
+}
+
+export interface ReconciliationDetail extends Reconciliation {
+  expenses: Expense[];
+  pending_expenses: number;
+}
+
+export interface MySheet {
+  day: string;
+  opening_cents: number;
+  floats_cents: number;
+  expenses_cents: number;
+  closing_cents: number;
+  status: ReconciliationStatus;
+  note: string | null;
+  reconciliation: Reconciliation | null;
+  expenses: Expense[];
+}
+
+export type Priority = "urgent" | "high" | "normal" | "low";
+export type WorkOrderStatus = "open" | "in_progress" | "waiting_parts" | "done" | "cancelled";
+
+export interface WorkOrder {
+  id: string;
+  vehicle_id: string;
+  source: "defect" | "service" | "manual";
+  defect_id: string | null;
+  schedule_id: string | null;
+  title: string;
+  description: string | null;
+  priority: Priority;
+  status: WorkOrderStatus;
+  assignee_kind: "mechanic" | "garage" | null;
+  assignee_name: string | null;
+  labour_cents: number;
+  parts_cents: number;
+  total_cents: number;
+  parts: { id: string; name: string; quantity: number; unit_cost_cents: number }[];
+  odometer_km: number | null;
+  opened_at: string;
+  completed_at: string | null;
+}
+
+export interface ServiceSchedule {
+  id: string;
+  vehicle_id: string;
+  registration: string;
+  name: string;
+  every_km: number | null;
+  every_months: number | null;
+  last_done_km: number;
+  last_done_on: string | null;
+  advance_km: number;
+  advance_days: number;
+  is_active: boolean;
+  due_status: "ok" | "due_soon" | "overdue" | "inactive";
+  next_km: number | null;
+  km_left: number | null;
+  next_due_on: string | null;
+  days_left: number | null;
+}
+
+export interface ServiceInput {
+  name: string;
+  every_km?: number | null;
+  every_months?: number | null;
+  last_done_km?: number;
+  last_done_on?: string | null;
+  advance_km?: number;
+  advance_days?: number;
+  is_active?: boolean;
+}
+
+export interface ServiceHistory {
+  schedules: ServiceSchedule[];
+  history: {
+    id: string;
+    schedule_id: string | null;
+    done_on: string;
+    odometer_km: number;
+    cost_cents: number;
+    notes: string | null;
+  }[];
+}
+
+export interface DashboardAlert {
+  kind: string;
+  severity: "red" | "amber";
+  title: string;
+  detail: string;
+  link: string;
+}
+
+export interface Dashboard {
+  numbers: {
+    mode: "standard" | "owner_driver";
+    day: string;
+    trips_active?: number;
+    trips_completed_today?: number;
+    distance_today_km?: number;
+    fuel_today?: { litres: number; amount_cents: number };
+    expenses_today_cents?: number;
+    floats_sent_today_cents?: number;
+    income_today_cents: number | null;
+    money_owed_cents: number | null;
+  };
+  alerts: DashboardAlert[];
+  open_defects: number | null;
+}
+
+export interface ReportSummary {
+  from: string;
+  to: string;
+  totals: {
+    trips_completed: number;
+    distance_km: number;
+    fuel_litres: number;
+    fuel_cents: number;
+    expenses_cents: number;
+    floats_sent_cents: number;
+  };
+  expenses_by_category: { category: ExpenseCategory; cents: number }[];
+  by_vehicle: {
+    vehicle_id: string;
+    registration: string;
+    trips: number;
+    distance_km: number;
+    fuel_litres: number;
+    fuel_cents: number;
+    expenses_cents: number;
+    km_per_litre: number | null;
+  }[];
+  by_day: {
+    day: string;
+    trips: number;
+    distance_km: number;
+    fuel_cents: number;
+    expenses_cents: number;
+  }[];
+}

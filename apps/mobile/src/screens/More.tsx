@@ -3,7 +3,9 @@ import { useState } from "react";
 import { Alert, ScrollView } from "react-native";
 import { api } from "../api";
 import { useAuth } from "../auth";
+import { clearQuick } from "../quick";
 import { useOffline } from "../offline/runtime";
+import { QuickSignInCard } from "./QuickSignIn";
 import { Body, Button, ErrorText, errorMessage, Screen, Title } from "../ui";
 
 export function Placeholder({ title }: { title: string }) {
@@ -61,6 +63,7 @@ export default function MoreScreen() {
       setError(errorMessage(e));
       return;
     }
+    await clearQuick(); // a lost phone must not keep a way back in
     await reload();
     await offline.wipe();
   }
@@ -99,6 +102,7 @@ export default function MoreScreen() {
           </>
         )}
 
+        <QuickSignInCard />
         <Button kind="secondary" label="Sign out" onPress={leave} />
         <Button kind="danger" label="Sign out of all devices" onPress={signOutEverywhere} />
       </ScrollView>

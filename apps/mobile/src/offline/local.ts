@@ -5,7 +5,7 @@ import {
   type InspectionOutcome,
 } from "@fleettms/business-rules";
 import type { Trip } from "@fleettms/types";
-import type { DriverCache } from "./types";
+import type { DriverCache, QueueItem } from "./types";
 
 /**
  * What the phone shows for a trip right after the driver acts, before the server has heard about it.
@@ -62,4 +62,17 @@ export function endedTrip(trip: Trip | null, value: number, at: string): Trip {
     distance_km: distance,
     end_reading: { value, auto_read_value: null, flags: [], photo: null, recorded_at: at },
   };
+}
+
+/**
+ * The float balance to show. Expenses waiting to be sent are taken off already, so the driver sees what they really have
+ * even before the office has heard. Null until the first balance has been downloaded.
+ */
+export function displayBalance(cache: DriverCache, queue: QueueItem[]): number | null {
+  if (!cache.float) return null;
+  const waiting = queue.filter((i) => i.type === "expense.add" && i.status === "queued");
+  return (
+    cache.float.balance_cents -
+    waiting.reduce((sum, i) => sum + Number(i.payload.amount_cents ?? 0), 0)
+  );
 }

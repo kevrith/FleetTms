@@ -115,3 +115,23 @@ async def sync(client, tokens, actions, device=None):
     if device:
         body["device"] = device
     return await client.post("/sync", headers=bearer(tokens), json=body)
+
+
+async def begin_trip(client, f, **extra):
+    """A trip already in progress: inspected, scheduled and started. Returns the trip."""
+    assert (await inspect(client, f.driver, f.vehicle["id"])).status_code == 201
+    trip = await make_trip(client, f, **extra)
+    assert (await start(client, f.driver, trip["id"])).status_code == 200
+    return trip
+
+
+async def send_float(client, f, cents=300000, code=None, who="+254712345678"):
+    res = await client.post(
+        "/floats", headers=bearer(f.owner), json={"driver_membership_id": f.ids[who], "amount_cents": cents, "mpesa_code": code}
+    )
+    assert res.status_code == 201, res.text
+    return res.json()
+
+
+async def my_balance(client, tokens) -> int:
+    return (await client.get("/me/float", headers=bearer(tokens))).json()["balance_cents"]

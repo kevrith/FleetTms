@@ -18,6 +18,7 @@ CHECKS = {
     "list_staff": ("GET", "/staff", None, "staff.view"),
     "list_trips": ("GET", "/trips", None, "trips.view"),
     "my_trips": ("GET", "/me/trips", None, "trips.own"),
+    "list_expenses": ("GET", "/expenses", None, "expenses.view"),
     "import_template": ("GET", "/imports/staff/template", None, "data.import"),
     "grant_support": ("POST", "/support/grants", {"hours": 1, "reason": "help"}, "support.grant"),
 }
@@ -91,6 +92,15 @@ def test_workshop_only_does_workshop_and_lessor_only_their_own_lease():
 def test_only_owner_and_manager_can_override_a_blocked_inspection():
     allowed = {r for r in Role if "inspections.override" in permissions_for({r})}
     assert allowed == {Role.OWNER, Role.MANAGER}
+
+
+def test_only_the_owner_approves_over_limit_expenses_and_the_senior_staff_approve_the_day():
+    assert {r for r in Role if "expenses.approve_limit" in permissions_for({r})} == {Role.OWNER}
+    assert {r for r in Role if "reconciliations.approve" in permissions_for({r})} == {Role.OWNER, Role.MANAGER, Role.SUPERVISOR}
+    assert {r for r in Role if "expenses.manage" in permissions_for({r})} == {Role.OWNER, Role.MANAGER, Role.ACCOUNTANT}
+    assert {r for r in Role if "floats.manage" in permissions_for({r})} == {Role.OWNER, Role.MANAGER}
+    for role in (Role.DRIVER, Role.TURNBOY, Role.WORKSHOP, Role.LESSOR):
+        assert not permissions_for({role}) & {"expenses.view", "expenses.manage", "reconciliations.approve", "expenses.approve_limit"}
 
 
 def test_owner_driver_gets_union_of_permissions():

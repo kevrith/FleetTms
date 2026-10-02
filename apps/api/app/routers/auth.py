@@ -1,5 +1,6 @@
 import uuid
 from datetime import timedelta
+from itertools import pairwise
 
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, EmailStr, Field
@@ -26,6 +27,7 @@ from app.deps import Principal, current_principal, error, principal_unverified
 from app.models import (
     AuthSession,
     Business,
+    DeviceLogin,
     Document,
     Membership,
     OtpChallenge,
@@ -93,6 +95,25 @@ class OtpVerifyIn(BaseModel):
     code: str = Field(min_length=6, max_length=6)
     business_id: uuid.UUID | None = None
     device_label: str | None = None
+
+
+class QuickEnableIn(BaseModel):
+    device_id: str = Field(min_length=8, max_length=80)
+    pin: str
+    device_label: str | None = Field(default=None, max_length=120)
+
+
+class QuickLoginIn(BaseModel):
+    phone: str
+    device_id: str = Field(min_length=8, max_length=80)
+    device_secret: str = Field(min_length=20, max_length=200)
+    pin: str
+    business_id: uuid.UUID | None = None
+    device_label: str | None = None
+
+
+class QuickDisableIn(BaseModel):
+    device_id: str = Field(min_length=8, max_length=80)
 
 
 class RefreshIn(BaseModel):
@@ -402,6 +423,134 @@ async def otp_verify(body: OtpVerifyIn, db: AsyncSession = Depends(get_db)):
     return tokens
 
 
+# ---- quick sign-in on a trusted phone ----------------------------------------------------------
+# The first sign-in on a phone always needs an SMS code. After that a driver may turn on quick sign-in: the phone keeps a
+# secret nobody else has, and the driver types a PIN. Too many wrong PINs switch it off and the SMS code is needed again.
+
+
+def _weak_pin(pin: str) -> bool:
+    digits = [int(c) for c in pin]
+    steps = {b - a for a, b in pairwise(digits)}
+    return len(set(pin)) == 1 or steps in ({1}, {-1})  # 000000, 111111, 123456, 654321
+
+
+def _check_pin_strength(pin: str) -> None:
+    if not (pin.isdigit() and len(pin) == 6):
+        raise error(422, "invalid_pin", "Choose a PIN of exactly 6 digits.")
+    if _weak_pin(pin):
+        raise error(422, "weak_pin", "That PIN is too easy to guess. Avoid repeats and sequences like 123456.")
+
+
+@router.post("/quick-login/enable")
+async def quick_login_enable(
+    body: QuickEnableIn, principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_db)
+):
+    """Turns on quick sign-in for this phone. Needs a signed-in session, so the first sign-in always used the SMS code."""
+    user = principal.user
+    if not user.phone or not is_otp_only(await memberships_of(db, user.id)):
+        raise error(status.HTTP_403_FORBIDDEN, "not_available", "Quick sign-in is for drivers and turnboys.")
+    _check_pin_strength(body.pin)
+    secret = new_secret_token()
+    existing = (
+        await db.execute(
+            select(DeviceLogin).where(DeviceLogin.user_id == user.id, DeviceLogin.device_id == body.device_id)
+        )
+    ).scalar_one_or_none()
+    if existing is None:
+        existing = DeviceLogin(user_id=user.id, device_id=body.device_id)
+        db.add(existing)
+    existing.label = body.device_label
+    existing.secret_hash = sha256(secret)
+    existing.pin_hash = hash_password(body.pin)
+    existing.failed_attempts = 0
+    existing.revoked_at = None
+    if principal.business_id is not None:
+        audit.record(
+            db, actor_user_id=user.id, action="auth.quick_login_enabled", entity_type="user", entity_id=user.id,
+            note=body.device_label,
+        )  # fmt: skip
+    await db.commit()
+    return {"device_secret": secret}
+
+
+@router.post("/quick-login", response_model=TokenOut)
+async def quick_login(body: QuickLoginIn, db: AsyncSession = Depends(get_db)):
+    phone = normalize_phone(body.phone)
+    if phone is None:
+        raise _bad_phone()
+    invalid = error(status.HTTP_401_UNAUTHORIZED, "invalid_credentials", "Sign in with an SMS code instead.")
+    user = (await db.execute(select(User).where(User.phone == phone))).scalar_one_or_none()
+    device = None
+    if user is not None:
+        device = (
+            await db.execute(
+                select(DeviceLogin).where(DeviceLogin.user_id == user.id, DeviceLogin.device_id == body.device_id)
+            )
+        ).scalar_one_or_none()
+    if device is None or device.revoked_at is not None or not user.is_active:
+        raise invalid
+    # Without the phone's secret nothing is tried, so guessing PINs from elsewhere gets nowhere and costs the owner nothing.
+    if not constant_time_equals(device.secret_hash, sha256(body.device_secret)):
+        raise invalid
+    if not verify_password(body.pin, device.pin_hash):
+        device.failed_attempts += 1
+        locked = device.failed_attempts >= settings.quick_login_max_attempts
+        if locked:
+            device.revoked_at = now()
+        await db.commit()
+        if locked:
+            raise error(status.HTTP_423_LOCKED, "quick_login_locked", "Too many wrong PINs. Sign in with an SMS code.")
+        raise error(status.HTTP_401_UNAUTHORIZED, "wrong_pin", "That PIN is not right.")
+
+    companies = await memberships_of(db, user.id)
+    if not is_otp_only(companies):
+        raise invalid
+    device.failed_attempts = 0
+    device.last_used_at = now()
+    business_id = _choose_business(companies, body.business_id)
+    roles = _roles_for(companies, business_id)
+    tokens = await issue_session(db, user, business_id, roles, mfa_verified=True, device_label=body.device_label)
+    current_business_id.set(business_id)
+    audit.record(
+        db, actor_user_id=user.id, action="auth.login", entity_type="user", entity_id=user.id, note="Quick sign-in"
+    )  # fmt: skip
+    await db.commit()
+    return tokens
+
+
+@router.get("/quick-login/status")
+async def quick_login_status(
+    device_id: str, principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_db)
+):
+    device = (
+        await db.execute(
+            select(DeviceLogin).where(
+                DeviceLogin.user_id == principal.user.id,
+                DeviceLogin.device_id == device_id,
+                DeviceLogin.revoked_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    return {"enabled": device is not None}
+
+
+@router.post("/quick-login/disable", status_code=status.HTTP_204_NO_CONTENT)
+async def quick_login_disable(
+    body: QuickDisableIn, principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_db)
+):
+    await db.execute(
+        update(DeviceLogin)
+        .where(DeviceLogin.user_id == principal.user.id, DeviceLogin.device_id == body.device_id)
+        .values(revoked_at=now())
+    )
+    if principal.business_id is not None:
+        audit.record(
+            db, actor_user_id=principal.user.id, action="auth.quick_login_disabled", entity_type="user",
+            entity_id=principal.user.id,
+        )  # fmt: skip
+    await db.commit()
+
+
 # ---- sessions ----------------------------------------------------------------------------------
 
 
@@ -453,6 +602,12 @@ async def logout_all(principal: Principal = Depends(principal_unverified), db: A
     await db.execute(
         update(AuthSession)
         .where(AuthSession.user_id == principal.user.id, AuthSession.revoked_at.is_(None))
+        .values(revoked_at=now())
+    )
+    # A lost phone is the usual reason for signing out everywhere, so quick sign-in goes with it.
+    await db.execute(
+        update(DeviceLogin)
+        .where(DeviceLogin.user_id == principal.user.id, DeviceLogin.revoked_at.is_(None))
         .values(revoked_at=now())
     )
     if principal.business_id is not None:

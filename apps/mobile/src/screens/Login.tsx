@@ -1,11 +1,112 @@
 import { ApiError } from "@fleettms/api-client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ScrollView } from "react-native";
 import { api } from "../api";
 import { useAuth } from "../auth";
+import { clearQuick, getQuick, type QuickCredentials } from "../quick";
 import { Body, Button, ErrorText, errorMessage, Input, Screen, Title } from "../ui";
 
 type Mode = "driver" | "staff";
+
+/** Quick sign-in: the PIN, on a phone that was already signed in with an SMS code and turned this on. */
+function PinLogin({
+  creds,
+  onFallback,
+}: {
+  creds: QuickCredentials;
+  onFallback: (notice?: string) => void;
+}) {
+  const { reload } = useAuth();
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.quickLogin({
+        phone: creds.phone,
+        device_id: creds.deviceId,
+        device_secret: creds.secret,
+        pin,
+        device_label: "FleetTms mobile",
+      });
+      await reload();
+    } catch (e) {
+      if (
+        e instanceof ApiError &&
+        (e.code === "quick_login_locked" || e.code === "invalid_credentials")
+      ) {
+        // Quick sign-in is no longer valid for this phone: forget it and use an SMS code.
+        await clearQuick();
+        onFallback(
+          e.code === "quick_login_locked"
+            ? "Too many wrong PINs, so quick sign-in was switched off. Sign in with an SMS code."
+            : "Quick sign-in is no longer on for this phone. Sign in with an SMS code.",
+        );
+      } else {
+        setError(errorMessage(e));
+        setPin("");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <Body>Welcome back. Enter your PIN.</Body>
+      <Body muted>{creds.phone}</Body>
+      <Input
+        label="6-digit PIN"
+        value={pin}
+        onChangeText={(v) => setPin(v.replace(/\D/g, ""))}
+        keyboardType="number-pad"
+        secureTextEntry
+        maxLength={6}
+        autoFocus
+      />
+      <ErrorText message={error} />
+      <Button label="Sign in" onPress={submit} busy={busy} disabled={pin.length !== 6} />
+      <Button
+        label="Use an SMS code instead"
+        kind="secondary"
+        onPress={() => onFallback()}
+        disabled={busy}
+      />
+    </>
+  );
+}
+
+/** The first sign-in on a phone always uses an SMS code. After quick sign-in is turned on, a PIN is offered instead. */
+function DriverSignIn() {
+  const [creds, setCreds] = useState<QuickCredentials | null | undefined>(undefined);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    void getQuick().then(setCreds);
+  }, []);
+
+  if (creds === undefined) return null;
+  if (creds) {
+    return (
+      <PinLogin
+        creds={creds}
+        onFallback={(message) => {
+          setNotice(message ?? null);
+          setCreds(null);
+        }}
+      />
+    );
+  }
+  return (
+    <>
+      {notice && <Body muted>{notice}</Body>}
+      <DriverLogin />
+    </>
+  );
+}
 
 function DriverLogin() {
   const { reload } = useAuth();
@@ -162,7 +263,7 @@ export default function LoginScreen() {
       >
         <Title>FleetTms</Title>
         <Body muted>{mode === "driver" ? "Driver sign in" : "Owner and staff sign in"}</Body>
-        {mode === "driver" ? <DriverLogin /> : <StaffLogin />}
+        {mode === "driver" ? <DriverSignIn /> : <StaffLogin />}
         <Button
           kind="secondary"
           label={mode === "driver" ? "I am an owner or office staff" : "I am a driver or turnboy"}

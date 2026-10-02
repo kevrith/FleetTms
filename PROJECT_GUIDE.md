@@ -116,6 +116,22 @@ on the dev machine.
   photo steps cannot be completed there. Use a real phone for those. Airplane mode works:
   `adb shell cmd connectivity airplane-mode enable|disable`.
 
+- **Expenses and floats.** An expense only counts when its status is `recorded` or `approved` (`COUNTED`). A float
+  balance is floats sent less counted expenses paid from the float (`app/floatcalc.py`); a day sheet is the same sum cut
+  at Nairobi midnight. Spend limits: most specific rule wins; the owner (`expenses.approve_limit`) is never held up.
+  M-Pesa codes go through `app/mpesa.py` so a code is claimed once across fuel and expenses.
+- **Reconciliation.** A driver submits a day; senior staff approve (`reconciliations.approve`, supervisors only for
+  their own vehicles). Approval refreshes the figures, refuses while an expense waits for the owner, and a returned
+  balance becomes a negative float transfer.
+- **Work orders and service.** Defects become work orders inside `do_submit_inspection` (so offline-synced
+  inspections do too). Completing a work order creates its expense and, for service, the history record and schedule
+  reset. Service due logic is `app/service_rules.py`; reminders are `app/service_reminders.py` (once per due key).
+- **Quick sign-in.** `DeviceLogin` holds a per-phone secret hash and a PIN hash. The secret is checked before the PIN so
+  guessing from elsewhere cannot lock the owner out; five wrong PINs revoke it; logout-all revokes it. Drivers and
+  turnboys only. The phone keeps its secret in SecureStore (`apps/mobile/src/quick.ts`).
+- **Dashboard.** `GET /dashboard` builds numbers and alerts limited by the caller's permissions and vehicle scope.
+  New alert kinds go in `app/routers/dashboard.py`; keep red (act now) ahead of amber (soon).
+
 ## Testing against a real phone/emulator
 
 - API tests use a separate `fleettms_test` database that they create and migrate themselves.
@@ -132,8 +148,9 @@ Sprints 0 and 1 are done apart from carry-overs (staging, storage bucket, extern
 review). Sprint 2 (vehicles, ownership, staff, crews, documents, Excel import) is done. Sprint 3 (trips, odometer
 capture, pre-trip inspection) is built and tested; automatic odometer reading needs a development build. Sprint 4
 (offline sync, fuel, floats, device integrity) is built and tested; on a device, a full offline morning including a
-real odometer photo and a real fake-GPS app are still to be tried. Next: Sprint 5 (expenses, reconciliation,
-services, dashboard).
+real odometer photo and a real fake-GPS app are still to be tried. Sprint 5 (expenses, reconciliation, services, work orders,
+dashboard, quick sign-in) is built and tested; use it on your own lorries for a full week and log every problem.
+Next after that: Sprint 6 (tyres, parts store, incidents, SOS).
 
 Create the first platform admin with `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_NAME` and `PLATFORM_ADMIN_PASSWORD`
 set in `.env`, then `cd apps/api && .venv/bin/python -m app.cli create-platform-admin`.

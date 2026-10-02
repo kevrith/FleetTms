@@ -35,7 +35,12 @@ export const navItems: NavItem[] = [
     icon: Wallet,
     permission: ["finance.view", "floats.manage", "vehicles.view"],
   },
-  { path: "/workshop", label: "Workshop", icon: Wrench, permission: "workshop.manage" },
+  {
+    path: "/workshop",
+    label: "Workshop",
+    icon: Wrench,
+    permission: ["workshop.manage", "vehicles.view"],
+  },
   { path: "/leases", label: "Leases & Finance", icon: Building2, permission: "finance.view" },
   { path: "/staff", label: "Staff & Payroll", icon: Users, permission: "staff.view" },
   { path: "/suppliers", label: "Suppliers", icon: Package, permission: "vehicles.manage" },

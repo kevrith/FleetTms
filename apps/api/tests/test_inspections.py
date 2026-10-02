@@ -49,7 +49,7 @@ async def test_clean_inspection_passes_and_clears_the_vehicle_for_today(client):
     assert today["can_start_trip"] is True and len(today["inspection"]["results"]) == 8
 
 
-async def test_minor_fault_passes_with_a_defect_ready_for_a_work_order(client):
+async def test_minor_fault_passes_and_becomes_a_work_order(client):
     f = await fleet(client)
     res = await inspect(client, f.driver, f.vehicle["id"], {"Body damage": "Dent on the left door"})
     body = res.json()
@@ -62,7 +62,8 @@ async def test_minor_fault_passes_with_a_defect_ready_for_a_work_order(client):
         current_business_id.set((await db.execute(select(Business.id))).scalars().first())
         defects = (await db.execute(select(Defect))).scalars().all()
         current_business_id.set(None)
-    assert [(d.label, d.critical, d.status) for d in defects] == [("Body damage", False, "open")]
+    assert [(d.label, d.critical, d.status) for d in defects] == [("Body damage", False, "work_order")]
+    assert defects[0].work_order_id is not None  # a work order was raised for it automatically
 
 
 async def test_critical_fault_blocks_and_only_a_manager_with_a_reason_can_override(client):

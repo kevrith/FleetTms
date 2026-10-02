@@ -7,21 +7,25 @@ from app.db import database_is_up
 from app.routers import (
     audit_log,
     auth,
+    dashboard,
     depots,
     devices,
     documents,
+    expenses,
     floats,
     fuel,
     imports,
     inspections,
     photos,
     privacy,
+    reconciliation,
     staff,
     support,
     sync,
     trips,
     users,
     vehicles,
+    workshop,
 )
 
 app = FastAPI(title="FleetTms API", version=settings.version)
@@ -33,7 +37,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for module in (auth, users, depots, vehicles, staff, documents, imports, photos, inspections, trips, fuel, floats, devices, sync, audit_log, privacy, support):
+for module in (auth, users, depots, vehicles, staff, documents, imports, photos, inspections, trips, fuel, floats, devices, sync, expenses, reconciliation, workshop, dashboard, audit_log, privacy, support):
     app.include_router(module.router)
 
 

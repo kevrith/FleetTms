@@ -59,7 +59,9 @@ export function createStore(deps: StoreDeps) {
       const sealed = await files.read(STATE_FILE);
       if (sealed) {
         try {
-          state = JSON.parse(unutf8(await vault.open(fromB64(sealed)))) as OfflineState;
+          const saved = JSON.parse(unutf8(await vault.open(fromB64(sealed)))) as OfflineState;
+          // Older saves lack fields added since; fill them in rather than start clean.
+          state = { ...saved, cache: { ...emptyCache(), ...saved.cache } };
         } catch {
           state = fresh(); // unreadable (key lost or file damaged): start clean rather than crash
         }

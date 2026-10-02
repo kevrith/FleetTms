@@ -4,7 +4,7 @@ import {
   nairobiDay,
   normalizeMpesaCode,
 } from "@fleettms/business-rules";
-import type { DeviceReport } from "@fleettms/types";
+import type { DeviceReport, ExpenseCategory } from "@fleettms/types";
 import NetInfo from "@react-native-community/netinfo";
 import Constants from "expo-constants";
 import * as Crypto from "expo-crypto";
@@ -27,7 +27,14 @@ import { api } from "../api";
 import { useAuth } from "../auth";
 import { fromB64, toB64 } from "./bytes";
 import { createSyncEngine, type EngineApi, type RunResult } from "./engine";
-import { assertInspectionClears, deliveredTrip, endedTrip, loadedTrip, startedTrip } from "./local";
+import {
+  assertInspectionClears,
+  deliveredTrip,
+  displayBalance,
+  endedTrip,
+  loadedTrip,
+  startedTrip,
+} from "./local";
 import { createStore, type FileAdapter } from "./store";
 import type { DriverCache, LocalPhoto, OfflineState, QueueItem } from "./types";
 import { createVault, type KeyStore } from "./vault";
@@ -76,11 +83,13 @@ const realApi: EngineApi = {
   uploadPhoto: (file, meta) => api.uploadPhoto(file, meta as never),
   sync: (actions, device) => api.sync(actions, device),
   async refresh() {
-    const [vehicle, trips, checklist, float] = await Promise.all([
+    const [vehicle, trips, checklist, float, sheet, spent] = await Promise.all([
       api.myVehicle(),
       api.myTrips(),
       api.checklist(),
       api.myFloat().catch(() => null),
+      api.mySheet().catch(() => null),
+      api.myExpenses().catch(() => []),
     ]);
     const trip = trips[0] ?? null;
     const vehicleId = trip?.vehicle_id ?? vehicle?.vehicle.id;
@@ -95,7 +104,16 @@ const realApi: EngineApi = {
         };
       }
     }
-    return { vehicle, trip, checklist, inspection, float };
+    const expenses = spent.slice(0, 10).map((e) => ({
+      clientId: e.client_id ?? e.id,
+      category: e.category,
+      amount_cents: e.amount_cents,
+      note: e.note,
+      status: e.status,
+      flags: e.flags,
+      spent_at: e.spent_at,
+    }));
+    return { vehicle, trip, checklist, inspection, float, sheet, expenses };
   },
 };
 
@@ -134,6 +152,13 @@ export interface InspectionAnswerInput {
   note: string;
   photo: LocalPhoto | null;
 }
+export interface ExpenseFormInput {
+  category: ExpenseCategory;
+  amountCents: number;
+  note: string;
+  mpesaCode: string;
+  receipt: LocalPhoto | null;
+}
 export interface FuelFormInput {
   vehicleId: string;
   tripId: string | null;
@@ -163,6 +188,10 @@ interface Offline {
   markDelivered: () => Promise<void>;
   endTrip: (photo: LocalPhoto, value: number) => Promise<void>;
   addFuel: (input: FuelFormInput) => Promise<void>;
+  addExpense: (input: ExpenseFormInput) => Promise<void>;
+  submitReconciliation: () => Promise<void>;
+  /** The float balance with expenses still waiting to be sent already taken off. */
+  balanceCents: () => number | null;
   syncNow: () => Promise<RunResult>;
   /** Records on the phone that have not reached the office, including ones it refused. */
   unsent: () => number;
@@ -381,6 +410,52 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
           ].slice(0, 10),
         });
       },
+
+      async addExpense(input) {
+        const at = nowIso();
+        const code = input.mpesaCode.trim() ? normalizeMpesaCode(input.mpesaCode) : null;
+        if (input.mpesaCode.trim() && !code)
+          throw new Error("An M-Pesa code is 10 letters and numbers, like QGH7XYZ123.");
+        const clientId = Crypto.randomUUID();
+        await queueAndSync({
+          type: "expense.add",
+          capturedAt: at,
+          photoIds: input.receipt ? [input.receipt.clientId] : [],
+          payload: {
+            category: input.category,
+            amount_cents: input.amountCents,
+            note: input.note.trim() || null,
+            mpesa_code: code,
+            receipt_photo_client_id: input.receipt?.clientId ?? null,
+            client_id: clientId,
+          },
+        });
+        await setCache({
+          expenses: [
+            {
+              clientId,
+              category: input.category,
+              amount_cents: input.amountCents,
+              note: input.note.trim() || null,
+              status: "waiting" as const,
+              flags: [],
+              spent_at: at,
+            },
+            ...cache().expenses,
+          ].slice(0, 10),
+        });
+      },
+
+      async submitReconciliation() {
+        await queueAndSync({
+          type: "reconciliation.submit",
+          capturedAt: nowIso(),
+          photoIds: [],
+          payload: {},
+        });
+      },
+
+      balanceCents: () => displayBalance(store.get().cache, store.get().queue),
 
       syncNow,
       unsent: () => store.get().queue.length,

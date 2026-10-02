@@ -7,6 +7,9 @@ import { api } from "../api";
 import { useAuth } from "../auth";
 import { FUEL_FLAG, fmtTime } from "../labels";
 import { Card, ErrorBanner, errorMessage, Field } from "../ui";
+import ExpenseList from "./ExpenseList";
+import Limits from "./Limits";
+import Reconciliations from "./Reconciliations";
 
 function Floats() {
   const { can } = useAuth();
@@ -219,8 +222,15 @@ function Fuel() {
 export default function Expenses() {
   const { can } = useAuth();
   const tabs = [
+    { to: "expenses", label: "Expenses", show: can("expenses.view") },
+    {
+      to: "reconciliation",
+      label: "Reconciliation",
+      show: can("reconciliations.approve") || can("finance.view"),
+    },
     { to: "floats", label: "Floats", show: can("floats.manage") || can("finance.view") },
     { to: "fuel", label: "Fuel", show: can("vehicles.view") },
+    { to: "limits", label: "Limits and routes", show: can("expenses.view") },
   ].filter((t) => t.show);
   return (
     <>
@@ -234,6 +244,9 @@ export default function Expenses() {
       </nav>
       <Routes>
         <Route index element={<Navigate to={tabs[0]?.to ?? "floats"} replace />} />
+        <Route path="expenses" element={<ExpenseList />} />
+        <Route path="reconciliation" element={<Reconciliations />} />
+        <Route path="limits" element={<Limits />} />
         <Route path="floats" element={<Floats />} />
         <Route path="fuel" element={<Fuel />} />
       </Routes>

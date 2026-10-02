@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     lockout_minutes: int = 15
     otp_ttl_minutes: int = 5
     otp_max_attempts: int = 5
+    quick_login_max_attempts: int = 5  # wrong PINs before quick sign-in switches itself off
     otp_resend_seconds: int = 60
     invite_ttl_hours: int = 72
 

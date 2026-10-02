@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import audit
 from app.db import get_db
 from app.deps import Principal, error, require, require_any
+from app.floatcalc import float_balance
 from app.models import FloatTransfer, Membership, MembershipStatus, Role
 
 router = APIRouter(tags=["floats"])
@@ -78,10 +79,14 @@ async def list_floats(
 
 @router.get("/me/float")
 async def my_float(principal: Principal = Depends(require("expenses.own")), db: AsyncSession = Depends(get_db)):
-    """The driver's float: what has been sent to them. Expenses are subtracted from Sprint 5."""
+    """The driver's float: what has been sent to them, less what they spent from it."""
     if principal.membership_id is None:
         return {"balance_cents": 0, "received_cents": 0, "recent": []}
     mine = FloatTransfer.driver_membership_id == principal.membership_id
     received = (await db.execute(select(func.coalesce(func.sum(FloatTransfer.amount_cents), 0)).where(mine))).scalar_one()
     recent = (await db.execute(select(FloatTransfer).where(mine).order_by(FloatTransfer.sent_at.desc()).limit(10))).scalars()
-    return {"balance_cents": int(received), "received_cents": int(received), "recent": [_out(f) for f in recent]}
+    return {
+        "balance_cents": await float_balance(db, principal.membership_id),
+        "received_cents": int(received),
+        "recent": [_out(f) for f in recent],
+    }

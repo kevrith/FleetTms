@@ -21,8 +21,10 @@ from app.db import get_db
 from app.deps import Principal, require_any
 from app.models import SyncReceipt
 from app.routers.devices import DeviceIn, record_device
+from app.routers.expenses import ExpenseIn, do_add_expense
 from app.routers.fuel import FuelIn, do_add_fuel
 from app.routers.inspections import InspectionIn, do_submit_inspection
+from app.routers.reconciliation import SubmitIn, do_submit_reconciliation
 from app.routers.trips import (
     ActionIn,
     LoadingIn,
@@ -68,6 +70,16 @@ async def _fuel(db: AsyncSession, who: Principal, p: dict) -> dict:
     return {"id": str(entry.id), "created": created}
 
 
+async def _expense(db: AsyncSession, who: Principal, p: dict) -> dict:
+    expense, created = await do_add_expense(db, who, ExpenseIn.model_validate(p))
+    return {"id": str(expense.id), "created": created, "status": expense.status.value}
+
+
+async def _reconciliation(db: AsyncSession, who: Principal, p: dict) -> dict:
+    record = await do_submit_reconciliation(db, who, SubmitIn.model_validate(p).day)
+    return {"id": str(record.id), "day": record.day.isoformat()}
+
+
 HANDLERS = {
     "inspection.submit": _inspection,
     "trip.start": lambda db, who, p: _trip(do_start_trip, ReadingIn, db, who, p),
@@ -75,6 +87,8 @@ HANDLERS = {
     "trip.deliver": lambda db, who, p: _trip(do_mark_delivered, ActionIn, db, who, p),
     "trip.end": lambda db, who, p: _trip(do_end_trip, ReadingIn, db, who, p),
     "fuel.add": _fuel,
+    "expense.add": _expense,
+    "reconciliation.submit": _reconciliation,
 }
 
 

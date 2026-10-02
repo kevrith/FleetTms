@@ -1,4 +1,3 @@
-import re
 import uuid
 from datetime import datetime
 from decimal import Decimal
@@ -9,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit
+from app import audit, mpesa
 from app.clock import capture_time
 from app.db import get_db
 from app.deps import Principal, error, require, require_any
@@ -20,7 +19,6 @@ from app.routers.vehicles import get_vehicle
 from app.vehicle_scope import scope_vehicles
 
 router = APIRouter(tags=["fuel"])
-MPESA = re.compile(r"^[A-Z0-9]{10}$")
 FIELDS = ["vehicle_id", "trip_id", "litres", "price_per_litre_cents", "amount_cents", "station", "mpesa_code"]
 
 
@@ -61,11 +59,12 @@ async def do_add_fuel(db: AsyncSession, principal: Principal, body: FuelIn) -> t
         trip = (await db.execute(select(Trip).where(Trip.id == body.trip_id))).scalar_one_or_none()
         if trip is None or trip.vehicle_id != vehicle.id:
             raise error(422, "wrong_trip", "That trip is not for this vehicle.")
-    code = body.mpesa_code.strip().upper() if body.mpesa_code else None
-    if code and not MPESA.match(code):
-        raise error(422, "invalid_mpesa_code", "An M-Pesa code is 10 letters and numbers, like QGH7XYZ123.")
-    if code and (await db.execute(select(FuelEntry.id).where(FuelEntry.mpesa_code == code))).first() is not None:
-        raise error(status.HTTP_409_CONFLICT, "duplicate_mpesa_code", "That M-Pesa code was already used for a fuel entry.")
+    try:
+        code = mpesa.tidy(body.mpesa_code)
+    except ValueError as exc:
+        raise error(422, "invalid_mpesa_code", str(exc)) from None
+    if code and await mpesa.taken(db, code):
+        raise error(status.HTTP_409_CONFLICT, "duplicate_mpesa_code", "That M-Pesa code was already claimed.")
 
     receipt = await claim_photo(
         db, principal, body.receipt_photo_id, PhotoKind.RECEIPT, required=False,

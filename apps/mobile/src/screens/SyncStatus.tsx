@@ -11,6 +11,8 @@ const TYPE_LABEL: Record<ActionType, string> = {
   "trip.deliver": "Delivery",
   "trip.end": "Trip end",
   "fuel.add": "Fuel entry",
+  "expense.add": "Expense",
+  "reconciliation.submit": "End-of-day report",
 };
 
 /** One line that says whether the driver's work has reached the office: synced, waiting, offline or stuck. */

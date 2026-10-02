@@ -3,12 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   assertInspectionClears,
   deliveredTrip,
+  displayBalance,
   endedTrip,
   loadedTrip,
   LocalRuleError,
   startedTrip,
 } from "./local";
-import { emptyCache } from "./types";
+import { emptyCache, type QueueItem } from "./types";
 
 const trip = (over: Partial<Trip> = {}): Trip => ({
   id: "t1",
@@ -76,4 +77,40 @@ describe("inspection gate", () => {
     expect(() => assertInspectionClears(cache("blocked", "2026-10-02"), "v1", at)).toThrow(
       /critical fault/,
     ));
+});
+
+describe("displayBalance", () => {
+  const withFloat = (cents: number) => ({
+    ...emptyCache(),
+    float: { balance_cents: cents, received_cents: cents, recent: [] },
+  });
+  const queued = (
+    type: QueueItem["type"],
+    amount: number,
+    status: QueueItem["status"] = "queued",
+  ): QueueItem => ({
+    id: `${type}${amount}${status}`,
+    type,
+    payload: { amount_cents: amount },
+    capturedAt: at,
+    photoIds: [],
+    status,
+    attempts: 0,
+  });
+  it("is unknown until a balance has been downloaded", () =>
+    expect(displayBalance(emptyCache(), [])).toBeNull());
+  it("takes expenses that are still waiting off the balance", () =>
+    expect(
+      displayBalance(withFloat(300000), [
+        queued("expense.add", 50000),
+        queued("expense.add", 20000),
+      ]),
+    ).toBe(230000));
+  it("ignores things that are not expenses, and expenses the office refused", () =>
+    expect(
+      displayBalance(withFloat(300000), [
+        queued("fuel.add", 99999),
+        queued("expense.add", 40000, "rejected"),
+      ]),
+    ).toBe(300000));
 });

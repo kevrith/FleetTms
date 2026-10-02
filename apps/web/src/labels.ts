@@ -89,3 +89,68 @@ export const FUEL_FLAG: Record<string, string> = {
   amount_mismatch: "Litres times price does not match the amount",
   no_receipt: "No receipt photo",
 };
+
+export const EXPENSE_CATEGORY: Record<string, string> = {
+  toll: "Toll",
+  parking: "Parking",
+  food: "Food",
+  loading: "Loading and offloading",
+  police_county: "Police and county fees",
+  repair: "Repair",
+  tyres: "Tyres",
+  insurance: "Insurance",
+  licence: "Licence",
+  permit: "Permit",
+  garage: "Garage fees",
+  service: "Service",
+  overhead: "Overhead",
+  other: "Other",
+};
+export const EXPENSE_STATUS: Record<string, string> = {
+  recorded: "Counted",
+  awaiting_approval: "Waiting for owner",
+  approved: "Approved",
+  rejected: "Rejected",
+};
+export const EXPENSE_FLAG: Record<string, string> = {
+  over_limit: "Over the spend limit",
+  unusual_for_route: "Unusual for this route",
+  no_receipt: "No receipt or M-Pesa code",
+};
+export const PRIORITY: Record<string, string> = {
+  urgent: "Urgent",
+  high: "High",
+  normal: "Normal",
+  low: "Low",
+};
+export const WO_STATUS: Record<string, string> = {
+  open: "Open",
+  in_progress: "In progress",
+  waiting_parts: "Waiting for parts",
+  done: "Done",
+  cancelled: "Cancelled",
+};
+export const DUE_STATUS: Record<string, string> = {
+  ok: "On track",
+  due_soon: "Due soon",
+  overdue: "Overdue",
+  inactive: "Not in use",
+};
+export const RECON_STATUS: Record<string, string> = {
+  open: "Not submitted",
+  submitted: "Waiting for approval",
+  approved: "Approved",
+  rejected: "Sent back",
+};
+export const ROLE_NAMES: Record<string, string> = {
+  driver: "Driver",
+  turnboy: "Turnboy",
+  supervisor: "Supervisor",
+  manager: "Manager",
+  accountant: "Accountant",
+  workshop: "Workshop",
+};
+export const kes = (cents: number) =>
+  `KES ${(cents / 100).toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+export const todayIso = () =>
+  new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Nairobi" });

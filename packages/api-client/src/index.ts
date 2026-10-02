@@ -4,9 +4,12 @@ import type {
   ComplianceDocument,
   CrewAssignment,
   CrewRole,
+  Dashboard,
   Depot,
   DeviceReport,
   DocumentInput,
+  Expense,
+  ExpenseInput,
   FloatTransfer,
   FuelEntry,
   FuelInput,
@@ -17,6 +20,7 @@ import type {
   InviteInput,
   Me,
   MyFloat,
+  MySheet,
   MyVehicle,
   Party,
   PartyInput,
@@ -25,7 +29,15 @@ import type {
   PhotoUpload,
   ProfileInput,
   ReadingInput,
+  Reconciliation,
+  ReconciliationDetail,
+  ReportSummary,
   Role,
+  RouteCost,
+  ServiceHistory,
+  ServiceInput,
+  ServiceSchedule,
+  SpendLimit,
   SignupInput,
   StaffMember,
   StaffProfile,
@@ -39,6 +51,7 @@ import type {
   Vehicle,
   VehicleInput,
   VehicleTrust,
+  WorkOrder,
 } from "@fleettms/types";
 
 /** Where tokens live. Web uses localStorage, mobile uses the secure keystore. */
@@ -171,6 +184,23 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
       business_id?: string;
       device_label?: string;
     }) => startSession(await request<TokenResponse>("POST", "/auth/otp/verify", input, false)),
+    /** Sign in with the PIN and the secret this phone was given when quick sign-in was turned on. */
+    quickLogin: async (input: {
+      phone: string;
+      device_id: string;
+      device_secret: string;
+      pin: string;
+      business_id?: string;
+      device_label?: string;
+    }) => startSession(await request<TokenResponse>("POST", "/auth/quick-login", input, false)),
+    quickLoginEnable: (input: { device_id: string; pin: string; device_label?: string }) =>
+      post<{ device_secret: string }>("/auth/quick-login/enable", input),
+    quickLoginDisable: (deviceId: string) =>
+      request<void>("POST", "/auth/quick-login/disable", { device_id: deviceId }),
+    quickLoginStatus: (deviceId: string) =>
+      get<{ enabled: boolean }>(
+        `/auth/quick-login/status?device_id=${encodeURIComponent(deviceId)}`,
+      ),
     acceptInvite: (token: string, password: string) =>
       request<void>("POST", "/auth/accept-invite", { token, password }, false),
     logout: async () => {
@@ -329,6 +359,86 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
       post<{ flags: string[]; server_time: string }>("/devices/integrity", report),
     sync: (actions: SyncAction[], device?: DeviceReport) =>
       post<SyncResponse>("/sync", { actions, device: device ?? null }),
+
+    // ---- expenses, reconciliation ----
+    expenses: (
+      params: {
+        vehicleId?: string;
+        status?: string;
+        day?: string;
+        driverMembershipId?: string;
+      } = {},
+    ) => {
+      const q = new URLSearchParams();
+      if (params.vehicleId) q.set("vehicle_id", params.vehicleId);
+      if (params.status) q.set("status_filter", params.status);
+      if (params.day) q.set("day", params.day);
+      if (params.driverMembershipId) q.set("driver_membership_id", params.driverMembershipId);
+      const qs = q.toString();
+      return get<Expense[]>(`/expenses${qs ? `?${qs}` : ""}`);
+    },
+    myExpenses: () => get<Expense[]>("/me/expenses"),
+    addExpense: (input: ExpenseInput) => post<Expense>("/expenses", input),
+    decideExpense: (id: string, approve: boolean, note?: string) =>
+      post<Expense>(`/expenses/${id}/decision`, { approve, note: note ?? null }),
+    spendLimits: () => get<SpendLimit[]>("/spend-limits"),
+    setSpendLimits: (limits: SpendLimit[]) =>
+      request<SpendLimit[]>(
+        "PUT",
+        "/spend-limits",
+        limits.map(({ category, role, limit_cents }) => ({ category, role, limit_cents })),
+      ),
+    routeCosts: () => get<RouteCost[]>("/route-costs"),
+    addRouteCost: (input: Omit<RouteCost, "id">) => post<RouteCost>("/route-costs", input),
+    deleteRouteCost: (id: string) => request<void>("DELETE", `/route-costs/${id}`),
+    mySheet: (day?: string) => get<MySheet>(`/me/reconciliation${day ? `?day=${day}` : ""}`),
+    submitSheet: (day?: string) =>
+      post<Reconciliation>("/me/reconciliation/submit", day ? { day } : {}),
+    reconciliations: (status?: string) =>
+      get<Reconciliation[]>(`/reconciliations${status ? `?status_filter=${status}` : ""}`),
+    reconciliation: (id: string) => get<ReconciliationDetail>(`/reconciliations/${id}`),
+    approveReconciliation: (
+      id: string,
+      balanceAction: "carry_forward" | "returned",
+      note?: string,
+    ) =>
+      post<Reconciliation>(`/reconciliations/${id}/approve`, {
+        balance_action: balanceAction,
+        note: note ?? null,
+      }),
+    rejectReconciliation: (id: string, note: string) =>
+      post<Reconciliation>(`/reconciliations/${id}/reject`, { note }),
+
+    // ---- workshop and service ----
+    workOrders: (params: { openOnly?: boolean; vehicleId?: string } = {}) => {
+      const q = new URLSearchParams();
+      if (params.openOnly) q.set("open_only", "true");
+      if (params.vehicleId) q.set("vehicle_id", params.vehicleId);
+      const qs = q.toString();
+      return get<WorkOrder[]>(`/work-orders${qs ? `?${qs}` : ""}`);
+    },
+    createWorkOrder: (input: {
+      vehicle_id: string;
+      title: string;
+      description?: string | null;
+      priority?: string;
+    }) => post<WorkOrder>("/work-orders", input),
+    updateWorkOrder: (id: string, input: Record<string, unknown>) =>
+      request<WorkOrder>("PUT", `/work-orders/${id}`, input),
+    completeWorkOrder: (
+      id: string,
+      input: { odometer_km?: number | null; labour_cents?: number | null; notes?: string | null },
+    ) => post<WorkOrder>(`/work-orders/${id}/complete`, input),
+    serviceSchedules: (dueOnly = false) =>
+      get<ServiceSchedule[]>(`/service-schedules${dueOnly ? "?due_only=true" : ""}`),
+    vehicleServices: (vehicleId: string) => get<ServiceHistory>(`/vehicles/${vehicleId}/services`),
+    addServiceSchedule: (vehicleId: string, input: ServiceInput) =>
+      post<ServiceSchedule>(`/vehicles/${vehicleId}/services`, input),
+
+    // ---- dashboard and reports ----
+    dashboard: () => get<Dashboard>("/dashboard"),
+    reportSummary: (from: string, to: string) =>
+      get<ReportSummary>(`/reports/summary?from=${from}&to=${to}`),
 
     // ---- audit, privacy, support ----
     audit: (params: { action?: string; limit?: number; offset?: number } = {}) => {

@@ -1,15 +1,24 @@
 import type {
   ChecklistItem,
+  ExpenseCategory,
   FuelEntry,
   InspectionStatus,
   MyFloat,
+  MySheet,
   MyVehicle,
   PhotoKind,
   Trip,
 } from "@fleettms/types";
 
 export type ActionType =
-  "inspection.submit" | "trip.start" | "trip.loading" | "trip.deliver" | "trip.end" | "fuel.add";
+  | "inspection.submit"
+  | "trip.start"
+  | "trip.loading"
+  | "trip.deliver"
+  | "trip.end"
+  | "fuel.add"
+  | "expense.add"
+  | "reconciliation.submit";
 
 /** A photo taken on the phone, kept encrypted until it has been uploaded. */
 export interface LocalPhoto {
@@ -49,6 +58,17 @@ export type LocalFuel = Pick<
   synced: boolean;
 };
 
+/** An expense as the driver sees it: waiting to be sent, or as the office has it. */
+export interface LocalExpense {
+  clientId: string;
+  category: ExpenseCategory;
+  amount_cents: number;
+  note: string | null;
+  status: "waiting" | "recorded" | "awaiting_approval" | "approved" | "rejected";
+  flags: string[];
+  spent_at: string;
+}
+
 /** What the phone shows when there is no network: the last thing the server said, plus what the driver has done since. */
 export interface DriverCache {
   vehicle: MyVehicle | null;
@@ -57,6 +77,9 @@ export interface DriverCache {
   inspection: { vehicleId: string; day: string; status: InspectionStatus } | null;
   float: MyFloat | null;
   fuel: LocalFuel[];
+  expenses: LocalExpense[];
+  /** Today's float sheet as the office last saw it. */
+  sheet: MySheet | null;
   refreshedAt: string | null;
 }
 
@@ -80,5 +103,7 @@ export const emptyCache = (): DriverCache => ({
   inspection: null,
   float: null,
   fuel: [],
+  expenses: [],
+  sheet: null,
   refreshedAt: null,
 });

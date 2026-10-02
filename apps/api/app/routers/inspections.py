@@ -24,6 +24,7 @@ from app.models import (
 from app.photos import claim_photo, photo_out
 from app.reminders import NAIROBI, nairobi_today
 from app.routers.vehicles import get_vehicle
+from app.routers.workshop import work_order_from_defect
 from app.vehicle_scope import vehicle_in_scope
 
 router = APIRouter(tags=["inspections"])
@@ -257,6 +258,9 @@ async def do_submit_inspection(
             )
         )  # fmt: skip
     db.add_all(defects)
+    await db.flush()
+    for defect in defects:
+        await work_order_from_defect(db, defect, vehicle, principal.user.id)  # a defect becomes a work order at once
     audit.record(
         db, actor_user_id=principal.user.id, action="inspection.submitted", entity_type="inspection",
         entity_id=inspection.id,
