@@ -44,7 +44,7 @@ def _out(m: Membership) -> dict:
         "vehicle_scope": next((r.vehicle_scope for r in m.roles if r.role == Role.SUPERVISOR), None),
         "depot_id": m.depot_id,
         "status": m.status.value,
-        "two_factor_enabled": m.user.totp_enabled,
+        "two_factor_enabled": m.user.totp_enabled or m.user.sms_2fa_enabled,
     }
 
 

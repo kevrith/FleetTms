@@ -56,7 +56,13 @@ export default function Security() {
       <Card title="Your sign-in">
         <p>
           <ShieldCheck size={18} /> Two-step verification:{" "}
-          <strong>{me?.two_factor_enabled ? "On" : "Off"}</strong>
+          <strong>
+            {me?.two_factor_enabled
+              ? me.two_factor_method === "sms"
+                ? "On (text message)"
+                : "On (authenticator app)"
+              : "Off"}
+          </strong>
         </p>
         <button className="btn" onClick={signOutEverywhere}>
           <LogOut size={18} /> Sign out of all devices

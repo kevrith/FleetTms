@@ -143,6 +143,7 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
       identifier: string;
       password: string;
       totp_code?: string;
+      sms_code?: string;
       business_id?: string;
       device_label?: string;
     }) => startSession(await request<TokenResponse>("POST", "/auth/login", input, false)),
@@ -177,6 +178,8 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
       }),
     twoFactorSetup: () => post<{ secret: string; otpauth_uri: string }>("/auth/2fa/setup"),
     twoFactorConfirm: (code: string) => post<void>("/auth/2fa/confirm", { code }),
+    smsTwoFactorSetup: () => post<{ message: string }>("/auth/2fa/sms/setup"),
+    smsTwoFactorConfirm: (code: string) => post<void>("/auth/2fa/sms/confirm", { code }),
 
     // ---- people and places ----
     users: () => get<StaffMember[]>("/users"),

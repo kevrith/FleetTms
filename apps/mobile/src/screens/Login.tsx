@@ -87,7 +87,7 @@ function StaffLogin() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [totp, setTotp] = useState("");
-  const [needsCode, setNeedsCode] = useState(false);
+  const [step, setStep] = useState<null | "totp" | "sms">(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -98,13 +98,18 @@ function StaffLogin() {
       await api.login({
         identifier,
         password,
-        totp_code: needsCode ? totp : undefined,
+        totp_code: step === "totp" ? totp : undefined,
+        sms_code: step === "sms" ? totp : undefined,
         device_label: "FleetTms mobile",
       });
       await reload();
     } catch (e) {
-      if (e instanceof ApiError && e.code === "two_factor_required") setNeedsCode(true);
-      else setError(errorMessage(e));
+      if (e instanceof ApiError && e.code === "two_factor_required") setStep("totp");
+      else if (e instanceof ApiError && e.code === "sms_code_required") {
+        setStep("sms");
+        setTotp("");
+        setError(e.message);
+      } else setError(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -126,9 +131,9 @@ function StaffLogin() {
         secureTextEntry
         autoCapitalize="none"
       />
-      {needsCode && (
+      {step && (
         <Input
-          label="Code from your authenticator app"
+          label={step === "sms" ? "Code we texted you" : "Code from your authenticator app"}
           value={totp}
           onChangeText={setTotp}
           keyboardType="number-pad"
@@ -138,7 +143,7 @@ function StaffLogin() {
       )}
       <ErrorText message={error} />
       <Button
-        label={needsCode ? "Verify and sign in" : "Sign in"}
+        label={step ? "Verify and sign in" : "Sign in"}
         onPress={submit}
         busy={busy}
         disabled={!identifier || !password}

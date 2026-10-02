@@ -46,6 +46,7 @@ export interface Me {
   support_access: boolean;
   mfa_setup_required: boolean;
   two_factor_enabled: boolean;
+  two_factor_method: "totp" | "sms" | null;
   pending_documents: PendingDocument[];
 }
 

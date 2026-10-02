@@ -11,13 +11,21 @@ from app.models import (
     Document,
     Membership,
     MembershipStatus,
+    OtpChallenge,
     PolicyAcceptance,
     Role,
     RoleAssignment,
     User,
 )
 from app.permissions import MFA_REQUIRED_ROLES, OTP_ONLY_ROLES
-from app.security import create_access_token, new_secret_token, sha256
+from app.security import (
+    constant_time_equals,
+    create_access_token,
+    new_otp_code,
+    new_secret_token,
+    sha256,
+)
+from app.sms import get_sms_sender
 
 
 def now() -> datetime:
@@ -42,6 +50,56 @@ async def memberships_of(db: AsyncSession, user_id: uuid.UUID) -> dict[uuid.UUID
         if role is not None:
             entry["roles"].add(role)
     return companies
+
+
+def has_two_factor(user: User) -> bool:
+    return user.totp_enabled or user.sms_2fa_enabled
+
+
+async def send_sms_challenge(db: AsyncSession, phone: str, purpose: str) -> None:
+    """Texts a one-time code, unless one was sent within the resend window. The caller commits."""
+    moment = now()
+    recent = (
+        await db.execute(
+            select(OtpChallenge.id).where(
+                OtpChallenge.phone == phone,
+                OtpChallenge.purpose == purpose,
+                OtpChallenge.created_at > moment - timedelta(seconds=settings.otp_resend_seconds),
+            )
+        )
+    ).first()
+    if recent:
+        return
+    code = new_otp_code()
+    db.add(
+        OtpChallenge(
+            phone=phone,
+            purpose=purpose,
+            code_hash=sha256(f"{phone}:{code}"),
+            expires_at=moment + timedelta(minutes=settings.otp_ttl_minutes),
+        )
+    )
+    await db.flush()
+    await get_sms_sender().send(phone, f"Your FleetTms code is {code}. It expires in {settings.otp_ttl_minutes} minutes.")
+
+
+async def check_sms_challenge(db: AsyncSession, phone: str, purpose: str, code: str) -> bool:
+    """True if the code matches the latest unused challenge for this purpose. The caller commits."""
+    challenge = (
+        await db.execute(
+            select(OtpChallenge)
+            .where(OtpChallenge.phone == phone, OtpChallenge.purpose == purpose, OtpChallenge.consumed_at.is_(None))
+            .order_by(OtpChallenge.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if challenge is None or challenge.expires_at <= now() or challenge.attempts >= settings.otp_max_attempts:
+        return False
+    challenge.attempts += 1
+    if not constant_time_equals(challenge.code_hash, sha256(f"{phone}:{code}")):
+        return False
+    challenge.consumed_at = now()
+    return True
 
 
 def requires_mfa(user: User, roles: set[Role]) -> bool:

@@ -122,6 +122,8 @@ class User(Base):
     password_hash: Mapped[str | None] = mapped_column(String(255))
     totp_secret: Mapped[str | None] = mapped_column(String(64))
     totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # SMS code as the second step, instead of an authenticator app. Never both.
+    sms_2fa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     is_platform_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     failed_attempts: Mapped[int] = mapped_column(Integer, default=0)
@@ -150,6 +152,8 @@ class OtpChallenge(Base):
     __tablename__ = "otp_challenges"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
     phone: Mapped[str] = mapped_column(String(20), index=True)
+    # login: driver sign-in. sms_setup / second_step: SMS two-step verification. Codes never cross purposes.
+    purpose: Mapped[str] = mapped_column(String(20), default="login", server_default="login")
     code_hash: Mapped[str] = mapped_column(String(64))
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

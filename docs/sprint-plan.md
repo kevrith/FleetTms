@@ -140,7 +140,7 @@ Keep a project guide at the root of the repository (`PROJECT_GUIDE.md`) and read
   - [x] Users and role assignments: Owner, Manager, Supervisor, Accountant, Driver, Turnboy, Workshop/Storekeeper, **Lessor** placeholder. Multiple roles per user; supervisor scope by assigned vehicles. *All roles and multi-role work. Supervisor `vehicle_scope` is enforced on vehicles, crew and documents since Sprint 2.*
   - [x] **One login, several companies**, with a company switcher.
   - [x] Driver login: phone + SMS one-time code (fake SMS sender in development).
-  - [ ] Owner/staff login: email or phone + password + two-step verification. *Password and authenticator-app (TOTP) two-step done. SMS as a second-step option is not built.*
+  - [x] Owner/staff login: email or phone + password + two-step verification. *Authenticator app (TOTP) or SMS code, one or the other. SMS needs a phone number on the account; codes are single-use and tied to their purpose.*
   - [x] Sessions, logout all devices, instant access revocation.
   - [x] Permission system matching masterplan Section 3.
   - [x] **Audit log** service used by all later features. *Append-only: a database trigger rejects UPDATE and DELETE.*
@@ -177,7 +177,7 @@ Keep a project guide at the root of the repository (`PROJECT_GUIDE.md`) and read
 - [x] **Staff:** profiles, licence details, crew assignments with history. *Salary is visible and editable only with payroll access (Owner).*
 - [x] **Documents:** insurance, inspection, NTSA/TLB licences, permits, driving licences, with expiry reminders (30/14/7 days) by SMS to owners, managers and the staff member. *Records and expiry dates only: attaching a scanned copy needs the storage bucket (Sprint 0 carry-over). SMS goes through the fake sender until Africa's Talking arrives.*
 - [~] **Excel import:** vehicles and staff, with validation and an error report (all or nothing, row numbers, dry-run, downloadable templates). *Clients, suppliers and opening balances are not built: their tables do not exist yet (clients Sprint 7, suppliers and balances later). Add them to the importer when those tables arrive.*
-- [x] **Web:** vehicles list and detail (edit, crew, documents), lessors and lenders, staff page, import page, "documents needing attention" on Home. **Mobile:** owner vehicle list, driver "My vehicle" card. *Both type-check and build; not yet clicked through in a browser or on the emulator.*
+- [x] **Web:** vehicles list and detail (edit, crew, documents), lessors and lenders, staff page, import page, "documents needing attention" on Home. **Mobile:** owner vehicle list, driver "My vehicle" card. *Web driven end to end in headless Chrome (sign-up, SMS two-step, depot, lessor, leased-in vehicle, driver invite, crew, document, expiry card, bad and good Excel imports, fresh SMS sign-in). Mobile screens type-check but have not been run on the emulator.*
 - [x] **Seed data:** `python -m app.cli seed-demo` builds a Kenyan demo fleet with leased-in, asset-financed and leased-out lorries.
 
 **Acceptance criteria**
@@ -552,8 +552,8 @@ Keep a project guide at the root of the repository (`PROJECT_GUIDE.md`) and read
 | Sprint | Dates | Status | What shipped | Carried over | Notes / decisions |
 |---|---|---|---|---|---|
 | S0 | 2026-10-02 | 🟨 In progress | Monorepo, API, web, mobile shells, Docker, job queue, lint/test tooling | staging deploy, storage bucket, external applications | Ports 5442/8010/5180 |
-| S1 | 2026-10-02 | ✅ Done, with carry-overs | Tenancy, auth (OTP + password + TOTP), roles, audit log, depots, support access, web + mobile screens, draft legal docs | SMS second step; enforcing supervisor vehicle scope (needs S2 vehicles); advocate review of `docs/legal/` | Tenant isolation is ORM-level; RLS planned for S16. Dev-only: OTP codes are printed to the API console. |
-| S2 | 2026-10-02 | 🟨 Built, not yet clicked through | Vehicles, ownership, lessors/lenders, staff profiles, crew with history, documents with SMS expiry reminders, Excel import (vehicles, staff), demo seed, web pages, mobile vehicle list and My vehicle card | Import of clients, suppliers and opening balances (tables do not exist yet); document file upload (needs storage bucket); browser and emulator walk-through of the new screens | Reminders run daily at 07:00 Africa/Nairobi through the arq worker. Supervisor scope now enforced. |
+| S1 | 2026-10-02 | ✅ Done, with carry-overs | Tenancy, auth (OTP + password + TOTP or SMS second step), roles, audit log, depots, support access, web + mobile screens, draft legal docs | advocate review of `docs/legal/` | Tenant isolation is ORM-level; RLS planned for S16. Dev-only: OTP codes are printed to the API console. |
+| S2 | 2026-10-02 | 🟨 Built; mobile screens not yet run on emulator | Vehicles, ownership, lessors/lenders, staff profiles, crew with history, documents with SMS expiry reminders, Excel import (vehicles, staff), demo seed, web pages, mobile vehicle list and My vehicle card | Import of clients, suppliers and opening balances (tables do not exist yet); document file upload (needs storage bucket); emulator walk-through of the two new mobile screens | Reminders run daily at 07:00 Africa/Nairobi through the arq worker. Supervisor scope now enforced. |
 | S3 | | ⬜ | | | |
 | S4 | | ⬜ | | | |
 | S5 | | ⬜ | | | |

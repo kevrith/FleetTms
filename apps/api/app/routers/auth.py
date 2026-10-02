@@ -8,12 +8,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import audit
 from app.auth_service import (
+    check_sms_challenge,
+    has_two_factor,
     is_otp_only,
     issue_session,
     memberships_of,
     now,
     pending_documents,
     requires_mfa,
+    send_sms_challenge,
     session_lifetime,
     split_refresh_token,
 )
@@ -76,6 +79,7 @@ class LoginIn(BaseModel):
     identifier: str
     password: str
     totp_code: str | None = None
+    sms_code: str | None = None
     business_id: uuid.UUID | None = None
     device_label: str | None = None
 
@@ -216,6 +220,16 @@ async def login(body: LoginIn, db: AsyncSession = Depends(get_db)):
                 "Enter the 6-digit code from your authenticator app.",
             )
         two_factor_ok = verify_totp(user.totp_secret, body.totp_code)
+    elif user and password_ok and user.sms_2fa_enabled and user.phone:
+        if not body.sms_code:
+            await send_sms_challenge(db, user.phone, "second_step")
+            await db.commit()
+            raise error(
+                status.HTTP_401_UNAUTHORIZED,
+                "sms_code_required",
+                "We sent a 6-digit code to your phone. Enter it to finish signing in.",
+            )
+        two_factor_ok = await check_sms_challenge(db, user.phone, "second_step", body.sms_code)
 
     if user is None or not password_ok or not two_factor_ok or not user.is_active:
         if user is not None:
@@ -233,7 +247,7 @@ async def login(body: LoginIn, db: AsyncSession = Depends(get_db)):
         raise error(status.HTTP_403_FORBIDDEN, "no_access", "Your access to this company has been removed.")
     business_id = _choose_business(companies, body.business_id)
     roles = _roles_for(companies, business_id)
-    verified = user.totp_enabled or not requires_mfa(user, roles)
+    verified = has_two_factor(user) or not requires_mfa(user, roles)
     tokens = await issue_session(db, user, business_id, roles, mfa_verified=verified, device_label=body.device_label)
     if business_id is not None:
         current_business_id.set(business_id)
@@ -247,7 +261,7 @@ async def two_factor_setup(
     principal: Principal = Depends(principal_unverified), db: AsyncSession = Depends(get_db)
 ):
     user = principal.user
-    if user.totp_enabled:
+    if has_two_factor(user):
         raise error(status.HTTP_409_CONFLICT, "already_enabled", "Two-step verification is already on.")
     user.totp_secret = new_totp_secret()
     await db.commit()
@@ -261,12 +275,49 @@ async def two_factor_confirm(
     db: AsyncSession = Depends(get_db),
 ):
     user = principal.user
-    if user.totp_enabled or not verify_totp(user.totp_secret, body.code):
+    if has_two_factor(user) or not user.totp_secret or not verify_totp(user.totp_secret, body.code):
         raise error(status.HTTP_401_UNAUTHORIZED, "invalid_code", "That code is not correct. Try again.")
     user.totp_enabled = True
     principal.session.mfa_verified = True
     if principal.business_id is not None:
         audit.record(db, actor_user_id=user.id, action="auth.2fa_enabled", entity_type="user", entity_id=user.id)
+    await db.commit()
+
+
+@router.post("/2fa/sms/setup")
+async def sms_two_factor_setup(
+    principal: Principal = Depends(principal_unverified), db: AsyncSession = Depends(get_db)
+):
+    """Texts a code to the phone number on the account, to prove it is theirs before SMS becomes the second step."""
+    user = principal.user
+    if has_two_factor(user):
+        raise error(status.HTTP_409_CONFLICT, "already_enabled", "Two-step verification is already on.")
+    if not user.phone:
+        raise error(422, "phone_required", "Add a phone number to your account to use SMS codes.")
+    await send_sms_challenge(db, user.phone, "sms_setup")
+    await db.commit()
+    return {"message": "We sent a code to your phone."}
+
+
+@router.post("/2fa/sms/confirm", status_code=status.HTTP_204_NO_CONTENT)
+async def sms_two_factor_confirm(
+    body: TotpCodeIn,
+    principal: Principal = Depends(principal_unverified),
+    db: AsyncSession = Depends(get_db),
+):
+    user = principal.user
+    if has_two_factor(user) or not user.phone:
+        raise error(status.HTTP_409_CONFLICT, "already_enabled", "Two-step verification is already on.")
+    if not await check_sms_challenge(db, user.phone, "sms_setup", body.code):
+        await db.commit()  # keeps the attempt count
+        raise error(status.HTTP_401_UNAUTHORIZED, "invalid_code", "That code is not correct. Try again.")
+    user.sms_2fa_enabled = True
+    principal.session.mfa_verified = True
+    if principal.business_id is not None:
+        audit.record(
+            db, actor_user_id=user.id, action="auth.2fa_enabled", entity_type="user", entity_id=user.id,
+            note="SMS code",
+        )  # fmt: skip
     await db.commit()
 
 
@@ -289,6 +340,7 @@ async def otp_request(body: OtpRequestIn, db: AsyncSession = Depends(get_db)):
         await db.execute(
             select(OtpChallenge.id).where(
                 OtpChallenge.phone == phone,
+                OtpChallenge.purpose == "login",
                 OtpChallenge.created_at > moment - timedelta(seconds=settings.otp_resend_seconds),
             )
         )
@@ -319,7 +371,11 @@ async def otp_verify(body: OtpVerifyIn, db: AsyncSession = Depends(get_db)):
     challenge = (
         await db.execute(
             select(OtpChallenge)
-            .where(OtpChallenge.phone == phone, OtpChallenge.consumed_at.is_(None))
+            .where(
+                OtpChallenge.phone == phone,
+                OtpChallenge.purpose == "login",
+                OtpChallenge.consumed_at.is_(None),
+            )
             .order_by(OtpChallenge.created_at.desc())
             .limit(1)
         )
@@ -417,7 +473,7 @@ async def switch_company(
     session = principal.session
     session.business_id = body.business_id
     session.support_access = False
-    session.mfa_verified = principal.user.totp_enabled or not requires_mfa(principal.user, roles)
+    session.mfa_verified = has_two_factor(principal.user) or not requires_mfa(principal.user, roles)
     await db.commit()
     return {"business_id": body.business_id, "mfa_setup_required": not session.mfa_verified}
 
@@ -445,7 +501,8 @@ async def me(principal: Principal = Depends(principal_unverified), db: AsyncSess
         "is_platform_admin": user.is_platform_admin,
         "support_access": principal.support,
         "mfa_setup_required": not principal.mfa_verified,
-        "two_factor_enabled": user.totp_enabled,
+        "two_factor_enabled": has_two_factor(user),
+        "two_factor_method": "sms" if user.sms_2fa_enabled else "totp" if user.totp_enabled else None,
         "pending_documents": pending,
     }
 

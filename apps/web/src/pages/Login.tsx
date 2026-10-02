@@ -12,7 +12,7 @@ export default function Login() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
-  const [needsCode, setNeedsCode] = useState(false);
+  const [step, setStep] = useState<null | "totp" | "sms">(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -24,13 +24,18 @@ export default function Login() {
       const res = await api.login({
         identifier,
         password,
-        totp_code: needsCode ? code : undefined,
+        totp_code: step === "totp" ? code : undefined,
+        sms_code: step === "sms" ? code : undefined,
       });
       await reload();
       nav(res.mfa_setup_required ? "/two-factor" : "/", { replace: true });
     } catch (err) {
       if (err instanceof ApiError && err.code === "two_factor_required") {
-        setNeedsCode(true);
+        setStep("totp");
+      } else if (err instanceof ApiError && err.code === "sms_code_required") {
+        setStep("sms");
+        setCode("");
+        setError(err.message);
       } else {
         setError(errorMessage(err));
       }
@@ -61,8 +66,14 @@ export default function Login() {
             required
           />
         </Field>
-        {needsCode && (
-          <Field label="6-digit code from your authenticator app">
+        {step && (
+          <Field
+            label={
+              step === "sms"
+                ? "6-digit code we texted you"
+                : "6-digit code from your authenticator app"
+            }
+          >
             <input
               value={code}
               onChange={(e) => setCode(e.target.value)}
@@ -75,7 +86,7 @@ export default function Login() {
           </Field>
         )}
         <button className="btn primary" disabled={busy}>
-          <LogIn size={18} /> {needsCode ? "Verify and sign in" : "Sign in"}
+          <LogIn size={18} /> {step ? "Verify and sign in" : "Sign in"}
         </button>
         <p className="muted">
           New to FleetTms? <Link to="/signup">Create your business account</Link>

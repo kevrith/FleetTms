@@ -70,8 +70,10 @@ on the dev machine.
   append-only (database trigger). Never put secrets in the before/after snapshots.
 - **Sessions.** Short-lived access JWT plus rotating refresh token. The session row is checked on every request,
   so revoking it or removing a membership cuts access at once. Re-use of an old refresh token ends the session.
-- **Two-step verification.** Owner, manager, supervisor and accountant need an authenticator app (TOTP). Drivers
-  and turnboys sign in with phone number plus SMS code only. SMS as a second step is not built yet.
+- **Two-step verification.** Owner, manager, supervisor and accountant need a second step: an authenticator app
+  (TOTP) or an SMS code, never both (`has_two_factor()` in `app/auth_service.py`). Drivers and turnboys sign in
+  with phone number plus SMS code only. SMS codes live in `otp_challenges` with a `purpose`, so a code for one
+  purpose never works for another.
 - **Commits.** Endpoints call `await db.commit()` explicitly.
 - **Dev only.** With `ENVIRONMENT=development` the fake SMS sender prints the one-time code to the API console.
 - **Web tokens** live in localStorage for now (simple, but exposed to XSS). Revisit in Sprint 16 (httpOnly cookies).
@@ -101,10 +103,10 @@ See docs/sprint-plan.md Section 1.3.
 
 ## Current sprint
 
-Sprints 0 and 1 are done apart from carry-overs (staging, storage bucket, external applications, SMS second
-step, advocate review). Sprint 2 (vehicles, ownership, staff, crews, documents, Excel import) is built and tested
-at the API level; the web and mobile screens still need a browser and emulator walk-through. Next: finish that
-walk-through, then Sprint 3 (trips, odometer capture, pre-trip inspection).
+Sprints 0 and 1 are done apart from carry-overs (staging, storage bucket, external applications, advocate
+review). Sprint 2 (vehicles, ownership, staff, crews, documents, Excel import) is built and tested
+at the API level; the web was driven end to end in headless Chrome, and the two new mobile screens still need an emulator run. Next: the emulator
+run, then Sprint 3 (trips, odometer capture, pre-trip inspection).
 
 Create the first platform admin with `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_NAME` and `PLATFORM_ADMIN_PASSWORD`
 set in `.env`, then `cd apps/api && .venv/bin/python -m app.cli create-platform-admin`.
