@@ -136,6 +136,14 @@ on the dev machine.
   senders; with no keys in `.env` an in-memory outbox is used), `app/report_files.py` (Excel and PDF). Keys are
   `SMTP_*` and `WHATSAPP_*` in `.env.example`. Permission: `reports.schedule` (owner, manager).
 
+- **Sprint 6 (tyres, parts, incidents, SOS).** `app/routers/tyres.py` (+ `app/tyre_rules.py` for positions, km and
+  due rules), `parts.py`, `incidents.py`, `sos.py`. Tyre and parts costs are booked as expenses on the vehicle when
+  fitted or issued (completing a work order books only labour and non-store parts). The driver app sends
+  `incident.report` and `sos.send` through the sync queue; the engine sends an SOS before anything else. Tyre serials
+  are checked in `do_submit_inspection`; `/me/tyre-positions` deliberately hides the serials from drivers.
+  Permissions: tyres and parts use `workshop.manage`; `incidents.manage` (owner, manager); `sos.respond` (owner,
+  manager, supervisor).
+
 ## Testing against a real phone/emulator
 
 - API tests use a separate `fleettms_test` database that they create and migrate themselves.

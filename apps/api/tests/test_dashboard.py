@@ -190,3 +190,29 @@ async def test_a_report_can_be_downloaded_as_excel_or_pdf(client):
     pdf = await client.get("/reports/export" + q + "&format=pdf", headers=bearer(f.owner))
     assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
     assert (await client.get("/reports/export" + q, headers=bearer(f.driver))).status_code == 403
+
+
+async def test_sprint_6_alerts_reach_the_right_people_with_sos_first(client):
+    from tests.test_parts import issue, part, receive, work_order
+    from tests.test_tyres import fit, tyre
+
+    f = await fleet(client)
+    t = await tyre(client, f.owner, "A1111")
+    await fit(client, f.owner, t, f.vehicle, "steer_left")
+    from tests.test_tyres import inspect_with
+
+    await inspect_with(client, f, [{"position": "steer_left", "serial": "ZZ9999"}])
+    p = await receive(client, f.owner, await part(client, f.owner, reorder_level=5), 6, 100000)
+    wo = await work_order(client, f)
+    await issue(client, f, wo, p, 2)
+    await client.post(f"/work-orders/{wo['id']}/complete", headers=bearer(f.owner), json={})
+    await client.post("/incidents", headers=bearer(f.driver), json={"type": "accident", "description": "Hit a pothole"})
+    await client.post("/incidents", headers=bearer(f.driver), json={"type": "police_stop"})
+    await client.post("/sos", headers=bearer(f.driver), json={"lat": -1.29, "lng": 36.82})
+    owner_view = await dash(client, f.owner)
+    assert owner_view["alerts"][0]["kind"] == "sos_active" and owner_view["alerts"][0]["severity"] == "red"
+    got = kinds(owner_view)
+    for kind in ("tyre_swap", "stock_low", "parts_unfitted", "incident_open"):
+        assert kind in got, got
+    severities = {a["kind"]: a["severity"] for a in owner_view["alerts"]}
+    assert severities["tyre_swap"] == "red" and severities["stock_low"] == "amber"

@@ -21,17 +21,24 @@ from app.models import (
     ExpenseStatus,
     FloatTransfer,
     FuelEntry,
+    Incident,
     Inspection,
     InspectionStatus,
+    Membership,
+    Part,
     Priority,
     Reconciliation,
     ReconciliationStatus,
     Role,
     ServiceSchedule,
+    SosAlert,
     Trip,
     TripStatus,
+    TyreSwapAlert,
     Vehicle,
     WorkOrder,
+    WorkOrderPart,
+    WorkOrderStatus,
 )
 from app.reminders import NAIROBI, nairobi_today
 from app.report_files import report_pdf, report_xlsx
@@ -125,8 +132,33 @@ async def dashboard(
         waiting_rec = (await db.execute(query)).scalars().all()
         if waiting_rec:
             alerts.append(alert("reconciliation_waiting", "amber", f"{len(waiting_rec)} daily reconciliation{'s' if len(waiting_rec) != 1 else ''} waiting for approval", "", "/expenses/reconciliation"))
+    if "sos.respond" in perms:
+        names = {m.id: m.user.name for m in (await db.execute(select(Membership))).scalars()}
+        for a in (await db.execute(select(SosAlert).where(SosAlert.status != "resolved").order_by(SosAlert.received_at))).scalars():
+            if principal.vehicle_scope is not None and str(a.vehicle_id) not in principal.vehicle_scope:
+                continue
+            who = names.get(a.driver_membership_id, "A driver")
+            reg = f" ({vehicles[a.vehicle_id].registration})" if a.vehicle_id in vehicles else ""
+            alerts.append(alert("sos_active", "red", f"SOS: {who}{reg} needs help", "Someone has answered." if a.acknowledged_at else "Nobody has answered yet.", "/incidents/sos"))
+    if "vehicles.view" in perms or "workshop.manage" in perms:
+        for t in (await db.execute(select(TyreSwapAlert).where(TyreSwapAlert.status == "open"))).scalars():
+            if t.vehicle_id in vehicles:
+                alerts.append(alert("tyre_swap", "red", f"{vehicles[t.vehicle_id].registration}: possible tyre swap at {t.position.replace('_', ' ')}", f"Recorded {t.expected_serial or 'nothing'}, driver read {t.seen_serial}.", "/workshop/tyres"))
+    if "workshop.manage" in perms:
+        low = [p for p in (await db.execute(select(Part).where(Part.is_active.is_(True), Part.reorder_level > 0, Part.quantity <= Part.reorder_level))).scalars()]
+        if low:
+            alerts.append(alert("stock_low", "amber", f"{len(low)} part{'s' if len(low) != 1 else ''} low on stock", ", ".join(p.name for p in low[:4]), "/workshop/parts"))
+        closed_orders = {w.id for w in (await db.execute(select(WorkOrder.id).where(WorkOrder.status.not_in((WorkOrderStatus.OPEN, WorkOrderStatus.IN_PROGRESS, WorkOrderStatus.WAITING_PARTS))))).all()}
+        unfitted = [r for r in (await db.execute(select(WorkOrderPart).where(WorkOrderPart.part_id.is_not(None), WorkOrderPart.fitted.is_(False)))).scalars() if r.work_order_id in closed_orders]
+        if unfitted:
+            alerts.append(alert("parts_unfitted", "amber", f"{len(unfitted)} issued part{'s' if len(unfitted) != 1 else ''} on finished work never marked as fitted", "Check the parts really went on the vehicle.", "/workshop/parts"))
+    if "incidents.manage" in perms:
+        for i in (await db.execute(select(Incident).where(Incident.status == "open").order_by(Incident.occurred_at.desc()).limit(20))).scalars():
+            reg = vehicles[i.vehicle_id].registration if i.vehicle_id in vehicles else "A vehicle"
+            red = i.type.value in ("accident", "cargo_theft")
+            alerts.append(alert("incident_open", "red" if red else "amber", f"{reg}: {i.type.value.replace('_', ' ')} reported", (i.description or "")[:120], f"/incidents/view/{i.id}"))
     order = {"red": 0, "amber": 1}
-    alerts.sort(key=lambda a: order[a["severity"]])
+    alerts.sort(key=lambda a: (order[a["severity"]], a["kind"] != "sos_active"))  # an SOS is always first
     open_defects = int((await db.execute(select(func.count()).select_from(Defect).where(Defect.status != "fixed", Defect.vehicle_id.in_(vids)))).scalar_one()) if "vehicles.view" in perms else None
     return {"numbers": numbers, "alerts": alerts, "open_defects": open_defects}
 

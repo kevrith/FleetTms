@@ -37,6 +37,8 @@ ALL = {
     "reports.view",
     "reports.schedule",
     "workshop.manage",
+    "incidents.manage",
+    "sos.respond",
     "lease.view_own",
 }
 
@@ -64,6 +66,8 @@ ROLE_PERMISSIONS: dict[Role, set[str]] = {
         "reports.view",
         "reports.schedule",
         "workshop.manage",
+        "incidents.manage",
+        "sos.respond",
     },
     # Assigned vehicles only (enforced by vehicle_scope); no company-wide finances or payroll.
     Role.SUPERVISOR: {
@@ -74,6 +78,7 @@ ROLE_PERMISSIONS: dict[Role, set[str]] = {
         "reconciliations.approve",
         "approvals.approve",
         "livemap.view",
+        "sos.respond",
     },
     # Money only: no live map, no editing trips, no user management.
     Role.ACCOUNTANT: {

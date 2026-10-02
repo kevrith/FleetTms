@@ -99,7 +99,7 @@ export function createSyncEngine(deps: {
     return "ok";
   }
 
-  async function sendActions(): Promise<{
+  async function sendActions(only?: (i: QueueItem) => boolean): Promise<{
     outcome: "ok" | "offline" | "signed_out";
     applied: number;
     rejected: number;
@@ -108,7 +108,10 @@ export function createSyncEngine(deps: {
     const ready = store
       .get()
       .queue.filter(
-        (i) => i.status === "queued" && i.photoIds.every((id) => store.get().photos[id]?.uploaded),
+        (i) =>
+          i.status === "queued" &&
+          (only?.(i) ?? true) &&
+          i.photoIds.every((id) => store.get().photos[id]?.uploaded),
       )
       .slice(0, BATCH);
     const device = await deps.device();
@@ -181,6 +184,14 @@ export function createSyncEngine(deps: {
     if (!(await deps.isOnline())) return { status: "offline" };
     let applied = 0;
     let rejected = 0;
+    // An SOS never waits behind photo uploads or other records.
+    if (store.get().queue.some((i) => i.type === "sos.send" && i.status === "queued")) {
+      const urgent = await sendActions((i) => i.type === "sos.send");
+      if (urgent.outcome !== "ok")
+        return urgent.outcome === "offline" ? { status: "offline" } : { status: "signed_out" };
+      applied += urgent.applied;
+      rejected += urgent.rejected;
+    }
     for (let round = 0; round < 20; round++) {
       const photos = await uploadPhotos();
       if (photos !== "ok")

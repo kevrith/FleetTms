@@ -178,6 +178,67 @@ describe("sync engine", () => {
     expect(server.refreshes).toBe(1);
   });
 
+  it("sends an SOS first, ahead of photo uploads and the rest of the queue", async () => {
+    const { store, server, engine } = await setup();
+    await queueMorning(store);
+    await store.enqueue({
+      type: "sos.send",
+      payload: { lat: -1.29, lng: 36.82 },
+      capturedAt: "2026-10-02T07:00:00Z",
+      photoIds: [],
+    });
+    expect(await engine.run()).toMatchObject({ status: "done", applied: 4, waiting: 0 });
+    expect(server.syncCalls[0]!.map((a) => a.type)).toEqual(["sos.send"]);
+    expect(server.syncCalls[0]![0]!.payload.captured_at).toBe("2026-10-02T07:00:00Z");
+    expect(server.syncCalls[1]!.map((a) => a.type)).toEqual([
+      "inspection.submit",
+      "trip.start",
+      "fuel.add",
+    ]);
+  });
+
+  it("an SOS pressed with no network waits and goes the moment there is one", async () => {
+    const { store, server, engine, goOffline, goOnline } = await setup();
+    await store.enqueue({
+      type: "sos.send",
+      payload: { lat: null, lng: null },
+      capturedAt: "2026-10-02T07:00:00Z",
+      photoIds: [],
+    });
+    goOffline();
+    expect((await engine.run()).status).toBe("offline");
+    expect(store.get().queue).toHaveLength(1);
+    goOnline();
+    expect(await engine.run()).toMatchObject({ status: "done", applied: 1 });
+    expect(server.syncCalls).toHaveLength(1);
+  });
+
+  it("carries an incident report with its photo and the time it happened", async () => {
+    const { store, server, engine } = await setup();
+    const photo = await store.addPhoto(bytes("jpeg"), {
+      kind: "incident",
+      capturedAt: "2026-10-02T09:00:00Z",
+      lat: -1.3,
+      lng: 36.9,
+    });
+    await store.enqueue({
+      type: "incident.report",
+      payload: {
+        type: "breakdown",
+        occurred_at: "2026-10-02T09:00:05Z",
+        photo_client_ids: [photo.clientId],
+      },
+      capturedAt: "2026-10-02T09:00:05Z",
+      photoIds: [photo.clientId],
+    });
+    expect(await engine.run()).toMatchObject({ status: "done", applied: 1 });
+    expect(server.photos.has(photo.clientId)).toBe(true);
+    expect(server.syncCalls[0]![0]).toMatchObject({
+      type: "incident.report",
+      payload: { type: "breakdown", occurred_at: "2026-10-02T09:00:05Z" },
+    });
+  });
+
   it("is safe to run again: a second run sends nothing new", async () => {
     const { store, server, engine } = await setup();
     await queueMorning(store);

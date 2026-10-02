@@ -91,8 +91,10 @@ def work_order_out(wo: WorkOrder) -> dict:
         "status": wo.status.value, "assignee_kind": wo.assignee_kind, "assignee_name": wo.assignee_name,
         "labour_cents": wo.labour_cents, "parts_cents": parts_total(wo), "total_cents": wo.labour_cents + parts_total(wo),
         "parts": [
-            {"id": p.id, "name": p.name, "quantity": p.quantity, "unit_cost_cents": p.unit_cost_cents} for p in wo.parts
+            {"id": p.id, "name": p.name, "quantity": p.quantity, "unit_cost_cents": p.unit_cost_cents, "part_id": p.part_id, "fitted": p.fitted}
+            for p in wo.parts
         ],
+        "unfitted_parts": sum(1 for p in wo.parts if p.part_id and not p.fitted),
         "odometer_km": wo.odometer_km, "opened_at": wo.opened_at, "completed_at": wo.completed_at,
     }  # fmt: skip
 
@@ -118,6 +120,14 @@ async def _get_wo(db: AsyncSession, principal: Principal, wo_id: uuid.UUID) -> W
     return wo
 
 
+@router.get("/workshop/vehicles")
+async def workshop_vehicles(principal: Principal = Depends(require_any(*WRITE)), db: AsyncSession = Depends(get_db)):
+    """Just enough about each vehicle for workshop screens (which vehicle, what odometer), for staff who cannot see the
+    full vehicle list."""
+    rows = (await db.execute(select(Vehicle).order_by(Vehicle.registration))).scalars()
+    return [{"id": v.id, "registration": v.registration, "make": v.make, "model": v.model, "odometer_km": v.odometer_km} for v in rows]
+
+
 # ---- Work orders -----------------------------------------------------------------------------------
 
 
@@ -138,7 +148,8 @@ async def list_work_orders(
         query = query.where(WorkOrder.status.in_(OPEN))
     if vehicle_id:
         query = query.where(WorkOrder.vehicle_id == vehicle_id)
-    return [work_order_out(w) for w in (await db.execute(query)).scalars()]
+    plates = {v.id: v.registration for v in (await db.execute(select(Vehicle))).scalars()}
+    return [work_order_out(w) | {"registration": plates.get(w.vehicle_id)} for w in (await db.execute(query)).scalars()]
 
 
 @router.get("/work-orders/{wo_id}")
@@ -186,7 +197,8 @@ async def update_work_order(
             if defect:
                 defect.status = "open"
     if body.parts is not None:
-        wo.parts.clear()
+        for old in [p for p in wo.parts if p.part_id is None]:  # parts issued from the store are changed by returning them
+            wo.parts.remove(old)
         await db.flush()
         wo.parts.extend(WorkOrderPart(name=p.name, quantity=p.quantity, unit_cost_cents=p.unit_cost_cents) for p in body.parts)
     audit.record(db, actor_user_id=principal.user.id, action="work_order.updated", entity_type="work_order", entity_id=wo.id, before=before, after={"status": wo.status.value, "assignee": wo.assignee_name})
@@ -213,12 +225,14 @@ async def complete_work_order(
         wo.description = f"{wo.description}\n\n{body.notes}" if wo.description else body.notes
     vehicle.odometer_km = max(vehicle.odometer_km, wo.odometer_km)
     total = wo.labour_cents + parts_total(wo)
+    # Parts issued from the store were charged to the vehicle when they were issued; only the rest is booked now.
+    to_book = wo.labour_cents + sum(p.quantity * p.unit_cost_cents for p in wo.parts if p.part_id is None)
     is_service = wo.source == WorkOrderSource.SERVICE
-    if total > 0:
+    if to_book > 0:
         db.add(
             Expense(
                 vehicle_id=vehicle.id, work_order_id=wo.id,
-                category=ExpenseCategory.SERVICE if is_service else ExpenseCategory.REPAIR, amount_cents=total,
+                category=ExpenseCategory.SERVICE if is_service else ExpenseCategory.REPAIR, amount_cents=to_book,
                 note=wo.title[:255], status=ExpenseStatus.RECORDED, spent_at=now, created_by_user_id=principal.user.id,
             )
         )  # fmt: skip

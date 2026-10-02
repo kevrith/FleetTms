@@ -23,6 +23,7 @@ from app.models import (
 )
 from app.photos import claim_photo, photo_out
 from app.reminders import NAIROBI, nairobi_today
+from app.routers.tyres import SerialIn, check_serials
 from app.routers.vehicles import get_vehicle
 from app.routers.workshop import work_order_from_defect
 from app.vehicle_scope import vehicle_in_scope
@@ -61,6 +62,7 @@ class ResultIn(BaseModel):
 
 class InspectionIn(BaseModel):
     results: list[ResultIn] = Field(min_length=1)
+    tyre_serials: list[SerialIn] = Field(default_factory=list, max_length=30)  # what the driver read off each tyre
     notes: str | None = Field(default=None, max_length=1000)
     captured_at: datetime | None = None  # when the driver did it; missing means now
 
@@ -261,6 +263,12 @@ async def do_submit_inspection(
     await db.flush()
     for defect in defects:
         await work_order_from_defect(db, defect, vehicle, principal.user.id)  # a defect becomes a work order at once
+    swaps = await check_serials(db, vehicle, inspection.id, body.tyre_serials)
+    for swap in swaps:
+        audit.record(
+            db, actor_user_id=principal.user.id, action="tyre.swap_suspected", entity_type="tyre_swap_alert",
+            entity_id=swap.id, after={"position": swap.position, "expected": swap.expected_serial, "seen": swap.seen_serial},
+        )  # fmt: skip
     audit.record(
         db, actor_user_id=principal.user.id, action="inspection.submitted", entity_type="inspection",
         entity_id=inspection.id,

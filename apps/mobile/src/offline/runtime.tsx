@@ -4,7 +4,7 @@ import {
   nairobiDay,
   normalizeMpesaCode,
 } from "@fleettms/business-rules";
-import type { DeviceReport, ExpenseCategory } from "@fleettms/types";
+import type { DeviceReport, ExpenseCategory, IncidentType } from "@fleettms/types";
 import NetInfo from "@react-native-community/netinfo";
 import Constants from "expo-constants";
 import * as Crypto from "expo-crypto";
@@ -83,13 +83,15 @@ const realApi: EngineApi = {
   uploadPhoto: (file, meta) => api.uploadPhoto(file, meta as never),
   sync: (actions, device) => api.sync(actions, device),
   async refresh() {
-    const [vehicle, trips, checklist, float, sheet, spent] = await Promise.all([
+    const [vehicle, trips, checklist, float, sheet, spent, tyres, mySos] = await Promise.all([
       api.myVehicle(),
       api.myTrips(),
       api.checklist(),
       api.myFloat().catch(() => null),
       api.mySheet().catch(() => null),
       api.myExpenses().catch(() => []),
+      api.myTyrePositions().catch(() => null),
+      api.mySos().catch(() => null),
     ]);
     const trip = trips[0] ?? null;
     const vehicleId = trip?.vehicle_id ?? vehicle?.vehicle.id;
@@ -113,7 +115,17 @@ const realApi: EngineApi = {
       flags: e.flags,
       spent_at: e.spent_at,
     }));
-    return { vehicle, trip, checklist, inspection, float, sheet, expenses };
+    return {
+      vehicle,
+      trip,
+      checklist,
+      inspection,
+      float,
+      sheet,
+      expenses,
+      tyrePositions: tyres?.positions ?? [],
+      sos: mySos ? { id: mySos.id, acknowledged: mySos.acknowledged, sentAt: mySos.sent_at } : null,
+    };
   },
 };
 
@@ -159,6 +171,13 @@ export interface ExpenseFormInput {
   mpesaCode: string;
   receipt: LocalPhoto | null;
 }
+export interface IncidentFormInput {
+  type: IncidentType;
+  description: string;
+  photo: LocalPhoto | null;
+  lat: number | null;
+  lng: number | null;
+}
 export interface FuelFormInput {
   vehicleId: string;
   tripId: string | null;
@@ -182,7 +201,13 @@ interface Offline {
   submitInspection: (
     vehicleId: string,
     answers: InspectionAnswerInput[],
+    tyreSerials?: { position: string; serial: string }[],
   ) => Promise<"passed" | "passed_with_defects" | "blocked">;
+  reportIncident: (input: IncidentFormInput) => Promise<void>;
+  /** Raises an SOS now. It is sent at once if there is a network, and the moment there is one if not. */
+  sendSos: (
+    position: { lat: number; lng: number; accuracy_m: number | null } | null,
+  ) => Promise<void>;
   startTrip: (photo: LocalPhoto, value: number) => Promise<void>;
   recordLoading: (photo: LocalPhoto) => Promise<void>;
   markDelivered: () => Promise<void>;
@@ -290,7 +315,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
         return photo;
       },
 
-      async submitInspection(vehicleId, answers) {
+      async submitInspection(vehicleId, answers, tyreSerials = []) {
         const at = nowIso();
         const outcome = inspectionOutcome(answers);
         await queueAndSync({
@@ -305,6 +330,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
               note: a.ok ? null : a.note.trim(),
               photo_client_id: a.photo?.clientId ?? null,
             })),
+            tyre_serials: tyreSerials.filter((t) => t.serial.trim()),
           },
         });
         await setCache({ inspection: { vehicleId, day: nairobiDay(at), status: outcome } });
@@ -313,6 +339,40 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
           : outcome === "passed_with_defects"
             ? "passed_with_defects"
             : "passed";
+      },
+
+      async reportIncident(input) {
+        const at = nowIso();
+        const tripId = cache().trip?.status === "in_progress" ? cache().trip?.id : null;
+        await queueAndSync({
+          type: "incident.report",
+          capturedAt: at,
+          photoIds: input.photo ? [input.photo.clientId] : [],
+          payload: {
+            type: input.type,
+            description: input.description.trim() || null,
+            lat: input.lat,
+            lng: input.lng,
+            occurred_at: at,
+            trip_id: tripId ?? null,
+            photo_client_ids: input.photo ? [input.photo.clientId] : [],
+          },
+        });
+      },
+
+      async sendSos(position) {
+        const at = nowIso();
+        await queueAndSync({
+          type: "sos.send",
+          capturedAt: at,
+          photoIds: [],
+          payload: {
+            lat: position?.lat ?? null,
+            lng: position?.lng ?? null,
+            accuracy_m: position?.accuracy_m ?? null,
+            captured_at: at,
+          },
+        });
       },
 
       async startTrip(photo, value) {

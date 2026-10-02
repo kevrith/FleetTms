@@ -104,6 +104,7 @@ class PhotoKind(enum.StrEnum):
     CARGO = "cargo"
     DEFECT = "defect"
     RECEIPT = "receipt"
+    INCIDENT = "incident"
 
 
 class PhotoSource(enum.StrEnum):
@@ -187,6 +188,7 @@ class WorkOrderSource(enum.StrEnum):
     DEFECT = "defect"
     SERVICE = "service"
     MANUAL = "manual"
+    INCIDENT = "incident"
 
 
 class Priority(enum.StrEnum):
@@ -798,6 +800,10 @@ class WorkOrderPart(TenantMixin, Base):
     name: Mapped[str] = mapped_column(String(160))
     quantity: Mapped[int] = mapped_column(Integer, default=1)
     unit_cost_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    # Parts issued from the store point at it; the workshop later confirms the part was actually fitted.
+    part_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("parts.id", ondelete="SET NULL"))
+    fitted: Mapped[bool] = mapped_column(Boolean, default=True)
+    expense_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("expenses.id", ondelete="SET NULL"))
 
 
 class ReportFrequency(enum.StrEnum):
@@ -824,3 +830,219 @@ class ReportSchedule(TenantMixin, Base):
     last_error: Mapped[str | None] = mapped_column(String(255))
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ---- Tyres (masterplan 5.20) -----------------------------------------------------------------------
+
+
+class TyreStatus(enum.StrEnum):
+    IN_STORE = "in_store"
+    FITTED = "fitted"
+    REMOVED = "removed"  # taken off a vehicle, not yet back in the store or scrapped
+    SCRAPPED = "scrapped"
+
+
+class TyreEventKind(enum.StrEnum):
+    FITTED = "fitted"
+    REMOVED = "removed"
+    ROTATED = "rotated"
+    TREAD = "tread"
+    RETREADED = "retreaded"
+    SCRAPPED = "scrapped"
+
+
+class Tyre(TenantMixin, Base):
+    __tablename__ = "tyres"
+    __table_args__ = (
+        UniqueConstraint("business_id", "serial"),
+        Index("uq_tyres_position", "vehicle_id", "position", unique=True, postgresql_where=text("status = 'fitted'")),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    serial: Mapped[str] = mapped_column(String(60))  # upper case, no spaces
+    brand: Mapped[str] = mapped_column(String(80))
+    size: Mapped[str] = mapped_column(String(40))
+    cost_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    supplier: Mapped[str | None] = mapped_column(String(120))
+    status: Mapped[TyreStatus] = mapped_column(_enum(TyreStatus), default=TyreStatus.IN_STORE, index=True)
+    vehicle_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("vehicles.id", ondelete="SET NULL"), index=True)
+    last_vehicle_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("vehicles.id", ondelete="SET NULL"))
+    position: Mapped[str | None] = mapped_column(String(40))
+    fitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    fitted_odometer_km: Mapped[int | None] = mapped_column(Integer)  # vehicle odometer when it went on
+    moved_odometer_km: Mapped[int | None] = mapped_column(Integer)  # odometer at the last fitting or rotation
+    km_before: Mapped[int] = mapped_column(Integer, default=0)  # kilometres run on earlier fittings
+    retreads: Mapped[int] = mapped_column(Integer, default=0)
+    retread_cost_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    last_tread_mm: Mapped[Decimal | None] = mapped_column(Numeric(4, 1))
+    last_tread_on: Mapped[date | None] = mapped_column(Date)
+    cost_booked: Mapped[bool] = mapped_column(Boolean, default=False)  # the purchase cost is on a vehicle already
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class TyreEvent(TenantMixin, Base):
+    __tablename__ = "tyre_events"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    tyre_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tyres.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[TyreEventKind] = mapped_column(_enum(TyreEventKind))
+    vehicle_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("vehicles.id", ondelete="SET NULL"))
+    position: Mapped[str | None] = mapped_column(String(40))
+    odometer_km: Mapped[int | None] = mapped_column(Integer)
+    tread_mm: Mapped[Decimal | None] = mapped_column(Numeric(4, 1))
+    cost_cents: Mapped[int | None] = mapped_column(BigInteger)
+    note: Mapped[str | None] = mapped_column(String(255))
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class TyreSwapAlert(TenantMixin, Base):
+    """A serial read at inspection that is not the tyre recorded at that position: a possible swap."""
+
+    __tablename__ = "tyre_swap_alerts"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True)
+    inspection_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("inspections.id", ondelete="SET NULL"))
+    position: Mapped[str] = mapped_column(String(40))
+    expected_serial: Mapped[str | None] = mapped_column(String(60))
+    seen_serial: Mapped[str] = mapped_column(String(60))
+    reason: Mapped[str] = mapped_column(String(30))  # mismatch, unknown or elsewhere
+    status: Mapped[str] = mapped_column(String(20), default="open", index=True)
+    resolved_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolution_note: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ---- Spare parts store (masterplan 5.24) -----------------------------------------------------------
+
+
+class StockKind(enum.StrEnum):
+    RECEIVED = "received"
+    ISSUED = "issued"
+    RETURNED = "returned"
+    COUNTED = "counted"  # a stock count corrected the quantity
+
+
+class Part(TenantMixin, Base):
+    __tablename__ = "parts"
+    __table_args__ = (UniqueConstraint("business_id", "name"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(160))
+    sku: Mapped[str | None] = mapped_column(String(60))
+    unit: Mapped[str] = mapped_column(String(20), default="pcs")
+    quantity: Mapped[int] = mapped_column(Integer, default=0)
+    unit_cost_cents: Mapped[int] = mapped_column(BigInteger, default=0)  # weighted average of what was received
+    reorder_level: Mapped[int] = mapped_column(Integer, default=0)
+    supplier: Mapped[str | None] = mapped_column(String(120))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class StockMovement(TenantMixin, Base):
+    __tablename__ = "stock_movements"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    part_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("parts.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[StockKind] = mapped_column(_enum(StockKind))
+    quantity_delta: Mapped[int] = mapped_column(Integer)
+    balance_after: Mapped[int] = mapped_column(Integer)
+    unit_cost_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    work_order_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("work_orders.id", ondelete="SET NULL"))
+    vehicle_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("vehicles.id", ondelete="SET NULL"))
+    note: Mapped[str | None] = mapped_column(String(255))
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ---- Incidents, fines and claims (masterplan 5.21) ---------------------------------------------------
+
+
+class IncidentType(enum.StrEnum):
+    BREAKDOWN = "breakdown"
+    ACCIDENT = "accident"
+    POLICE_STOP = "police_stop"
+    TRAFFIC_FINE = "traffic_fine"
+    COUNTY_CESS = "county_cess"
+    CARGO_THEFT = "cargo_theft"
+
+
+class FinePayer(enum.StrEnum):
+    BUSINESS = "business"
+    DRIVER = "driver"
+
+
+class ClaimStatus(enum.StrEnum):
+    FILED = "filed"
+    DOCUMENTS_REQUESTED = "documents_requested"
+    ASSESSED = "assessed"
+    APPROVED = "approved"
+    PAID = "paid"
+    REJECTED = "rejected"
+
+
+class Incident(TenantMixin, Base):
+    __tablename__ = "incidents"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    type: Mapped[IncidentType] = mapped_column(_enum(IncidentType), index=True)
+    vehicle_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("vehicles.id", ondelete="SET NULL"), index=True)
+    driver_membership_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("memberships.id", ondelete="SET NULL"), index=True
+    )
+    trip_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("trips.id", ondelete="SET NULL"))
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    lat: Mapped[float | None] = mapped_column(Float)
+    lng: Mapped[float | None] = mapped_column(Float)
+    description: Mapped[str | None] = mapped_column(Text)
+    photo_ids: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    status: Mapped[str] = mapped_column(String(20), default="open", index=True)  # open or resolved
+    cost_cents: Mapped[int | None] = mapped_column(BigInteger)  # what it cost the business, once known
+    fine_amount_cents: Mapped[int | None] = mapped_column(BigInteger)
+    fine_payer: Mapped[FinePayer | None] = mapped_column(_enum(FinePayer))
+    deduct_from_payroll: Mapped[bool] = mapped_column(Boolean, default=False)  # payroll arrives in a later sprint
+    reference: Mapped[str | None] = mapped_column(String(60))  # ticket or receipt number
+    work_order_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("work_orders.id", ondelete="SET NULL"))
+    expense_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("expenses.id", ondelete="SET NULL"))
+    resolution_note: Mapped[str | None] = mapped_column(String(500))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class InsuranceClaim(TenantMixin, Base):
+    __tablename__ = "insurance_claims"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    incident_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("incidents.id", ondelete="CASCADE"), index=True)
+    insurer: Mapped[str] = mapped_column(String(120))
+    policy_no: Mapped[str | None] = mapped_column(String(60))
+    claim_no: Mapped[str | None] = mapped_column(String(60))
+    status: Mapped[ClaimStatus] = mapped_column(_enum(ClaimStatus), default=ClaimStatus.FILED, index=True)
+    amount_claimed_cents: Mapped[int | None] = mapped_column(BigInteger)
+    amount_paid_cents: Mapped[int | None] = mapped_column(BigInteger)
+    notes: Mapped[str | None] = mapped_column(Text)
+    document_photo_ids: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ---- SOS (masterplan 5.21) ---------------------------------------------------------------------------
+
+
+class SosAlert(TenantMixin, Base):
+    __tablename__ = "sos_alerts"
+    __table_args__ = (UniqueConstraint("business_id", "client_id"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    driver_membership_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("memberships.id", ondelete="SET NULL"))
+    vehicle_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("vehicles.id", ondelete="SET NULL"))
+    trip_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("trips.id", ondelete="SET NULL"))
+    client_id: Mapped[uuid.UUID | None] = mapped_column()
+    status: Mapped[str] = mapped_column(String(20), default="active", index=True)  # active, acknowledged, resolved
+    lat: Mapped[float | None] = mapped_column(Float)
+    lng: Mapped[float | None] = mapped_column(Float)
+    track: Mapped[list[dict]] = mapped_column(JSONB, default=list)  # live position updates after the first
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))  # when the driver pressed it
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    notified: Mapped[int] = mapped_column(Integer, default=0)  # how many people were texted
+    acknowledged_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    note: Mapped[str | None] = mapped_column(String(500))

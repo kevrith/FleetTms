@@ -1,3 +1,4 @@
+import { positionLabel } from "@fleettms/business-rules";
 import type { ChecklistItem } from "@fleettms/types";
 import { useState } from "react";
 import { Text, View } from "react-native";
@@ -32,6 +33,8 @@ export default function InspectionFlow({
   const [photoFor, setPhotoFor] = useState<ChecklistItem | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const positions = offline.state.cache.tyrePositions;
+  const [serials, setSerials] = useState<Record<string, string>>({});
 
   const answer = (id: string): Answer => answers[id] ?? { ok: true, note: "", photo: null };
   const set = (id: string, patch: Partial<Answer>) =>
@@ -82,6 +85,7 @@ export default function InspectionFlow({
             critical: i.critical,
             ...answer(i.id),
           })),
+          positions.map((position) => ({ position, serial: serials[position] ?? "" })),
         ),
       );
     } catch (e) {
@@ -141,6 +145,21 @@ export default function InspectionFlow({
           </View>
         );
       })}
+      {positions.length > 0 && (
+        <View style={{ padding: 12, borderRadius: 12, backgroundColor: t.surface, gap: 8 }}>
+          <Body>Tyre serial numbers</Body>
+          <Body muted>Read the number printed on each tyre and type it in.</Body>
+          {positions.map((position) => (
+            <Input
+              key={position}
+              label={positionLabel(position)}
+              value={serials[position] ?? ""}
+              autoCapitalize="characters"
+              onChangeText={(v) => setSerials((s) => ({ ...s, [position]: v }))}
+            />
+          ))}
+        </View>
+      )}
       <ErrorText message={error} />
       <Button label="Submit inspection" onPress={submit} busy={busy} disabled={incomplete} />
       <Button label="Cancel" kind="secondary" onPress={onCancel} disabled={busy} />

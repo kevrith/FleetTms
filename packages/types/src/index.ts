@@ -228,7 +228,7 @@ export interface ImportResult {
   invite_tokens: { row: number; name: string; invite_token: string }[];
 }
 
-export type PhotoKind = "odometer" | "cargo" | "defect" | "receipt";
+export type PhotoKind = "odometer" | "cargo" | "defect" | "receipt" | "incident";
 
 export interface PhotoRef {
   id: string;
@@ -530,7 +530,7 @@ export type WorkOrderStatus = "open" | "in_progress" | "waiting_parts" | "done" 
 export interface WorkOrder {
   id: string;
   vehicle_id: string;
-  source: "defect" | "service" | "manual";
+  source: "defect" | "service" | "manual" | "incident";
   defect_id: string | null;
   schedule_id: string | null;
   title: string;
@@ -542,7 +542,17 @@ export interface WorkOrder {
   labour_cents: number;
   parts_cents: number;
   total_cents: number;
-  parts: { id: string; name: string; quantity: number; unit_cost_cents: number }[];
+  parts: {
+    id: string;
+    name: string;
+    quantity: number;
+    unit_cost_cents: number;
+    part_id: string | null;
+    fitted: boolean;
+  }[];
+  unfitted_parts: number;
+  /** Only on the list endpoint. */
+  registration?: string | null;
   odometer_km: number | null;
   opened_at: string;
   completed_at: string | null;
@@ -654,4 +664,214 @@ export interface ReportSummary {
     fuel_cents: number;
     expenses_cents: number;
   }[];
+}
+
+// ---- Sprint 6: tyres, parts, incidents, SOS ----
+
+export type TyreStatus = "in_store" | "fitted" | "removed" | "scrapped";
+
+export interface Tyre {
+  id: string;
+  serial: string;
+  brand: string;
+  size: string;
+  cost_cents: number;
+  supplier: string | null;
+  status: TyreStatus;
+  vehicle_id: string | null;
+  registration: string | null;
+  position: string | null;
+  fitted_at: string | null;
+  km_run: number;
+  retreads: number;
+  retread_cost_cents: number;
+  last_tread_mm: number | null;
+  last_tread_on: string | null;
+  cost_per_km_cents: number | null;
+  due: ("replace" | "rotate")[];
+}
+
+export interface TyreCostGroup {
+  name: string;
+  tyres: number;
+  cost_cents: number;
+  km: number;
+  cost_per_km_cents: number | null;
+}
+
+export interface TyreReport {
+  by_brand: TyreCostGroup[];
+  by_supplier: TyreCostGroup[];
+  due: Tyre[];
+}
+
+export interface TyreAlert {
+  id: string;
+  vehicle_id: string;
+  registration: string | null;
+  position: string;
+  expected_serial: string | null;
+  seen_serial: string;
+  reason: "mismatch" | "unknown" | "elsewhere";
+  status: "open" | "resolved";
+  created_at: string;
+  resolved_at: string | null;
+  resolution_note: string | null;
+}
+
+export interface Part {
+  id: string;
+  name: string;
+  sku: string | null;
+  unit: string;
+  quantity: number;
+  unit_cost_cents: number;
+  stock_value_cents: number;
+  reorder_level: number;
+  low_stock: boolean;
+  supplier: string | null;
+  is_active: boolean;
+}
+
+export interface StockMovement {
+  id: string;
+  part_id: string;
+  kind: "received" | "issued" | "returned" | "counted";
+  quantity_delta: number;
+  balance_after: number;
+  unit_cost_cents: number;
+  work_order_id: string | null;
+  vehicle_id: string | null;
+  note: string | null;
+  created_at: string;
+}
+
+export interface UnfittedPart {
+  id: string;
+  work_order_id: string;
+  work_order_title: string;
+  work_order_status: WorkOrderStatus;
+  registration: string;
+  name: string;
+  quantity: number;
+  value_cents: number;
+  closed: boolean;
+}
+
+export interface StockCountResult {
+  counted: number;
+  variances: {
+    part_id: string;
+    name: string;
+    expected: number;
+    counted: number;
+    difference: number;
+    value_cents: number;
+  }[];
+  net_value_cents: number;
+}
+
+export type IncidentType =
+  "breakdown" | "accident" | "police_stop" | "traffic_fine" | "county_cess" | "cargo_theft";
+
+export interface Incident {
+  id: string;
+  type: IncidentType;
+  vehicle_id: string | null;
+  registration: string | null;
+  driver_membership_id: string | null;
+  driver_name: string | null;
+  trip_id: string | null;
+  occurred_at: string;
+  lat: number | null;
+  lng: number | null;
+  description: string | null;
+  status: "open" | "resolved";
+  cost_cents: number | null;
+  fine_amount_cents: number | null;
+  fine_payer: "business" | "driver" | null;
+  deduct_from_payroll: boolean;
+  reference: string | null;
+  work_order_id: string | null;
+  resolution_note: string | null;
+  resolved_at: string | null;
+  created_at: string;
+  photos: { id: string; url: string }[];
+  claims?: InsuranceClaim[];
+}
+
+export type ClaimStatus =
+  "filed" | "documents_requested" | "assessed" | "approved" | "paid" | "rejected";
+
+export interface InsuranceClaim {
+  id: string;
+  incident_id: string;
+  insurer: string;
+  policy_no: string | null;
+  claim_no: string | null;
+  status: ClaimStatus;
+  amount_claimed_cents: number | null;
+  amount_paid_cents: number | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  incident_type?: IncidentType;
+  registration?: string | null;
+}
+
+export interface FineRow {
+  id: string | null;
+  name: string;
+  fines: number;
+  total_cents: number;
+  business_cents: number;
+  driver_cents: number;
+  to_deduct_cents: number;
+}
+
+export interface FinesSummary {
+  by_driver: FineRow[];
+  by_vehicle: FineRow[];
+}
+
+export interface SosAlert {
+  id: string;
+  status: "active" | "acknowledged" | "resolved";
+  driver_name: string | null;
+  vehicle_id: string | null;
+  registration: string | null;
+  lat: number | null;
+  lng: number | null;
+  track: { lat: number; lng: number; at: string }[];
+  sent_at: string;
+  received_at: string;
+  delay_s: number;
+  notified: number;
+  acknowledged_at: string | null;
+  resolved_at: string | null;
+  note: string | null;
+  map_url: string | null;
+}
+
+/** Positions that have a recorded tyre on the driver's vehicle. The serials are deliberately not included. */
+export interface MyTyrePositions {
+  vehicle_id: string | null;
+  positions: string[];
+}
+
+/** The driver's own open SOS alert, so the app can say whether anyone has answered. */
+export interface MySos {
+  id: string;
+  status: "active" | "acknowledged";
+  acknowledged: boolean;
+  sent_at: string;
+}
+
+/** The little the workshop needs to know about a vehicle. */
+export interface VehicleBrief {
+  id: string;
+  registration: string;
+  make: string | null;
+  model: string | null;
+  odometer_km: number;
 }

@@ -1,4 +1,4 @@
-import type { ServiceSchedule, Vehicle, WorkOrder } from "@fleettms/types";
+import type { Part, ServiceSchedule, VehicleBrief, WorkOrder } from "@fleettms/types";
 import { Check, Plus, Trash2, Wrench } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link, NavLink, Navigate, Route, Routes } from "react-router-dom";
@@ -6,6 +6,8 @@ import { api } from "../api";
 import { useAuth } from "../auth";
 import { DUE_STATUS, PRIORITY, WO_STATUS, kes } from "../labels";
 import { Card, ErrorBanner, errorMessage, Field } from "../ui";
+import Parts from "./Parts";
+import Tyres from "./Tyres";
 
 function WorkOrderPanel({
   wo,
@@ -14,7 +16,7 @@ function WorkOrderPanel({
   onCompleted,
 }: {
   wo: WorkOrder;
-  vehicle?: Vehicle;
+  vehicle?: VehicleBrief;
   onChanged: () => Promise<void>;
   onCompleted: () => void;
 }) {
@@ -25,12 +27,25 @@ function WorkOrderPanel({
     name: wo.assignee_name ?? "",
   });
   const [labour, setLabour] = useState(String(wo.labour_cents / 100));
+  // Parts issued from the store are handled below; only hand-entered parts are edited here.
+  const storeParts = wo.parts.filter((p) => p.part_id);
+  const [stock, setStock] = useState<Part[]>([]);
+  const [issue, setIssue] = useState({ partId: "", qty: "1" });
+  useEffect(() => {
+    if (manage && wo.status !== "done" && wo.status !== "cancelled")
+      api
+        .parts()
+        .then(setStock)
+        .catch(() => setStock([]));
+  }, [manage, wo.status, wo.parts.length]);
   const [parts, setParts] = useState(
-    wo.parts.map((p) => ({
-      name: p.name,
-      qty: String(p.quantity),
-      cost: String(p.unit_cost_cents / 100),
-    })),
+    wo.parts
+      .filter((p) => !p.part_id)
+      .map((p) => ({
+        name: p.name,
+        qty: String(p.quantity),
+        cost: String(p.unit_cost_cents / 100),
+      })),
   );
   const [done, setDone] = useState({ odometer: String(vehicle?.odometer_km ?? ""), notes: "" });
   const [error, setError] = useState<string | null>(null);
@@ -79,7 +94,9 @@ function WorkOrderPanel({
             ? "from an inspection"
             : wo.source === "service"
               ? "from a service reminder"
-              : "raised by hand"}
+              : wo.source === "incident"
+                ? "from a breakdown report"
+                : "raised by hand"}
           )
         </span>
       </p>
@@ -114,7 +131,70 @@ function WorkOrderPanel({
               />
             </Field>
           </div>
-          <h4>Parts</h4>
+          <h4>Parts from the store</h4>
+          {storeParts.length === 0 && <p className="muted">Nothing issued from the store yet.</p>}
+          <ul className="list">
+            {storeParts.map((p) => (
+              <li key={p.id}>
+                <span>
+                  {p.quantity} x {p.name} ({kes(p.quantity * p.unit_cost_cents)}){" "}
+                  <span className={`status ${p.fitted ? "ok" : "warn"}`}>
+                    {p.fitted ? "Fitted" : "Not yet confirmed as fitted"}
+                  </span>
+                </span>
+                <span className="actions">
+                  <button
+                    className="btn"
+                    onClick={() => run(() => api.markPartFitted(wo.id, p.id, !p.fitted))}
+                  >
+                    {p.fitted ? "Mark not fitted" : "Mark as fitted"}
+                  </button>
+                  <button
+                    className="btn danger"
+                    onClick={() => run(() => api.returnPart(wo.id, p.id))}
+                  >
+                    Return to store
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+          <div className="form-grid">
+            <Field label="Issue a part">
+              <select
+                value={issue.partId}
+                onChange={(e) => setIssue({ ...issue, partId: e.target.value })}
+              >
+                <option value="">Choose a part</option>
+                {stock.map((p) => (
+                  <option key={p.id} value={p.id} disabled={p.quantity === 0}>
+                    {p.name} ({p.quantity} in stock)
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Quantity">
+              <input
+                type="number"
+                min="1"
+                value={issue.qty}
+                onChange={(e) => setIssue({ ...issue, qty: e.target.value })}
+              />
+            </Field>
+            <button
+              className="btn primary"
+              disabled={!issue.partId || !(Number(issue.qty) > 0)}
+              onClick={() =>
+                run(async () => {
+                  await api.issuePart(wo.id, issue.partId, Number(issue.qty));
+                  setIssue({ partId: "", qty: "1" });
+                })
+              }
+            >
+              Issue from the store
+            </button>
+          </div>
+          <h4>Other parts (bought outside the store)</h4>
           {parts.map((p, i) => (
             <div key={i} className="form-grid">
               <Field label="Part">
@@ -226,7 +306,7 @@ function WorkOrderPanel({
 function WorkOrders() {
   const { can } = useAuth();
   const [rows, setRows] = useState<WorkOrder[]>([]);
-  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [vehicles, setVehicles] = useState<VehicleBrief[]>([]);
   const [openOnly, setOpenOnly] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
   const [form, setForm] = useState({ vehicle: "", title: "", priority: "normal" });
@@ -235,7 +315,7 @@ function WorkOrders() {
   const load = useCallback(async () => {
     try {
       setRows(await api.workOrders({ openOnly }));
-      setVehicles(await api.vehicles());
+      setVehicles(await api.workshopVehicles());
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -429,11 +509,15 @@ export default function Workshop() {
       <nav className="tabs">
         <NavLink to="orders">Work orders</NavLink>
         <NavLink to="service">Service due</NavLink>
+        <NavLink to="tyres">Tyres</NavLink>
+        <NavLink to="parts">Parts store</NavLink>
       </nav>
       <Routes>
         <Route index element={<Navigate to="orders" replace />} />
         <Route path="orders" element={<WorkOrders />} />
         <Route path="service" element={<ServiceDue />} />
+        <Route path="tyres" element={<Tyres />} />
+        <Route path="parts" element={<Parts />} />
       </Routes>
     </>
   );

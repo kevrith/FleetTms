@@ -154,3 +154,32 @@ export const kes = (cents: number) =>
   `KES ${(cents / 100).toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 export const todayIso = () =>
   new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Nairobi" });
+
+export const TYRE_STATUS: Record<string, string> = {
+  in_store: "In the store",
+  fitted: "On a vehicle",
+  removed: "Taken off",
+  scrapped: "Scrapped",
+};
+export const TYRE_REASON: Record<string, string> = {
+  mismatch: "A tyre of this vehicle, but at a different position",
+  unknown: "A serial that is not recorded anywhere",
+  elsewhere: "A tyre recorded in the store or on another vehicle",
+};
+export const INCIDENT_TYPE: Record<string, string> = {
+  breakdown: "Breakdown",
+  accident: "Accident",
+  police_stop: "Police stop",
+  traffic_fine: "Traffic fine",
+  county_cess: "County cess",
+  cargo_theft: "Cargo theft",
+};
+export const CLAIM_STATUS: Record<string, string> = {
+  filed: "Filed",
+  documents_requested: "Documents requested",
+  assessed: "Assessed",
+  approved: "Approved",
+  paid: "Paid",
+  rejected: "Rejected",
+};
+export { positionLabel } from "@fleettms/business-rules";

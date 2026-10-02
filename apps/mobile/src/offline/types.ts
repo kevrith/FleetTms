@@ -18,7 +18,9 @@ export type ActionType =
   | "trip.end"
   | "fuel.add"
   | "expense.add"
-  | "reconciliation.submit";
+  | "reconciliation.submit"
+  | "incident.report"
+  | "sos.send";
 
 /** A photo taken on the phone, kept encrypted until it has been uploaded. */
 export interface LocalPhoto {
@@ -80,6 +82,10 @@ export interface DriverCache {
   expenses: LocalExpense[];
   /** Today's float sheet as the office last saw it. */
   sheet: MySheet | null;
+  /** Tyre positions on the driver's vehicle (no serials: the driver reads those off the tyres). */
+  tyrePositions: string[];
+  /** The driver's open SOS alert as the office has it. */
+  sos: { id: string; acknowledged: boolean; sentAt: string } | null;
   refreshedAt: string | null;
 }
 
@@ -105,5 +111,7 @@ export const emptyCache = (): DriverCache => ({
   fuel: [],
   expenses: [],
   sheet: null,
+  tyrePositions: [],
+  sos: null,
   refreshedAt: null,
 });

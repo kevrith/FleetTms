@@ -11,6 +11,7 @@ import ExpensesScreen from "./screens/Expenses";
 import MoreScreen from "./screens/More";
 import NoticesScreen from "./screens/Notices";
 import TripPanel from "./screens/TripPanel";
+import { PartsScreen, WorkOrdersScreen } from "./screens/Workshop";
 import TwoFactorScreen from "./screens/TwoFactor";
 import VehiclesScreen from "./screens/Vehicles";
 
@@ -45,6 +46,18 @@ const DRIVER_TABS: TabDef[] = [
 const OWNER_TABS: TabDef[] = [
   { name: "Home", icon: "home-outline", component: HomeScreen },
   { name: "Vehicles", icon: "bus-outline", component: VehiclesScreen },
+  { name: "More", icon: "menu-outline", component: MoreScreen },
+];
+
+const WORKSHOP_TAB: TabDef = {
+  name: "Workshop",
+  icon: "construct-outline",
+  component: WorkOrdersScreen,
+};
+// The workshop and storekeeper role: work orders and the parts store, nothing else of the business.
+const WORKSHOP_TABS: TabDef[] = [
+  { name: "Work orders", icon: "construct-outline", component: WorkOrdersScreen },
+  { name: "Parts", icon: "cube-outline", component: PartsScreen },
   { name: "More", icon: "menu-outline", component: MoreScreen },
 ];
 
@@ -83,7 +96,13 @@ function Gate() {
   if (me.mfa_setup_required) return <TwoFactorScreen />;
   if (me.pending_documents.length > 0) return <NoticesScreen docs={me.pending_documents} />;
   // Re-keyed by view so switching Owner/Driver rebuilds the tabs.
-  return <Tabs key={view} tabs={view === "driver" ? DRIVER_TABS : OWNER_TABS} />;
+  const can = (p: string) => me.permissions.includes(p);
+  const workshopOnly = can("workshop.manage") && !can("vehicles.view");
+  const office = can("workshop.manage")
+    ? [...OWNER_TABS.slice(0, -1), WORKSHOP_TAB, ...OWNER_TABS.slice(-1)]
+    : OWNER_TABS;
+  const tabs = view === "driver" ? DRIVER_TABS : workshopOnly ? WORKSHOP_TABS : office;
+  return <Tabs key={view} tabs={tabs} />;
 }
 
 export function RootNavigation() {

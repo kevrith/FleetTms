@@ -12,6 +12,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Expenses from "./pages/Expenses";
 import Reports from "./pages/Reports";
+import Incidents from "./pages/Incidents";
 import Workshop from "./pages/Workshop";
 import Settings from "./pages/Settings";
 import Staff from "./pages/Staff";
@@ -103,6 +104,7 @@ export default function App() {
         <Route path="/expenses/*" element={<Expenses />} />
         <Route path="/trips" element={<Trips />} />
         <Route path="/workshop/*" element={<Workshop />} />
+        <Route path="/incidents/*" element={<Incidents />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/trips/:id" element={<TripDetail />} />
         <Route path="/staff" element={<Staff />} />

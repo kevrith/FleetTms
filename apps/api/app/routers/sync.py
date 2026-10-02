@@ -23,8 +23,10 @@ from app.models import SyncReceipt
 from app.routers.devices import DeviceIn, record_device
 from app.routers.expenses import ExpenseIn, do_add_expense
 from app.routers.fuel import FuelIn, do_add_fuel
+from app.routers.incidents import IncidentIn, do_report_incident
 from app.routers.inspections import InspectionIn, do_submit_inspection
 from app.routers.reconciliation import SubmitIn, do_submit_reconciliation
+from app.routers.sos import SosIn, do_send_sos
 from app.routers.trips import (
     ActionIn,
     LoadingIn,
@@ -80,7 +82,19 @@ async def _reconciliation(db: AsyncSession, who: Principal, p: dict) -> dict:
     return {"id": str(record.id), "day": record.day.isoformat()}
 
 
+async def _incident(db: AsyncSession, who: Principal, p: dict) -> dict:
+    incident = await do_report_incident(db, who, IncidentIn.model_validate(p))
+    return {"id": str(incident.id), "type": incident.type.value}
+
+
+async def _sos(db: AsyncSession, who: Principal, p: dict) -> dict:
+    alert = await do_send_sos(db, who, SosIn.model_validate(p))
+    return {"id": str(alert.id), "status": alert.status}
+
+
 HANDLERS = {
+    "sos.send": _sos,
+    "incident.report": _incident,
     "inspection.submit": _inspection,
     "trip.start": lambda db, who, p: _trip(do_start_trip, ReadingIn, db, who, p),
     "trip.loading": lambda db, who, p: _trip(do_record_loading, LoadingIn, db, who, p),

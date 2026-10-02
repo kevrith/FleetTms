@@ -6,6 +6,7 @@ import { api } from "../api";
 import { useAuth } from "../auth";
 import { Body, Screen, Title, useTheme } from "../ui";
 import { useOffline } from "../offline/runtime";
+import { HelpCard } from "./Help";
 import { AttentionList, SyncBadge } from "./SyncStatus";
 import TripPanel from "./TripPanel";
 
@@ -55,6 +56,7 @@ function DriverHome() {
     >
       <Title>Hello, {me?.user.name.split(" ")[0]}</Title>
       <SyncBadge />
+      <HelpCard />
       <AttentionList />
       <MyVehicleCard />
       <FloatCard />
@@ -70,10 +72,17 @@ function OwnerHome() {
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    api
-      .dashboard()
-      .then(setData)
-      .catch(() => setFailed(true));
+    const load = () =>
+      api
+        .dashboard()
+        .then((d) => {
+          setData(d);
+          setFailed(false);
+        })
+        .catch(() => setFailed(true));
+    void load();
+    const timer = setInterval(() => void load(), 15_000); // an SOS shows up here within seconds
+    return () => clearInterval(timer);
   }, []);
 
   const n = data?.numbers;

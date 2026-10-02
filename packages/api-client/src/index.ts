@@ -53,6 +53,23 @@ import type {
   VehicleInput,
   VehicleTrust,
   WorkOrder,
+  Tyre,
+  TyreReport,
+  TyreAlert,
+  TyreStatus,
+  Part,
+  StockMovement,
+  UnfittedPart,
+  StockCountResult,
+  Incident,
+  IncidentType,
+  InsuranceClaim,
+  ClaimStatus,
+  FinesSummary,
+  SosAlert,
+  VehicleBrief,
+  MySos,
+  MyTyrePositions,
 } from "@fleettms/types";
 
 /** Where tokens live. Web uses localStorage, mobile uses the secure keystore. */
@@ -457,6 +474,124 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
     deleteReportSchedule: (id: string) => request<void>("DELETE", `/report-schedules/${id}`),
     sendReportScheduleNow: (id: string) =>
       post<{ sent: boolean }>(`/report-schedules/${id}/send-now`),
+
+    workshopVehicles: () => get<VehicleBrief[]>("/workshop/vehicles"),
+
+    // ---- tyres ----
+    tyres: (params: { status?: TyreStatus; vehicleId?: string } = {}) => {
+      const q = new URLSearchParams();
+      if (params.status) q.set("status_filter", params.status);
+      if (params.vehicleId) q.set("vehicle_id", params.vehicleId);
+      const qs = q.toString();
+      return get<Tyre[]>(`/tyres${qs ? `?${qs}` : ""}`);
+    },
+    addTyre: (input: {
+      serial: string;
+      brand: string;
+      size: string;
+      cost_cents: number;
+      supplier?: string | null;
+    }) => post<Tyre>("/tyres", input),
+    tyreHistory: (id: string) =>
+      get<
+        Tyre & {
+          history: {
+            kind: string;
+            position: string | null;
+            odometer_km: number | null;
+            tread_mm: number | null;
+            cost_cents: number | null;
+            note: string | null;
+            occurred_at: string;
+          }[];
+        }
+      >(`/tyres/${id}`),
+    fitTyre: (id: string, input: { vehicle_id: string; position: string; odometer_km?: number }) =>
+      post<Tyre>(`/tyres/${id}/fit`, input),
+    removeTyre: (id: string, input: { scrap?: boolean; note?: string; odometer_km?: number }) =>
+      post<Tyre>(`/tyres/${id}/remove`, input),
+    rotateTyre: (id: string, position: string) => post<Tyre>(`/tyres/${id}/rotate`, { position }),
+    tyreTread: (id: string, treadMm: string) =>
+      post<Tyre>(`/tyres/${id}/tread`, { tread_mm: treadMm }),
+    retreadTyre: (id: string, costCents: number) =>
+      post<Tyre>(`/tyres/${id}/retread`, { cost_cents: costCents }),
+    tyreReport: () => get<TyreReport>("/tyres/report"),
+    tyreAlerts: (openOnly = true) => get<TyreAlert[]>(`/tyre-alerts?open_only=${openOnly}`),
+    resolveTyreAlert: (id: string, note?: string) =>
+      post<TyreAlert>(`/tyre-alerts/${id}/resolve`, { note }),
+
+    // ---- spare parts store ----
+    parts: (lowStock = false) => get<Part[]>(`/parts${lowStock ? "?low_stock=true" : ""}`),
+    addPart: (input: {
+      name: string;
+      sku?: string | null;
+      unit?: string;
+      reorder_level?: number;
+      supplier?: string | null;
+    }) => post<Part>("/parts", input),
+    receivePart: (
+      id: string,
+      input: { quantity: number; unit_cost_cents: number; note?: string },
+    ) => post<Part>(`/parts/${id}/receive`, input),
+    stockMovements: (partId?: string) =>
+      get<StockMovement[]>(`/parts/movements${partId ? `?part_id=${partId}` : ""}`),
+    countStock: (counts: { part_id: string; counted: number }[]) =>
+      post<StockCountResult>("/parts/counts", { counts }),
+    unfittedParts: () => get<UnfittedPart[]>("/parts/unfitted"),
+    issuePart: (workOrderId: string, partId: string, quantity: number) =>
+      post<WorkOrder>(`/work-orders/${workOrderId}/issue`, { part_id: partId, quantity }),
+    markPartFitted: (workOrderId: string, rowId: string, fitted: boolean) =>
+      post<WorkOrder>(`/work-orders/${workOrderId}/parts/${rowId}/fitted`, { fitted }),
+    returnPart: (workOrderId: string, rowId: string) =>
+      post<WorkOrder>(`/work-orders/${workOrderId}/parts/${rowId}/return`),
+
+    // ---- incidents, fines, claims ----
+    incidents: (params: { type?: IncidentType; status?: string } = {}) => {
+      const q = new URLSearchParams();
+      if (params.type) q.set("type_filter", params.type);
+      if (params.status) q.set("status_filter", params.status);
+      const qs = q.toString();
+      return get<Incident[]>(`/incidents${qs ? `?${qs}` : ""}`);
+    },
+    incident: (id: string) => get<Incident>(`/incidents/${id}`),
+    reportIncident: (input: Record<string, unknown>) => post<Incident>("/incidents", input),
+    setFine: (
+      id: string,
+      input: {
+        fine_amount_cents: number | null;
+        fine_payer: "business" | "driver" | null;
+        deduct_from_payroll?: boolean;
+        reference?: string;
+      },
+    ) => request<Incident>("PUT", `/incidents/${id}/fine`, input),
+    resolveIncident: (id: string, input: { note?: string; cost_cents?: number }) =>
+      post<Incident>(`/incidents/${id}/resolve`, input),
+    finesSummary: () => get<FinesSummary>("/fines/summary"),
+    claims: () => get<InsuranceClaim[]>("/claims"),
+    fileClaim: (
+      incidentId: string,
+      input: { insurer: string; policy_no?: string; amount_claimed_cents?: number; notes?: string },
+    ) => post<InsuranceClaim>(`/incidents/${incidentId}/claims`, input),
+    updateClaim: (
+      id: string,
+      input: {
+        status?: ClaimStatus;
+        claim_no?: string;
+        amount_paid_cents?: number;
+        amount_claimed_cents?: number;
+        notes?: string;
+      },
+    ) => request<InsuranceClaim>("PUT", `/claims/${id}`, input),
+
+    // ---- SOS ----
+    myTyrePositions: () => get<MyTyrePositions>("/me/tyre-positions"),
+    mySos: () => get<MySos | null>("/me/sos"),
+    sosLocation: (id: string, input: { lat: number; lng: number; accuracy_m?: number | null }) =>
+      post<{ status: string; acknowledged: boolean }>(`/sos/${id}/location`, input),
+    sosAlerts: (activeOnly = true) => get<SosAlert[]>(`/sos?active_only=${activeOnly}`),
+    acknowledgeSos: (id: string, note?: string) =>
+      post<SosAlert>(`/sos/${id}/acknowledge`, { note }),
+    resolveSos: (id: string, note?: string) => post<SosAlert>(`/sos/${id}/resolve`, { note }),
 
     // ---- audit, privacy, support ----
     audit: (params: { action?: string; limit?: number; offset?: number } = {}) => {

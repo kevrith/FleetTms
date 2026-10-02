@@ -1,8 +1,9 @@
 import { ROLE_LABELS } from "@fleettms/business-rules";
 import type { PendingDocument } from "@fleettms/types";
-import { Building, LogOut } from "lucide-react";
-import { useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import type { SosAlert } from "@fleettms/types";
+import { Building, LogOut, Siren } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { api } from "./api";
 import { useAuth } from "./auth";
 import { navItems } from "./nav";
@@ -20,6 +21,30 @@ const DOC_SUMMARY: Record<string, string> = {
     "FleetTms records your location during active trips, your odometer photos, fuel and expense entries. " +
     "This is used for work purposes only, stops when your trip ends, and is visible to your employer.",
 };
+
+/** Shown on every page to people who respond to SOS alerts, so an alert is seen within seconds. */
+function SosBanner() {
+  const [alerts, setAlerts] = useState<SosAlert[]>([]);
+  useEffect(() => {
+    const poll = () =>
+      api
+        .sosAlerts()
+        .then(setAlerts)
+        .catch(() => undefined);
+    void poll();
+    const timer = setInterval(poll, 10000);
+    return () => clearInterval(timer);
+  }, []);
+  if (alerts.length === 0) return null;
+  const waiting = alerts.filter((a) => a.status === "active").length;
+  return (
+    <p className="banner bad" role="alert">
+      <Siren size={18} /> SOS: {alerts.map((a) => a.driver_name).join(", ")}{" "}
+      {waiting > 0 ? "needs help and nobody has answered yet." : "has an alert open."}{" "}
+      <Link to="/incidents/sos">Open</Link>
+    </p>
+  );
+}
 
 function Notices({ docs, onDone }: { docs: PendingDocument[]; onDone: () => void }) {
   const [error, setError] = useState<string | null>(null);
@@ -130,6 +155,7 @@ export default function Layout() {
         </button>
       </nav>
       <main className="main">
+        {me.permissions.includes("sos.respond") && <SosBanner />}
         <ErrorBanner message={error} />
         <Outlet />
       </main>
