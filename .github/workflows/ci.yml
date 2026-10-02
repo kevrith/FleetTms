@@ -24,6 +24,14 @@ jobs:
       REDIS_URL: redis://localhost:6379/0
     steps:
       - uses: actions/checkout@v4
+      - name: Start Postgres (PostGIS + TimescaleDB)
+        working-directory: .
+        run: |
+          PGPASS=$(openssl rand -hex 16)
+          echo "::add-mask::$PGPASS"
+          echo "DATABASE_URL=postgresql+asyncpg://fleettms:${PGPASS}@localhost:5432/fleettms" >> "$GITHUB_ENV"
+          docker run -d --name db -p 5432:5432 -e POSTGRES_USER=fleettms -e POSTGRES_PASSWORD="$PGPASS" -e POSTGRES_DB=fleettms timescale/timescaledb-ha:pg16
+          for i in $(seq 1 30); do docker exec db pg_isready -U fleettms && break; sleep 2; done
       - uses: actions/setup-python@v5
         with:
           {
