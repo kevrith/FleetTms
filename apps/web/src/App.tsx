@@ -12,7 +12,9 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Expenses from "./pages/Expenses";
 import Reports from "./pages/Reports";
+import Clients from "./pages/Clients";
 import Incidents from "./pages/Incidents";
+import Jobs from "./pages/Jobs";
 import Workshop from "./pages/Workshop";
 import Settings from "./pages/Settings";
 import Staff from "./pages/Staff";
@@ -105,6 +107,8 @@ export default function App() {
         <Route path="/trips" element={<Trips />} />
         <Route path="/workshop/*" element={<Workshop />} />
         <Route path="/incidents/*" element={<Incidents />} />
+        <Route path="/jobs/*" element={<Jobs />} />
+        <Route path="/clients/*" element={<Clients />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/trips/:id" element={<TripDetail />} />
         <Route path="/staff" element={<Staff />} />

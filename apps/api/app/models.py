@@ -567,6 +567,8 @@ class Trip(TenantMixin, Base):
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     distance_km: Mapped[int | None] = mapped_column(Integer)  # end odometer minus start odometer
+    job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), index=True)
+    planned_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # when the booking is expected to finish
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -1046,3 +1048,133 @@ class SosAlert(TenantMixin, Base):
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     note: Mapped[str | None] = mapped_column(String(500))
+
+
+# ---- Clients, quotes, jobs (masterplan 5.10 and 5.17) ----------------------------------------------
+
+
+class BillingMethod(enum.StrEnum):
+    PER_TRIP = "per_trip"
+    PER_TONNE = "per_tonne"
+    PER_KM = "per_km"
+    MONTHLY_CONTRACT = "monthly_contract"
+
+
+class QuoteStatus(enum.StrEnum):
+    DRAFT = "draft"
+    SENT = "sent"
+    ACCEPTED = "accepted"
+    DECLINED = "declined"
+
+
+class JobStatus(enum.StrEnum):
+    PLANNED = "planned"
+    DISPATCHED = "dispatched"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+
+class Client(TenantMixin, Base):
+    __tablename__ = "clients"
+    __table_args__ = (UniqueConstraint("business_id", "name"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(160))
+    contact_name: Mapped[str | None] = mapped_column(String(120))
+    phone: Mapped[str | None] = mapped_column(String(20))
+    email: Mapped[str | None] = mapped_column(String(255))
+    kra_pin: Mapped[str | None] = mapped_column(String(11))
+    billing_method: Mapped[BillingMethod] = mapped_column(_enum(BillingMethod), default=BillingMethod.PER_TRIP)
+    rate_cents: Mapped[int] = mapped_column(BigInteger, default=0)  # per trip, per tonne, per km or the monthly fee
+    payment_terms_days: Mapped[int] = mapped_column(Integer, default=30)
+    notes: Mapped[str | None] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SavedRoute(TenantMixin, Base):
+    """A client's route, stored once and reused on every quote and job."""
+
+    __tablename__ = "saved_routes"
+    __table_args__ = (UniqueConstraint("business_id", "client_id", "name"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    client_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    pickup: Mapped[str] = mapped_column(String(160))
+    dropoff: Mapped[str] = mapped_column(String(160))
+    path_notes: Mapped[str | None] = mapped_column(Text)  # the preferred path
+    distance_km: Mapped[int] = mapped_column(Integer, default=0)
+    expected_hours: Mapped[float] = mapped_column(Float, default=12)
+    tolls_cents: Mapped[int] = mapped_column(BigInteger, default=0)  # per trip
+    crew_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    other_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    notes: Mapped[str | None] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Quote(TenantMixin, Base):
+    __tablename__ = "quotes"
+    __table_args__ = (UniqueConstraint("business_id", "number"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    number: Mapped[str] = mapped_column(String(20))
+    client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    route_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("saved_routes.id", ondelete="SET NULL"))
+    vehicle_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("vehicles.id", ondelete="SET NULL"))
+    cargo_description: Mapped[str | None] = mapped_column(String(255))
+    weight_tonnes: Mapped[Decimal] = mapped_column(Numeric(9, 2), default=0)
+    trips: Mapped[int] = mapped_column(Integer, default=1)
+    return_empty: Mapped[bool] = mapped_column(Boolean, default=True)
+    billing_method: Mapped[BillingMethod] = mapped_column(_enum(BillingMethod))
+    rate_cents: Mapped[int] = mapped_column(BigInteger)
+    distance_km: Mapped[int] = mapped_column(Integer)
+    kmpl_loaded: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+    kmpl_empty: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+    fuel_price_cents: Mapped[int] = mapped_column(BigInteger)
+    tolls_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    crew_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    other_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    price_cents: Mapped[int] = mapped_column(BigInteger)
+    total_cost_cents: Mapped[int] = mapped_column(BigInteger)
+    expected_profit_cents: Mapped[int] = mapped_column(BigInteger)
+    margin_pct: Mapped[float | None] = mapped_column(Float)
+    status: Mapped[QuoteStatus] = mapped_column(_enum(QuoteStatus), default=QuoteStatus.DRAFT, index=True)
+    valid_until: Mapped[date | None] = mapped_column(Date)
+    pickup_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deliver_by: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    instructions: Mapped[str | None] = mapped_column(Text)
+    sent_via: Mapped[str | None] = mapped_column(String(20))
+    sent_to: Mapped[str | None] = mapped_column(String(255))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decision_note: Mapped[str | None] = mapped_column(String(255))
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Job(TenantMixin, Base):
+    """Work for a client: from an accepted quote, set up directly, or repeated from an earlier job. One job can need
+    several trips (120 tonnes moved over four loads)."""
+
+    __tablename__ = "jobs"
+    __table_args__ = (UniqueConstraint("business_id", "number"), UniqueConstraint("business_id", "quote_id"))
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    number: Mapped[str] = mapped_column(String(20))
+    client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    quote_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("quotes.id", ondelete="SET NULL"))
+    route_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("saved_routes.id", ondelete="SET NULL"))
+    repeat_of_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"))
+    cargo_description: Mapped[str | None] = mapped_column(String(255))
+    weight_tonnes: Mapped[Decimal] = mapped_column(Numeric(9, 2), default=0)
+    trips_planned: Mapped[int] = mapped_column(Integer, default=1)
+    billing_method: Mapped[BillingMethod] = mapped_column(_enum(BillingMethod))
+    rate_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    price_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    expected_profit_cents: Mapped[int | None] = mapped_column(BigInteger)
+    pickup_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deliver_by: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    instructions: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[JobStatus] = mapped_column(_enum(JobStatus), default=JobStatus.PLANNED, index=True)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

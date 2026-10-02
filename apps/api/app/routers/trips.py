@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
@@ -10,10 +10,13 @@ from app import audit
 from app.clock import capture_time
 from app.db import get_db
 from app.deps import Principal, error, require, require_any
+from app.jobs_service import sync_job
 from app.models import (
+    Client,
     CrewAssignment,
     CrewRole,
     Inspection,
+    Job,
     Membership,
     MembershipStatus,
     OdometerReading,
@@ -30,6 +33,7 @@ from app.photos import claim_photo, photo_out
 from app.reminders import NAIROBI
 from app.routers.inspections import OK_FOR_TRIP, latest_inspection_on
 from app.routers.vehicles import get_vehicle
+from app.scheduling import DEFAULT_TRIP_HOURS, ensure_available
 from app.vehicle_scope import scope_vehicles, vehicle_in_scope
 
 router = APIRouter(tags=["trips"])
@@ -114,7 +118,18 @@ async def trip_out(db: AsyncSession, trip: Trip) -> dict:
         i = (await db.execute(select(Inspection).where(Inspection.id == trip.inspection_id))).scalar_one_or_none()
         inspection = None if i is None else {"id": i.id, "status": i.status.value, "performed_at": i.performed_at}
     vehicle = (await db.execute(select(Vehicle).where(Vehicle.id == trip.vehicle_id))).scalar_one_or_none()
+    job = None
+    if trip.job_id:
+        row = (await db.execute(select(Job, Client.name).join(Client, Client.id == Job.client_id).where(Job.id == trip.job_id))).first()
+        if row is not None:
+            j, client_name = row
+            job = {
+                "id": j.id, "number": j.number, "client_name": client_name, "instructions": j.instructions,
+                "pickup_at": j.pickup_at, "deliver_by": j.deliver_by, "trips_planned": j.trips_planned,
+            }  # fmt: skip
     return {
+        "job": job,
+        "planned_end": trip.planned_end,
         "id": trip.id,
         "status": trip.status.value,
         "vehicle_id": trip.vehicle_id,
@@ -148,10 +163,11 @@ async def _membership_with_role(db: AsyncSession, membership_id: uuid.UUID, role
 # ---- Creating and finding trips ------------------------------------------------------------------
 
 
-@router.post("/trips", status_code=status.HTTP_201_CREATED)
-async def create_trip(
-    body: TripIn, principal: Principal = Depends(require("trips.manage")), db: AsyncSession = Depends(get_db)
-):
+async def do_create_trip(
+    db: AsyncSession, principal: Principal, body: TripIn, *, job_id: uuid.UUID | None = None, hours: float | None = None
+) -> Trip:
+    """Schedules a trip for a vehicle and its crew. Refuses a vehicle that is in the workshop, and a vehicle or crew
+    that is already booked for the time. The caller commits."""
     vehicle = await get_vehicle(db, principal, body.vehicle_id)
     if not vehicle.is_active:
         raise error(status.HTTP_409_CONFLICT, "vehicle_inactive", "This vehicle is not active.")
@@ -170,11 +186,14 @@ async def create_trip(
     await _membership_with_role(db, driver_id, Role.DRIVER)
     if turnboy_id is not None:
         await _membership_with_role(db, turnboy_id, Role.TURNBOY)
+    planned_end = body.scheduled_for + timedelta(hours=hours or DEFAULT_TRIP_HOURS) if body.scheduled_for else None
+    window = (body.scheduled_for, planned_end) if body.scheduled_for and planned_end else None
+    await ensure_available(db, vehicle.id, [m for m in (driver_id, turnboy_id) if m], window)
 
     trip = Trip(
         vehicle_id=vehicle.id, driver_membership_id=driver_id, turnboy_membership_id=turnboy_id,
         cargo_description=body.cargo_description, origin=body.origin, destination=body.destination,
-        scheduled_for=body.scheduled_for, created_by_user_id=principal.user.id,
+        scheduled_for=body.scheduled_for, planned_end=planned_end, job_id=job_id, created_by_user_id=principal.user.id,
     )  # fmt: skip
     db.add(trip)
     await db.flush()
@@ -182,6 +201,15 @@ async def create_trip(
         db, actor_user_id=principal.user.id, action="trip.created", entity_type="trip", entity_id=trip.id,
         after=audit.snapshot(trip, TRIP_FIELDS),
     )  # fmt: skip
+    await sync_job(db, job_id)
+    return trip
+
+
+@router.post("/trips", status_code=status.HTTP_201_CREATED)
+async def create_trip(
+    body: TripIn, principal: Principal = Depends(require("trips.manage")), db: AsyncSession = Depends(get_db)
+):
+    trip = await do_create_trip(db, principal, body)
     await db.commit()
     return await trip_out(db, trip)
 
@@ -309,6 +337,7 @@ async def do_start_trip(db: AsyncSession, principal: Principal, trip_id: uuid.UU
         db, actor_user_id=principal.user.id, action="trip.started", entity_type="trip", entity_id=trip.id,
         after={"odometer_km": body.value, "flags": reading.flags, "inspection_id": str(inspection.id)},
     )  # fmt: skip
+    await sync_job(db, trip.job_id)
     return trip
 
 
@@ -344,6 +373,7 @@ async def do_mark_delivered(db: AsyncSession, principal: Principal, trip_id: uui
     trip.status = TripStatus.DELIVERED
     trip.delivered_at = at
     audit.record(db, actor_user_id=principal.user.id, action="trip.delivered", entity_type="trip", entity_id=trip.id)
+    await sync_job(db, trip.job_id)
     return trip
 
 
@@ -380,6 +410,7 @@ async def do_end_trip(db: AsyncSession, principal: Principal, trip_id: uuid.UUID
         db, actor_user_id=principal.user.id, action="trip.completed", entity_type="trip", entity_id=trip.id,
         after={"odometer_km": body.value, "distance_km": distance, "flags": reading.flags},
     )  # fmt: skip
+    await sync_job(db, trip.job_id)
     return trip
 
 
@@ -440,6 +471,7 @@ async def cancel_trip(
         raise error(status.HTTP_409_CONFLICT, "wrong_status", "Only a trip that has not started can be cancelled.")
     trip.status = TripStatus.CANCELLED
     audit.record(db, actor_user_id=principal.user.id, action="trip.cancelled", entity_type="trip", entity_id=trip.id)
+    await sync_job(db, trip.job_id)
     await db.commit()
     return await trip_out(db, trip)
 

@@ -39,6 +39,8 @@ ALL = {
     "workshop.manage",
     "incidents.manage",
     "sos.respond",
+    "clients.manage",
+    "jobs.manage",
     "lease.view_own",
 }
 
@@ -68,6 +70,8 @@ ROLE_PERMISSIONS: dict[Role, set[str]] = {
         "workshop.manage",
         "incidents.manage",
         "sos.respond",
+        "clients.manage",
+        "jobs.manage",
     },
     # Assigned vehicles only (enforced by vehicle_scope); no company-wide finances or payroll.
     Role.SUPERVISOR: {
@@ -88,6 +92,7 @@ ROLE_PERMISSIONS: dict[Role, set[str]] = {
         "reports.view",
         "expenses.view",
         "expenses.manage",
+        "clients.manage",
     },
     Role.DRIVER: {"trips.own", "expenses.own"},
     Role.TURNBOY: {"trips.own", "expenses.own"},

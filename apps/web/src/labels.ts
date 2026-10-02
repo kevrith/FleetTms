@@ -183,3 +183,41 @@ export const CLAIM_STATUS: Record<string, string> = {
   rejected: "Rejected",
 };
 export { positionLabel } from "@fleettms/business-rules";
+
+export const BILLING_METHOD: Record<string, string> = {
+  per_trip: "Per trip",
+  per_tonne: "Per tonne",
+  per_km: "Per kilometre",
+  monthly_contract: "Monthly contract",
+};
+export const BILLING_RATE_LABEL: Record<string, string> = {
+  per_trip: "Amount per trip (KES)",
+  per_tonne: "Rate per tonne (KES)",
+  per_km: "Rate per km (KES)",
+  monthly_contract: "Monthly fee (KES)",
+};
+export const QUOTE_STATUS: Record<string, string> = {
+  draft: "Draft",
+  sent: "Sent",
+  accepted: "Accepted",
+  declined: "Declined",
+};
+export const JOB_STATUS: Record<string, string> = {
+  planned: "Needs a lorry",
+  dispatched: "Dispatched",
+  in_progress: "On the road",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+/** Shows a moment in Nairobi time. */
+export const nairobiTime = (iso: string | null) =>
+  iso
+    ? new Date(iso).toLocaleString("en-KE", {
+        timeZone: "Africa/Nairobi",
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "";

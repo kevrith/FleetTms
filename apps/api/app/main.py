@@ -7,6 +7,7 @@ from app.db import database_is_up
 from app.routers import (
     audit_log,
     auth,
+    clients,
     dashboard,
     depots,
     devices,
@@ -17,9 +18,11 @@ from app.routers import (
     imports,
     incidents,
     inspections,
+    jobs,
     parts,
     photos,
     privacy,
+    quotes,
     reconciliation,
     report_schedules,
     sos,
@@ -42,7 +45,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for module in (auth, users, depots, vehicles, staff, documents, imports, photos, inspections, trips, fuel, floats, devices, sync, expenses, reconciliation, workshop, dashboard, tyres, parts, incidents, sos, report_schedules, audit_log, privacy, support):
+for module in (auth, users, depots, vehicles, staff, documents, imports, photos, inspections, trips, fuel, floats, devices, sync, expenses, reconciliation, workshop, dashboard, tyres, parts, incidents, sos, clients, quotes, jobs, report_schedules, audit_log, privacy, support):
     app.include_router(module.router)
 
 

@@ -26,10 +26,20 @@ export interface NavItem {
 // are shown only to roles that will use them.
 export const navItems: NavItem[] = [
   { path: "/", label: "Home", icon: BarChart3 },
-  { path: "/jobs", label: "Jobs & Dispatch", icon: Briefcase, permission: "trips.view" },
+  {
+    path: "/jobs",
+    label: "Jobs & Dispatch",
+    icon: Briefcase,
+    permission: ["trips.view", "jobs.manage"],
+  },
   { path: "/vehicles", label: "Vehicles", icon: Truck, permission: "vehicles.view" },
   { path: "/trips", label: "Trips", icon: FileText, permission: "trips.view" },
-  { path: "/clients", label: "Clients & Debts", icon: Handshake, permission: "finance.view" },
+  {
+    path: "/clients",
+    label: "Clients & Debts",
+    icon: Handshake,
+    permission: ["clients.manage", "finance.view"],
+  },
   {
     path: "/expenses",
     label: "Expenses",

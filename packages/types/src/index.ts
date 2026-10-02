@@ -289,8 +289,21 @@ export interface OdometerReadingOut {
   recorded_at: string;
 }
 
+/** The job a trip belongs to, as the driver needs to see it. */
+export interface TripJob {
+  id: string;
+  number: string;
+  client_name: string;
+  instructions: string | null;
+  pickup_at: string | null;
+  deliver_by: string | null;
+  trips_planned: number;
+}
+
 export interface Trip {
   id: string;
+  job?: TripJob | null;
+  planned_end?: string | null;
   status: TripStatus;
   vehicle_id: string;
   registration: string | null;
@@ -874,4 +887,191 @@ export interface VehicleBrief {
   make: string | null;
   model: string | null;
   odometer_km: number;
+}
+
+// ---- Sprint 7: clients, quotes, jobs, dispatch ----
+
+export type BillingMethod = "per_trip" | "per_tonne" | "per_km" | "monthly_contract";
+
+export interface Client {
+  id: string;
+  name: string;
+  contact_name: string | null;
+  phone: string | null;
+  email: string | null;
+  kra_pin: string | null;
+  billing_method: BillingMethod;
+  rate_cents: number;
+  payment_terms_days: number;
+  notes: string | null;
+  is_active: boolean;
+  routes: number;
+  open_jobs: number;
+  route_list?: SavedRoute[];
+}
+
+export interface SavedRoute {
+  id: string;
+  client_id: string | null;
+  client_name: string | null;
+  name: string;
+  pickup: string;
+  dropoff: string;
+  path_notes: string | null;
+  distance_km: number;
+  expected_hours: number;
+  tolls_cents: number;
+  crew_cents: number;
+  other_cents: number;
+  notes: string | null;
+  is_active: boolean;
+}
+
+export type QuoteStatus = "draft" | "sent" | "accepted" | "declined";
+
+export interface Quote {
+  id: string;
+  number: string;
+  client_id: string;
+  client_name: string | null;
+  route_id: string | null;
+  route_name: string | null;
+  vehicle_id: string | null;
+  cargo_description: string | null;
+  weight_tonnes: number;
+  trips: number;
+  return_empty: boolean;
+  billing_method: BillingMethod;
+  rate_cents: number;
+  distance_km: number;
+  kmpl_loaded: number;
+  kmpl_empty: number;
+  fuel_price_cents: number;
+  tolls_cents: number;
+  crew_cents: number;
+  other_cents: number;
+  price_cents: number;
+  fuel_litres: number;
+  fuel_cents: number;
+  cost_per_trip_cents: number;
+  total_cost_cents: number;
+  expected_profit_cents: number;
+  margin_pct: number | null;
+  status: QuoteStatus;
+  expired: boolean;
+  valid_until: string | null;
+  pickup_at: string | null;
+  deliver_by: string | null;
+  instructions: string | null;
+  sent_via: string | null;
+  sent_to: string | null;
+  sent_at: string | null;
+  decided_at: string | null;
+  decision_note: string | null;
+  job_id: string | null;
+  job_number: string | null;
+}
+
+export interface QuoteDefaults {
+  billing_method: BillingMethod;
+  rate_cents: number;
+  distance_km: number;
+  kmpl_loaded: number;
+  kmpl_empty: number;
+  fuel_price_cents: number;
+  tolls_cents: number;
+  crew_cents: number;
+  other_cents: number;
+}
+
+export type JobStatus = "planned" | "dispatched" | "in_progress" | "completed" | "cancelled";
+
+export interface Job {
+  id: string;
+  number: string;
+  client_id: string;
+  client_name: string | null;
+  quote_id: string | null;
+  repeat_of_id: string | null;
+  route_id: string | null;
+  route: { id: string; name: string; pickup: string; dropoff: string; distance_km: number } | null;
+  cargo_description: string | null;
+  weight_tonnes: number;
+  trips_planned: number;
+  trips_dispatched: number;
+  trips_completed: number;
+  billing_method: BillingMethod;
+  pickup_at: string | null;
+  deliver_by: string | null;
+  instructions: string | null;
+  status: JobStatus;
+  created_at: string;
+  completed_at: string | null;
+  /** Only for people allowed to see money. */
+  rate_cents?: number;
+  price_cents?: number;
+  expected_profit_cents?: number | null;
+  trips?: {
+    id: string;
+    status: TripStatus;
+    scheduled_for: string | null;
+    planned_end: string | null;
+    vehicle_id: string;
+    registration: string | null;
+    driver_name: string | null;
+    distance_km: number | null;
+  }[];
+}
+
+export interface CalendarBooking {
+  trip_id: string;
+  job_id: string | null;
+  job_number: string | null;
+  client_name: string | null;
+  from: string;
+  to: string;
+  status: TripStatus;
+  route: string | null;
+  driver_name: string | null;
+}
+
+export interface CalendarDay {
+  date: string;
+  status: "free" | "booked" | "in_service";
+}
+
+export interface DispatchCalendar {
+  from: string;
+  to: string;
+  vehicles: {
+    id: string;
+    registration: string;
+    in_service: boolean;
+    service: { work_order_id: string; title: string; status: string } | null;
+    bookings: CalendarBooking[];
+    days: CalendarDay[];
+  }[];
+  crew: {
+    membership_id: string;
+    name: string;
+    role: "driver" | "turnboy";
+    bookings: CalendarBooking[];
+    days: CalendarDay[];
+  }[];
+}
+
+export interface Availability {
+  vehicles: {
+    id: string;
+    registration: string;
+    free: boolean;
+    reason: "in_workshop" | "booked" | null;
+  }[];
+  crew: {
+    membership_id: string;
+    name: string;
+    role: "driver" | "turnboy";
+    free: boolean;
+    reason: "booked" | null;
+  }[];
 }

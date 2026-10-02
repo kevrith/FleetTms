@@ -18,6 +18,17 @@ type Mode =
  * The driver's current trip and the one next step. Everything works with no network: each step is saved on the phone
  * at once and sent later, with the time the driver did it.
  */
+/** A moment in Nairobi time, like "Fri 3 Oct, 06:00". */
+const formatWhen = (iso: string) =>
+  new Date(iso).toLocaleString("en-KE", {
+    timeZone: "Africa/Nairobi",
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
 export default function TripPanel() {
   const t = useTheme();
   const offline = useOffline();
@@ -149,7 +160,19 @@ export default function TripPanel() {
         <Text style={{ color: t.text, fontSize: 20, fontWeight: "600" }}>
           {[trip.origin, trip.destination].filter(Boolean).join(" to ") || trip.registration}
         </Text>
+        {trip.job && (
+          <Body muted>
+            Job {trip.job.number} for {trip.job.client_name}
+          </Body>
+        )}
         {trip.cargo_description && <Body>{trip.cargo_description}</Body>}
+        {trip.job?.pickup_at && (
+          <Body muted>
+            Pickup {formatWhen(trip.job.pickup_at)}
+            {trip.job.deliver_by ? `, deliver by ${formatWhen(trip.job.deliver_by)}` : ""}
+          </Body>
+        )}
+        {trip.job?.instructions ? <Body>{trip.job.instructions}</Body> : null}
         <Body muted>
           {stateText}
           {trip.start_reading ? `, started at ${trip.start_reading.value.toLocaleString()} km` : ""}

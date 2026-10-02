@@ -1,0 +1,74 @@
+[
+  {
+    "name": "per trip, round trip, one load",
+    "input": {
+      "method": "per_trip", "rate_cents": 8000000, "distance_km": 480, "weight_tonnes": 28, "trips": 1,
+      "return_empty": true, "kmpl_loaded": 4, "kmpl_empty": 6, "fuel_price_cents": 18500,
+      "tolls_cents": 600000, "crew_cents": 700000, "other_cents": 200000
+    },
+    "expected": {
+      "price_cents": 8000000, "loaded_km": 480, "empty_km": 480, "fuel_litres": 200, "fuel_cents": 3700000,
+      "cost_per_trip_cents": 5200000, "total_cost_cents": 5200000, "profit_cents": 2800000, "margin_pct": 35
+    }
+  },
+  {
+    "name": "per tonne across four loads",
+    "input": {
+      "method": "per_tonne", "rate_cents": 150000, "distance_km": 300, "weight_tonnes": 120, "trips": 4,
+      "return_empty": true, "kmpl_loaded": 4.5, "kmpl_empty": 6, "fuel_price_cents": 18000,
+      "tolls_cents": 400000, "crew_cents": 500000, "other_cents": 0
+    },
+    "expected": {
+      "price_cents": 18000000, "loaded_km": 300, "empty_km": 300, "fuel_litres": 116.67, "fuel_cents": 2100000,
+      "cost_per_trip_cents": 3000000, "total_cost_cents": 12000000, "profit_cents": 6000000, "margin_pct": 33.3
+    }
+  },
+  {
+    "name": "per km, no empty return",
+    "input": {
+      "method": "per_km", "rate_cents": 20000, "distance_km": 250, "weight_tonnes": 10, "trips": 2,
+      "return_empty": false, "kmpl_loaded": 5, "kmpl_empty": 6, "fuel_price_cents": 20000,
+      "tolls_cents": 100000, "crew_cents": 300000, "other_cents": 50000
+    },
+    "expected": {
+      "price_cents": 10000000, "loaded_km": 250, "empty_km": 0, "fuel_litres": 50, "fuel_cents": 1000000,
+      "cost_per_trip_cents": 1450000, "total_cost_cents": 2900000, "profit_cents": 7100000, "margin_pct": 71
+    }
+  },
+  {
+    "name": "monthly contract: the fee is the price whatever the number of trips",
+    "input": {
+      "method": "monthly_contract", "rate_cents": 50000000, "distance_km": 120, "weight_tonnes": 0, "trips": 20,
+      "return_empty": true, "kmpl_loaded": 4, "kmpl_empty": 6, "fuel_price_cents": 18000,
+      "tolls_cents": 150000, "crew_cents": 400000, "other_cents": 0
+    },
+    "expected": {
+      "price_cents": 50000000, "loaded_km": 120, "empty_km": 120, "fuel_litres": 50, "fuel_cents": 900000,
+      "cost_per_trip_cents": 1450000, "total_cost_cents": 29000000, "profit_cents": 21000000, "margin_pct": 42
+    }
+  },
+  {
+    "name": "a loss shows as a negative profit",
+    "input": {
+      "method": "per_trip", "rate_cents": 1000000, "distance_km": 500, "weight_tonnes": 20, "trips": 1,
+      "return_empty": true, "kmpl_loaded": 4, "kmpl_empty": 6, "fuel_price_cents": 18000,
+      "tolls_cents": 300000, "crew_cents": 500000, "other_cents": 0
+    },
+    "expected": {
+      "price_cents": 1000000, "loaded_km": 500, "empty_km": 500, "fuel_litres": 208.33, "fuel_cents": 3750000,
+      "cost_per_trip_cents": 4550000, "total_cost_cents": 4550000, "profit_cents": -3550000, "margin_pct": -355
+    }
+  },
+  {
+    "name": "no price means no margin",
+    "input": {
+      "method": "per_trip", "rate_cents": 0, "distance_km": 100, "weight_tonnes": 5, "trips": 1,
+      "return_empty": false, "kmpl_loaded": 5, "kmpl_empty": 6, "fuel_price_cents": 18000,
+      "tolls_cents": 0, "crew_cents": 0, "other_cents": 0
+    },
+    "expected": {
+      "price_cents": 0, "loaded_km": 100, "empty_km": 0, "fuel_litres": 20, "fuel_cents": 360000,
+      "cost_per_trip_cents": 360000, "total_cost_cents": 360000, "profit_cents": -360000, "margin_pct": null
+    }
+  }
+]

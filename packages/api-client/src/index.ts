@@ -67,6 +67,15 @@ import type {
   ClaimStatus,
   FinesSummary,
   SosAlert,
+  Client,
+  SavedRoute,
+  Quote,
+  QuoteDefaults,
+  Job,
+  JobStatus,
+  QuoteStatus,
+  DispatchCalendar,
+  Availability,
   VehicleBrief,
   MySos,
   MyTyrePositions,
@@ -582,6 +591,61 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
         notes?: string;
       },
     ) => request<InsuranceClaim>("PUT", `/claims/${id}`, input),
+
+    // ---- clients, quotes, jobs, dispatch ----
+    clients: () => get<Client[]>("/clients"),
+    client: (id: string) => get<Client>(`/clients/${id}`),
+    addClient: (input: Record<string, unknown>) => post<Client>("/clients", input),
+    updateClient: (id: string, input: Record<string, unknown>) =>
+      request<Client>("PUT", `/clients/${id}`, input),
+    routes: () => get<SavedRoute[]>("/routes"),
+    addRoute: (clientId: string, input: Record<string, unknown>) =>
+      post<SavedRoute>(`/clients/${clientId}/routes`, input),
+    updateRoute: (id: string, input: Record<string, unknown>) =>
+      request<SavedRoute>("PUT", `/routes/${id}`, input),
+    quoteDefaults: (clientId: string, routeId?: string, vehicleId?: string) => {
+      const q = new URLSearchParams({ client_id: clientId });
+      if (routeId) q.set("route_id", routeId);
+      if (vehicleId) q.set("vehicle_id", vehicleId);
+      return get<QuoteDefaults>(`/quotes/defaults?${q.toString()}`);
+    },
+    quotes: (status?: QuoteStatus) =>
+      get<Quote[]>(`/quotes${status ? `?status_filter=${status}` : ""}`),
+    quote: (id: string) => get<Quote>(`/quotes/${id}`),
+    createQuote: (input: Record<string, unknown>) => post<Quote>("/quotes", input),
+    updateQuote: (id: string, input: Record<string, unknown>) =>
+      request<Quote>("PUT", `/quotes/${id}`, input),
+    sendQuote: (id: string, channel: "email" | "whatsapp" | "sms", recipient?: string) =>
+      post<Quote>(`/quotes/${id}/send`, { channel, recipient: recipient || null }),
+    acceptQuote: (id: string) => post<{ quote: Quote; job: Job }>(`/quotes/${id}/accept`),
+    declineQuote: (id: string, note?: string) => post<Quote>(`/quotes/${id}/decline`, { note }),
+    jobs: (params: { status?: JobStatus; openOnly?: boolean } = {}) => {
+      const q = new URLSearchParams();
+      if (params.status) q.set("status_filter", params.status);
+      if (params.openOnly) q.set("open_only", "true");
+      const qs = q.toString();
+      return get<Job[]>(`/jobs${qs ? `?${qs}` : ""}`);
+    },
+    job: (id: string) => get<Job>(`/jobs/${id}`),
+    createJob: (input: Record<string, unknown>) => post<Job>("/jobs", input),
+    updateJob: (id: string, input: Record<string, unknown>) =>
+      request<Job>("PUT", `/jobs/${id}`, input),
+    cancelJob: (id: string) => post<Job>(`/jobs/${id}/cancel`),
+    repeatJob: (id: string, input: { pickup_at?: string | null; deliver_by?: string | null }) =>
+      post<Job>(`/jobs/${id}/repeat`, input),
+    dispatchJob: (
+      id: string,
+      input: {
+        vehicle_id: string;
+        scheduled_for: string;
+        driver_membership_id?: string | null;
+        turnboy_membership_id?: string | null;
+      },
+    ) => post<Job>(`/jobs/${id}/dispatch`, input),
+    calendar: (from: string, to: string) =>
+      get<DispatchCalendar>(`/dispatch/calendar?from=${from}&to=${to}`),
+    available: (start: string, hours: number) =>
+      get<Availability>(`/dispatch/available?start=${encodeURIComponent(start)}&hours=${hours}`),
 
     // ---- SOS ----
     myTyrePositions: () => get<MyTyrePositions>("/me/tyre-positions"),

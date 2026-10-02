@@ -300,16 +300,16 @@ Keep a project guide at the root of the repository (`PROJECT_GUIDE.md`) and read
 **Goal:** work flows from quote to dispatched job.
 
 **Stories**
-- **Clients:** contacts, KRA PIN, default billing method and rates.
-- **Saved routes:** pickup, drop-off, path, distance, expected costs, notes.
-- **Quotes:** price from billing method, distance, expected fuel, tolls, and crew costs; show expected profit; send by WhatsApp/SMS/email.
-- **Jobs:** from accepted quotes or recurring contracts; cargo, windows, instructions; multi-trip jobs.
-- **Dispatch calendar:** lorry and crew availability (booked, in service, free); assign jobs, driver notified.
+- [x] **Clients:** contacts, KRA PIN, default billing method and rates. *KRA PIN format is checked (a letter, nine digits, a letter). Billing is per trip, per tonne, per km or a monthly contract, with a default rate and payment terms per client. Owners, managers and accountants manage clients.*
+- [x] **Saved routes:** pickup, drop-off, path, distance, expected costs, notes. *Stored once per client with distance, usual duration, tolls, crew and other costs per trip, and the preferred path. Quotes and jobs start from them.*
+- [x] **Quotes:** price from billing method, distance, expected fuel, tolls, and crew costs; show expected profit; send by WhatsApp/SMS/email. *The calculation is in `packages/business-rules/src/quotes.ts` and mirrored in `apps/api/app/quote_rules.py`; both are tested against the same file of cases, so the web preview and a saved quote cannot disagree. Fuel uses the lorry's loaded and empty km per litre, the return leg, and the pump price (the average of the latest fuel entries, or typed in). A loss shows as a negative profit. Email and WhatsApp send a PDF with only the price (never our costs or profit); SMS sends a short text. Quotes expire (14 days by default) and cannot be accepted after that. Sending is tried against stand-in senders only; real email and WhatsApp need the keys from Sprint 5's scheduled reports, and SMS is still the in-memory sender.*
+- [~] **Jobs:** from accepted quotes or recurring contracts; cargo, windows, instructions; multi-trip jobs. *Accepting a quote makes a job (one job per quote); jobs can also be set up directly. A job can need several trips and follows them: planned, dispatched, on the road, completed. "Do this job again" copies the client, cargo, billing and saved route with new dates. Not built: recurring contracts that create their own jobs on a schedule; repeating is done by hand for now.*
+- [x] **Dispatch calendar:** lorry and crew availability (booked, in service, free); assign jobs, driver notified. *Dispatching a trip checks the lorry and the crew: a lorry with work in progress or waiting for parts is "in service" and cannot be booked, and a lorry or crew member already booked for an overlapping time is refused, whether dispatched from a job or scheduled by hand. The calendar shows each lorry and crew member day by day. The driver is texted and sees the job (client, cargo, instructions) on their phone.*
 
 **Acceptance criteria**
-- A quote shows expected profit, is accepted, becomes a job, and is dispatched to a driver.
-- A lorry in the workshop can't be double-booked.
-- A repeat job reuses the client's saved route.
+- [x] A quote shows expected profit, is accepted, becomes a job, and is dispatched to a driver. *API tests, and on the Android emulator: a quote with its expected profit was accepted, dispatched to Peter's lorry through the real API, and the job showed on his phone.*
+- [x] A lorry in the workshop can't be double-booked. *API tests: a lorry with work in progress cannot be dispatched or scheduled by hand, and a booked lorry or crew member is refused; also checked against the dev API.*
+- [x] A repeat job reuses the client's saved route. *API tests.*
 
 **Kickoff brief**
 > Implement clients, saved routes, quotes, jobs, and the dispatch calendar per masterplan Sections 5.10 (clients and routes) and 5.17. Quote calculations live in the shared package with tests.

@@ -144,6 +144,14 @@ on the dev machine.
   Permissions: tyres and parts use `workshop.manage`; `incidents.manage` (owner, manager); `sos.respond` (owner,
   manager, supervisor).
 
+- **Sprint 7 (clients, quotes, jobs, dispatch).** `app/routers/clients.py`, `quotes.py`, `jobs.py`. Quote maths is
+  `app/quote_rules.py`, mirrored by `packages/business-rules/src/quotes.ts`; both must pass
+  `packages/business-rules/src/quote-cases.json` (change a rule, change the cases). `app/scheduling.py` decides who is
+  free (a lorry with a work order in progress or waiting for parts is in the workshop; overlapping trips for the lorry
+  or crew are refused) and is used by every way of creating a trip. `app/jobs_service.py` keeps a job's status in step
+  with its trips. Permissions: `clients.manage` (owner, manager, accountant), `jobs.manage` (owner, manager); anyone with
+  `trips.view` can see jobs and the calendar, without prices.
+
 ## Testing against a real phone/emulator
 
 - API tests use a separate `fleettms_test` database that they create and migrate themselves.
