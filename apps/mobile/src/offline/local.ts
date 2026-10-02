@@ -26,6 +26,28 @@ export function assertInspectionClears(cache: DriverCache, vehicleId: string, at
   }
 }
 
+/** An odometer never goes backwards: a reading below the vehicle's last one is refused, as the server does. */
+export function assertNotBelowOdometer(cache: DriverCache, value: number): void {
+  const last = cache.vehicle?.vehicle.odometer_km ?? 0;
+  if (value < last) {
+    throw new LocalRuleError(
+      `That is lower than this vehicle's last odometer reading (${last.toLocaleString("en-KE")} km). Check the number.`,
+    );
+  }
+}
+
+/** The vehicle as the phone shows it once a reading has been taken: its odometer is the highest reading seen. */
+export function withOdometer(
+  vehicle: DriverCache["vehicle"],
+  value: number,
+): DriverCache["vehicle"] {
+  if (!vehicle) return vehicle;
+  return {
+    ...vehicle,
+    vehicle: { ...vehicle.vehicle, odometer_km: Math.max(vehicle.vehicle.odometer_km, value) },
+  };
+}
+
 const must = (trip: Trip | null, ...allowed: Trip["status"][]): Trip => {
   if (!trip || !allowed.includes(trip.status))
     throw new LocalRuleError("That cannot be done at this point in the trip.");
@@ -42,8 +64,18 @@ export function startedTrip(trip: Trip | null, value: number, at: string): Trip 
   };
 }
 
-export function loadedTrip(trip: Trip | null, at: string): Trip {
-  return { ...must(trip, "in_progress"), loaded_at: at };
+/** Cargo can be loaded and weighed before the lorry leaves, or on the road. The overload is judged on the phone too. */
+export function loadedTrip(
+  trip: Trip | null,
+  at: string,
+  weigh?: { weightKg: number | null; overloadKg: number | null },
+): Trip {
+  return {
+    ...must(trip, "scheduled", "in_progress"),
+    loaded_at: at,
+    loaded_weight_kg: weigh?.weightKg ?? null,
+    overload_kg: weigh?.overloadKg ?? null,
+  };
 }
 
 export function deliveredTrip(trip: Trip | null, at: string): Trip {

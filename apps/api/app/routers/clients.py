@@ -3,6 +3,7 @@ routes stored once and reused on every quote and job."""
 
 import re
 import uuid
+from decimal import Decimal
 
 from email_validator import EmailNotValidError, validate_email
 from fastapi import APIRouter, Depends, status
@@ -32,6 +33,7 @@ class ClientIn(BaseModel):
     billing_method: BillingMethod = BillingMethod.PER_TRIP
     rate_cents: int = Field(default=0, ge=0, le=10_000_000_000)
     payment_terms_days: int = Field(default=30, ge=0, le=365)
+    vat_pct: Decimal = Field(default=Decimal(0), ge=0, le=30, decimal_places=2)
     notes: str | None = Field(default=None, max_length=2000)
     is_active: bool = True
 
@@ -40,6 +42,9 @@ class RouteIn(BaseModel):
     name: str = Field(min_length=2, max_length=160)
     pickup: str = Field(min_length=2, max_length=160)
     dropoff: str = Field(min_length=2, max_length=160)
+    dropoff_lat: float | None = Field(default=None, ge=-90, le=90)  # the client's site; a delivery far from it is flagged
+    dropoff_lng: float | None = Field(default=None, ge=-180, le=180)
+    site_radius_m: int = Field(default=500, ge=50, le=20_000)
     path_notes: str | None = Field(default=None, max_length=2000)
     distance_km: int = Field(ge=0, le=20_000)
     expected_hours: float = Field(default=12, gt=0, le=240)
@@ -75,7 +80,7 @@ def client_out(c: Client, routes: int = 0, open_jobs: int = 0) -> dict:
     return {
         "id": c.id, "name": c.name, "contact_name": c.contact_name, "phone": c.phone, "email": c.email,
         "kra_pin": c.kra_pin, "billing_method": c.billing_method.value, "rate_cents": c.rate_cents,
-        "payment_terms_days": c.payment_terms_days, "notes": c.notes, "is_active": c.is_active,
+        "payment_terms_days": c.payment_terms_days, "vat_pct": float(c.vat_pct), "notes": c.notes, "is_active": c.is_active,
         "routes": routes, "open_jobs": open_jobs,
     }  # fmt: skip
 
@@ -83,7 +88,7 @@ def client_out(c: Client, routes: int = 0, open_jobs: int = 0) -> dict:
 def route_out(r: SavedRoute, client_name: str | None = None) -> dict:
     return {
         "id": r.id, "client_id": r.client_id, "client_name": client_name, "name": r.name, "pickup": r.pickup,
-        "dropoff": r.dropoff, "path_notes": r.path_notes, "distance_km": r.distance_km, "expected_hours": r.expected_hours,
+        "dropoff": r.dropoff, "dropoff_lat": r.dropoff_lat, "dropoff_lng": r.dropoff_lng, "site_radius_m": r.site_radius_m, "path_notes": r.path_notes, "distance_km": r.distance_km, "expected_hours": r.expected_hours,
         "tolls_cents": r.tolls_cents, "crew_cents": r.crew_cents, "other_cents": r.other_cents, "notes": r.notes,
         "is_active": r.is_active,
     }  # fmt: skip

@@ -104,12 +104,36 @@ async def test_full_trip_from_inspection_to_completion(client):
     assert {"trip.created", "trip.started", "trip.loaded", "trip.delivered", "trip.completed"} <= set(actions)
 
 
-async def test_odometer_flags_for_mismatched_backward_and_jumping_readings(client):
+async def test_a_start_reading_below_the_vehicles_last_reading_is_refused_and_the_photo_is_kept(client):
     f = await fleet(client)
     trip = await ready_trip(client, f)
-    res = await start(client, f.driver, trip["id"], value=124000, auto_read_value=124900)
-    assert sorted(res.json()["start_reading"]["flags"]) == ["backward", "mismatch"]
-    assert (await client.get("/vehicles/" + f.vehicle["id"], headers=bearer(f.owner))).json()["odometer_km"] == 125000  # never goes down
+    pid = await photo_id(client, f.driver, "odometer")
+    low = await client.post(f"/trips/{trip['id']}/start", headers=bearer(f.driver), json={"photo_id": pid, "value": 124000})
+    assert low.status_code == 422 and low.json()["detail"]["code"] == "odometer_backward" and "125,000" in low.json()["detail"]["message"]
+    assert (await client.get(f"/trips/{trip['id']}", headers=bearer(f.driver))).json()["status"] == "scheduled"
+    same = await client.post(f"/trips/{trip['id']}/start", headers=bearer(f.driver), json={"photo_id": pid, "value": 125000})
+    assert same.status_code == 200  # the same number as last time is fine, and the same photo can be used again
+    assert (await client.get("/vehicles/" + f.vehicle["id"], headers=bearer(f.owner))).json()["odometer_km"] == 125000
+
+
+async def test_the_next_trip_starts_where_the_last_one_ended_and_cannot_start_lower(client):
+    f = await fleet(client)
+    first = await ready_trip(client, f)
+    await start(client, f.driver, first["id"], value=125100)
+    end = await client.post(f"/trips/{first['id']}/end", headers=bearer(f.driver), json={"photo_id": await photo_id(client, f.driver, "odometer"), "value": 125580})
+    assert end.status_code == 200
+    assert (await client.get("/me/vehicle", headers=bearer(f.driver))).json()["vehicle"]["odometer_km"] == 125580  # what the phone starts from
+    second = await make_trip(client, f)
+    below = await start(client, f.driver, second["id"], value=125100)  # the old start reading
+    assert below.status_code == 422 and below.json()["detail"]["code"] == "odometer_backward"
+    assert (await start(client, f.driver, second["id"], value=125580)).status_code == 200
+
+
+async def test_odometer_flags_for_mismatched_and_jumping_readings(client):
+    f = await fleet(client)
+    trip = await ready_trip(client, f)
+    res = await start(client, f.driver, trip["id"], value=125000, auto_read_value=125900)
+    assert res.json()["start_reading"]["flags"] == ["mismatch"]
 
     f2 = await fleet_second_trip(client, f)
     jump = await start(client, f.driver, f2["id"], value=130000)
@@ -164,7 +188,6 @@ async def test_trip_state_machine_and_conflicts(client):
     trip = await ready_trip(client, f)
     tid = trip["id"]
     assert (await client.post(f"/trips/{tid}/deliver", headers=bearer(f.driver))).status_code == 409  # not started
-    assert (await client.post(f"/trips/{tid}/loading", headers=bearer(f.driver), json={"photo_id": await photo_id(client, f.driver, "cargo")})).status_code == 409
     assert (await start(client, f.driver, tid)).status_code == 200
     assert (await start(client, f.driver, tid)).json()["detail"]["code"] == "wrong_status"  # cannot start twice
     second = await make_trip(client, f)
@@ -173,6 +196,8 @@ async def test_trip_state_machine_and_conflicts(client):
     assert (await client.post(f"/trips/{tid}/cancel", headers=bearer(f.owner))).status_code == 409  # already started
     cancelled = await client.post(f"/trips/{second['id']}/cancel", headers=bearer(f.owner))
     assert cancelled.json()["status"] == "cancelled"
+    # Cargo can be loaded and weighed before the lorry leaves or on the road, but not onto a cancelled trip.
+    assert (await client.post(f"/trips/{second['id']}/loading", headers=bearer(f.driver), json={"photo_id": await photo_id(client, f.driver, "cargo")})).status_code == 409
 
 
 async def test_only_the_trips_crew_or_a_manager_can_move_it(client):

@@ -1,0 +1,26 @@
+{
+  "trip_amounts": [
+    { "name": "per trip is the fixed amount", "input": { "method": "per_trip", "rate_cents": 8000000, "weight_kg": 28000, "distance_km": 480 }, "expected": 8000000 },
+    { "name": "per tonne bills the weighbridge weight", "input": { "method": "per_tonne", "rate_cents": 300000, "weight_kg": 28400, "distance_km": 480 }, "expected": 8520000 },
+    { "name": "per tonne rounds to the cent", "input": { "method": "per_tonne", "rate_cents": 123456, "weight_kg": 7777, "distance_km": 10 }, "expected": 960117 },
+    { "name": "per tonne without a weight cannot be billed", "input": { "method": "per_tonne", "rate_cents": 300000, "weight_kg": null, "distance_km": 480 }, "expected": null },
+    { "name": "per tonne with a zero weight cannot be billed", "input": { "method": "per_tonne", "rate_cents": 300000, "weight_kg": 0, "distance_km": 480 }, "expected": null },
+    { "name": "per km bills the loaded distance", "input": { "method": "per_km", "rate_cents": 20000, "weight_kg": 10000, "distance_km": 250 }, "expected": 5000000 },
+    { "name": "per km without a distance cannot be billed", "input": { "method": "per_km", "rate_cents": 20000, "weight_kg": 10000, "distance_km": null }, "expected": null },
+    { "name": "a monthly contract is not billed per trip", "input": { "method": "monthly_contract", "rate_cents": 50000000, "weight_kg": 10000, "distance_km": 250 }, "expected": null }
+  ],
+  "totals": [
+    { "name": "no VAT", "lines": [8520000], "vat_pct": 0, "expected": { "subtotal_cents": 8520000, "vat_cents": 0, "total_cents": 8520000 } },
+    { "name": "16 percent VAT", "lines": [8520000], "vat_pct": 16, "expected": { "subtotal_cents": 8520000, "vat_cents": 1363200, "total_cents": 9883200 } },
+    { "name": "VAT rounds half up", "lines": [1005], "vat_pct": 16, "expected": { "subtotal_cents": 1005, "vat_cents": 161, "total_cents": 1166 } },
+    { "name": "several lines add up", "lines": [5000000, 2500000, 0], "vat_pct": 16, "expected": { "subtotal_cents": 7500000, "vat_cents": 1200000, "total_cents": 8700000 } }
+  ],
+  "payments": [
+    { "name": "nothing paid is issued", "total_cents": 9883200, "paid": [], "voided": false, "due": "2026-11-01", "today": "2026-10-10", "expected": { "paid_cents": 0, "balance_cents": 9883200, "status": "issued", "overdue": false } },
+    { "name": "a part payment", "total_cents": 9883200, "paid": [4000000], "voided": false, "due": "2026-11-01", "today": "2026-10-10", "expected": { "paid_cents": 4000000, "balance_cents": 5883200, "status": "partially_paid", "overdue": false } },
+    { "name": "paid in two goes", "total_cents": 9883200, "paid": [4000000, 5883200], "voided": false, "due": "2026-11-01", "today": "2026-11-05", "expected": { "paid_cents": 9883200, "balance_cents": 0, "status": "paid", "overdue": false } },
+    { "name": "past the due date and unpaid is overdue", "total_cents": 1000000, "paid": [], "voided": false, "due": "2026-10-01", "today": "2026-10-02", "expected": { "paid_cents": 0, "balance_cents": 1000000, "status": "issued", "overdue": true } },
+    { "name": "due today is not yet overdue", "total_cents": 1000000, "paid": [], "voided": false, "due": "2026-10-02", "today": "2026-10-02", "expected": { "paid_cents": 0, "balance_cents": 1000000, "status": "issued", "overdue": false } },
+    { "name": "a void invoice owes nothing", "total_cents": 1000000, "paid": [], "voided": true, "due": "2026-10-01", "today": "2026-10-20", "expected": { "paid_cents": 0, "balance_cents": 0, "status": "void", "overdue": false } }
+  ]
+}

@@ -15,6 +15,7 @@ from app.deps import Principal, error, require, require_any
 from app.floatcalc import day_bounds
 from app.models import (
     COUNTED,
+    BillingMethod,
     ComplianceDocument,
     Defect,
     Expense,
@@ -24,9 +25,12 @@ from app.models import (
     Incident,
     Inspection,
     InspectionStatus,
+    Invoice,
+    Job,
     Membership,
     Part,
     Priority,
+    ProofOfDelivery,
     Reconciliation,
     ReconciliationStatus,
     Role,
@@ -132,6 +136,24 @@ async def dashboard(
         waiting_rec = (await db.execute(query)).scalars().all()
         if waiting_rec:
             alerts.append(alert("reconciliation_waiting", "amber", f"{len(waiting_rec)} daily reconciliation{'s' if len(waiting_rec) != 1 else ''} waiting for approval", "", "/expenses/reconciliation"))
+    if "vehicles.view" in perms:
+        for t in (await db.execute(select(Trip).where(Trip.overload_kg > 0, Trip.status.in_((TripStatus.SCHEDULED, TripStatus.IN_PROGRESS, TripStatus.DELIVERED))))).scalars():
+            if t.vehicle_id in vehicles:
+                alerts.append(alert("overload", "red", f"{vehicles[t.vehicle_id].registration}: loaded {t.overload_kg:,} kg over the legal limit", "Offload the excess before the lorry leaves.", f"/trips/{t.id}"))
+        for pod in (await db.execute(select(ProofOfDelivery).where(ProofOfDelivery.captured_at >= start - timedelta(days=6)))).scalars():
+            odd = [f for f in pod.flags if f in ("outside_site", "shortage", "damage")]
+            trip = (await db.execute(select(Trip).where(Trip.id == pod.trip_id))).scalar_one_or_none()
+            if odd and trip is not None and trip.vehicle_id in vehicles:
+                alerts.append(alert("pod_flagged", "amber", f"{vehicles[trip.vehicle_id].registration}: delivery to {pod.recipient_name} needs a look", ", ".join(f.replace("_", " ") for f in odd), f"/trips/{trip.id}"))
+    if "invoices.manage" in perms:
+        billed = {i.trip_id for i in (await db.execute(select(Invoice).where(Invoice.trip_id.is_not(None)))).scalars()}
+        contract_jobs = {j.id for j in (await db.execute(select(Job).where(Job.billing_method == BillingMethod.MONTHLY_CONTRACT))).scalars()}
+        waiting = [
+            t for t in (await db.execute(select(Trip).where(Trip.job_id.is_not(None), Trip.status.in_((TripStatus.DELIVERED, TripStatus.COMPLETED))))).scalars()
+            if t.id not in billed and t.job_id not in contract_jobs
+        ]  # fmt: skip
+        if waiting:
+            alerts.append(alert("not_invoiced", "amber", f"{len(waiting)} delivered trip{'s' if len(waiting) != 1 else ''} not invoiced yet", "Usually a per-tonne trip with no weighbridge weight.", f"/trips/{waiting[0].id}"))
     if "sos.respond" in perms:
         names = {m.id: m.user.name for m in (await db.execute(select(Membership))).scalars()}
         for a in (await db.execute(select(SosAlert).where(SosAlert.status != "resolved").order_by(SosAlert.received_at))).scalars():

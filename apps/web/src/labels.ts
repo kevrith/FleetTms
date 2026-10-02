@@ -221,3 +221,16 @@ export const nairobiTime = (iso: string | null) =>
         minute: "2-digit",
       })
     : "";
+
+export const POD_FLAG: Record<string, string> = {
+  outside_site: "Delivered away from the client's site",
+  no_location: "No GPS location was recorded",
+  shortage: "A shortage was reported",
+  damage: "Damage was reported",
+};
+export const INVOICE_STATUS: Record<string, string> = {
+  issued: "Unpaid",
+  partially_paid: "Part paid",
+  paid: "Paid",
+  void: "Void",
+};

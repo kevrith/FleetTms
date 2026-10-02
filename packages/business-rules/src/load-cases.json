@@ -1,0 +1,8 @@
+[
+  { "name": "within the gross limit", "input": { "cargo_kg": 9800, "tare_kg": 6000, "gvw_limit_kg": 16000, "capacity_tonnes": 10 }, "expected": 0 },
+  { "name": "exactly at the gross limit is not an overload", "input": { "cargo_kg": 10000, "tare_kg": 6000, "gvw_limit_kg": 16000, "capacity_tonnes": 10 }, "expected": 0 },
+  { "name": "over the gross limit", "input": { "cargo_kg": 11200, "tare_kg": 6000, "gvw_limit_kg": 16000, "capacity_tonnes": 12 }, "expected": 1200 },
+  { "name": "no tare known: judged against the payload capacity", "input": { "cargo_kg": 10500, "tare_kg": null, "gvw_limit_kg": 16000, "capacity_tonnes": 10 }, "expected": 500 },
+  { "name": "no gross limit: judged against the payload capacity", "input": { "cargo_kg": 9000, "tare_kg": 6000, "gvw_limit_kg": null, "capacity_tonnes": 10 }, "expected": 0 },
+  { "name": "nothing to judge against", "input": { "cargo_kg": 9000, "tare_kg": null, "gvw_limit_kg": null, "capacity_tonnes": null }, "expected": null }
+]

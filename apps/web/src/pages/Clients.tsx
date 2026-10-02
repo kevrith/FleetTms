@@ -1,10 +1,12 @@
 import type { BillingMethod, Client, SavedRoute } from "@fleettms/types";
 import { Plus } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Link, Route, Routes, useParams } from "react-router-dom";
+import { Link, NavLink, Route, Routes, useParams } from "react-router-dom";
 import { api } from "../api";
 import { BILLING_METHOD, BILLING_RATE_LABEL, kes } from "../labels";
 import { Card, ErrorBanner, errorMessage, Field } from "../ui";
+import { useAuth } from "../auth";
+import { InvoiceDetail, InvoiceList } from "./Invoices";
 
 const toCents = (kesText: string) => Math.round(Number(kesText || 0) * 100);
 
@@ -17,6 +19,7 @@ interface ClientForm {
   billing_method: BillingMethod;
   rate: string;
   payment_terms_days: string;
+  vat_pct: string;
   notes: string;
 }
 
@@ -29,6 +32,7 @@ const emptyForm: ClientForm = {
   billing_method: "per_trip",
   rate: "",
   payment_terms_days: "30",
+  vat_pct: "0",
   notes: "",
 };
 
@@ -41,6 +45,7 @@ const formFrom = (c: Client): ClientForm => ({
   billing_method: c.billing_method,
   rate: String(c.rate_cents / 100),
   payment_terms_days: String(c.payment_terms_days),
+  vat_pct: String(c.vat_pct),
   notes: c.notes ?? "",
 });
 
@@ -53,6 +58,7 @@ const payload = (f: ClientForm) => ({
   billing_method: f.billing_method,
   rate_cents: toCents(f.rate),
   payment_terms_days: Number(f.payment_terms_days || 30),
+  vat_pct: f.vat_pct || "0",
   notes: f.notes || null,
 });
 
@@ -94,6 +100,16 @@ function ClientFields({ f, set }: { f: ClientForm; set: (f: ClientForm) => void 
           min="0"
           value={f.payment_terms_days}
           onChange={on("payment_terms_days")}
+        />
+      </Field>
+      <Field label="VAT added to invoices (%)">
+        <input
+          type="number"
+          min="0"
+          max="30"
+          step="0.01"
+          value={f.vat_pct}
+          onChange={on("vat_pct")}
         />
       </Field>
       <Field label="Notes">
@@ -149,7 +165,7 @@ function ClientList() {
                 {rows.map((c) => (
                   <tr key={c.id}>
                     <td>
-                      <Link to={c.id}>{c.name}</Link>
+                      <Link to={`view/${c.id}`}>{c.name}</Link>
                     </td>
                     <td>{[c.contact_name, c.phone].filter(Boolean).join(", ")}</td>
                     <td>
@@ -187,6 +203,9 @@ interface RouteForm {
   tolls: string;
   crew: string;
   other: string;
+  lat: string;
+  lng: string;
+  radius: string;
   path_notes: string;
 }
 const emptyRoute: RouteForm = {
@@ -198,6 +217,9 @@ const emptyRoute: RouteForm = {
   tolls: "",
   crew: "",
   other: "",
+  lat: "",
+  lng: "",
+  radius: "500",
   path_notes: "",
 };
 const routePayload = (f: RouteForm) => ({
@@ -209,6 +231,9 @@ const routePayload = (f: RouteForm) => ({
   tolls_cents: toCents(f.tolls),
   crew_cents: toCents(f.crew),
   other_cents: toCents(f.other),
+  dropoff_lat: f.lat ? Number(f.lat) : null,
+  dropoff_lng: f.lng ? Number(f.lng) : null,
+  site_radius_m: Number(f.radius || 500),
   path_notes: f.path_notes || null,
 });
 
@@ -246,6 +271,27 @@ function RouteFields({ f, set }: { f: RouteForm; set: (f: RouteForm) => void }) 
       </Field>
       <Field label="Other costs per trip (KES)">
         <input type="number" min="0" step="0.01" value={f.other} onChange={on("other")} />
+      </Field>
+      <Field label="Client site latitude">
+        <input
+          type="number"
+          step="0.00001"
+          value={f.lat}
+          onChange={on("lat")}
+          placeholder="-1.29210"
+        />
+      </Field>
+      <Field label="Client site longitude">
+        <input
+          type="number"
+          step="0.00001"
+          value={f.lng}
+          onChange={on("lng")}
+          placeholder="36.82190"
+        />
+      </Field>
+      <Field label="Site radius (metres)">
+        <input type="number" min="50" value={f.radius} onChange={on("radius")} />
       </Field>
       <Field label="Preferred path and notes">
         <input value={f.path_notes} onChange={on("path_notes")} />
@@ -289,7 +335,7 @@ function ClientDetail() {
   return (
     <>
       <p>
-        <Link to="..">Back to clients</Link>
+        <Link to="/clients">Back to clients</Link>
       </p>
       <ErrorBanner message={error} />
       <Card title={client.name}>
@@ -365,14 +411,23 @@ function ClientDetail() {
   );
 }
 
-/** Clients, their billing defaults and their saved routes. */
+/** Clients and their saved routes, and the invoices raised to them. */
 export default function Clients() {
+  const { can } = useAuth();
   return (
     <>
-      <h2>Clients</h2>
+      <h2>Clients and invoices</h2>
+      <nav className="tabs">
+        <NavLink to="/clients" end>
+          Clients
+        </NavLink>
+        {can("invoices.manage") && <NavLink to="/clients/invoices">Invoices</NavLink>}
+      </nav>
       <Routes>
         <Route index element={<ClientList />} />
-        <Route path=":id" element={<ClientDetail />} />
+        <Route path="view/:id" element={<ClientDetail />} />
+        {can("invoices.manage") && <Route path="invoices" element={<InvoiceList />} />}
+        {can("invoices.manage") && <Route path="invoices/:id" element={<InvoiceDetail />} />}
       </Routes>
     </>
   );

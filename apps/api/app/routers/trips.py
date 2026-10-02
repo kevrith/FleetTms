@@ -10,8 +10,11 @@ from app import audit
 from app.clock import capture_time
 from app.db import get_db
 from app.deps import Principal, error, require, require_any
+from app.invoicing import invoice_for_trip
 from app.jobs_service import sync_job
+from app.load_rules import overload_kg
 from app.models import (
+    BillingMethod,
     Client,
     CrewAssignment,
     CrewRole,
@@ -22,6 +25,7 @@ from app.models import (
     OdometerReading,
     Photo,
     PhotoKind,
+    ProofOfDelivery,
     ReadingPhase,
     Role,
     Trip,
@@ -30,6 +34,7 @@ from app.models import (
 )
 from app.odometer import OdometerError, check_value, reading_flags, trip_distance_km
 from app.photos import claim_photo, photo_out
+from app.pod import PodIn, confirm_pod, request_code
 from app.reminders import NAIROBI
 from app.routers.inspections import OK_FOR_TRIP, latest_inspection_on
 from app.routers.vehicles import get_vehicle
@@ -62,12 +67,15 @@ class ReadingIn(BaseModel):
 class LoadingIn(BaseModel):
     photo_id: uuid.UUID | None = None
     photo_client_id: uuid.UUID | None = None
-    loaded_weight_kg: int | None = Field(default=None, gt=0, le=200_000)
+    loaded_weight_kg: int | None = Field(default=None, gt=0, le=200_000)  # net cargo weight from the weighbridge ticket
+    weighbridge_photo_id: uuid.UUID | None = None  # the weighbridge ticket
+    weighbridge_photo_client_id: uuid.UUID | None = None
     captured_at: datetime | None = None
 
 
 class ActionIn(BaseModel):
     captured_at: datetime | None = None
+    pod: PodIn | None = None  # proof of delivery, which a trip for a client job must have
 
 
 def _is_crew(principal: Principal, trip: Trip) -> bool:
@@ -118,6 +126,19 @@ async def trip_out(db: AsyncSession, trip: Trip) -> dict:
         i = (await db.execute(select(Inspection).where(Inspection.id == trip.inspection_id))).scalar_one_or_none()
         inspection = None if i is None else {"id": i.id, "status": i.status.value, "performed_at": i.performed_at}
     vehicle = (await db.execute(select(Vehicle).where(Vehicle.id == trip.vehicle_id))).scalar_one_or_none()
+    pod = (await db.execute(select(ProofOfDelivery).where(ProofOfDelivery.trip_id == trip.id))).scalar_one_or_none()
+    pod_out = None
+    if pod is not None:
+        ids = [i for i in [pod.cargo_photo_id, pod.note_photo_id, *[uuid.UUID(d) for d in pod.damage_photo_ids]] if i]
+        pod_photos = {p.id: p for p in (await db.execute(select(Photo).where(Photo.id.in_(ids)))).scalars()} if ids else {}
+        pod_out = {
+            "recipient_name": pod.recipient_name, "method": pod.method, "captured_at": pod.captured_at, "flags": pod.flags,
+            "has_signature": bool(pod.signature), "lat": pod.lat, "lng": pod.lng, "shortage_qty": float(pod.shortage_qty) if pod.shortage_qty is not None else None,
+            "shortage_unit": pod.shortage_unit, "damage_notes": pod.damage_notes,
+            "cargo_photo": photo_out(pod_photos.get(pod.cargo_photo_id)), "note_photo": photo_out(pod_photos.get(pod.note_photo_id)),
+            "damage_photos": [photo_out(pod_photos[uuid.UUID(d)]) for d in pod.damage_photo_ids if uuid.UUID(d) in pod_photos],
+        }  # fmt: skip
+    ticket = (await db.execute(select(Photo).where(Photo.id == trip.weighbridge_photo_id))).scalar_one_or_none() if trip.weighbridge_photo_id else None
     job = None
     if trip.job_id:
         row = (await db.execute(select(Job, Client.name).join(Client, Client.id == Job.client_id).where(Job.id == trip.job_id))).first()
@@ -126,9 +147,13 @@ async def trip_out(db: AsyncSession, trip: Trip) -> dict:
             job = {
                 "id": j.id, "number": j.number, "client_name": client_name, "instructions": j.instructions,
                 "pickup_at": j.pickup_at, "deliver_by": j.deliver_by, "trips_planned": j.trips_planned,
+                "billing_method": j.billing_method.value,
             }  # fmt: skip
     return {
         "job": job,
+        "pod": pod_out,
+        "overload_kg": trip.overload_kg,
+        "weighbridge_photo": photo_out(ticket),
         "planned_end": trip.planned_end,
         "id": trip.id,
         "status": trip.status.value,
@@ -277,6 +302,13 @@ async def _record_reading(
             check_value(body.auto_read_value)
     except OdometerError as exc:
         raise error(422, "invalid_odometer", str(exc)) from None
+    if body.value < vehicle.odometer_km:
+        # An odometer never goes backwards, so a lower number is refused (not just flagged): it is how kilometres get hidden.
+        raise error(
+            422, "odometer_backward",
+            f"That is lower than this vehicle's last odometer reading ({vehicle.odometer_km:,} km). Check the number. "
+            "If the odometer was replaced, a manager can correct the vehicle's reading first.",
+        )  # fmt: skip
     photo = await claim_photo(
         db, principal, body.photo_id, PhotoKind.ODOMETER, required=True, client_id=body.photo_client_id, near=at
     )
@@ -342,37 +374,66 @@ async def do_start_trip(db: AsyncSession, principal: Principal, trip_id: uuid.UU
 
 
 async def do_record_loading(db: AsyncSession, principal: Principal, trip_id: uuid.UUID, body: LoadingIn) -> Trip:
+    """Records the cargo photo and, from the weighbridge ticket, its weight. It can be done before the lorry leaves, and
+    a load over the legal limit is flagged at once. A trip billed per tonne must have the ticket (photo and weight)."""
     at = capture_time(body.captured_at)
     trip = await get_trip(db, principal, trip_id)
     require_actor(principal, trip)
-    if trip.status != TripStatus.IN_PROGRESS:
-        raise error(status.HTTP_409_CONFLICT, "wrong_status", "Loading is recorded while the trip is in progress.")
+    if trip.status not in (TripStatus.SCHEDULED, TripStatus.IN_PROGRESS):
+        raise error(status.HTTP_409_CONFLICT, "wrong_status", "Loading is recorded before the trip leaves or while it is in progress.")
     _not_before_start(trip, at)
+    job = (await db.execute(select(Job).where(Job.id == trip.job_id))).scalar_one_or_none() if trip.job_id else None
+    per_tonne = job is not None and job.billing_method == BillingMethod.PER_TONNE
+    has_ticket = body.weighbridge_photo_id is not None or body.weighbridge_photo_client_id is not None
+    if has_ticket and body.loaded_weight_kg is None:
+        raise error(422, "weight_required", "Enter the weight printed on the weighbridge ticket.")
+    if per_tonne and not (has_ticket and body.loaded_weight_kg):
+        raise error(422, "weighbridge_required", "This job is billed per tonne: photograph the weighbridge ticket and enter its weight.")
     photo = await claim_photo(
         db, principal, body.photo_id, PhotoKind.CARGO, required=True, client_id=body.photo_client_id, near=at
     )
     assert photo is not None
+    ticket = await claim_photo(
+        db, principal, body.weighbridge_photo_id, PhotoKind.WEIGHBRIDGE, required=False,
+        client_id=body.weighbridge_photo_client_id, near=at,
+    )  # fmt: skip
     trip.cargo_photo_id = photo.id
+    trip.weighbridge_photo_id = ticket.id if ticket else None
     trip.loaded_at = at
     trip.loaded_weight_kg = body.loaded_weight_kg
+    trip.overload_kg = None
+    if body.loaded_weight_kg is not None:
+        vehicle = (await db.execute(select(Vehicle).where(Vehicle.id == trip.vehicle_id))).scalar_one()
+        trip.overload_kg = overload_kg(
+            cargo_kg=body.loaded_weight_kg, tare_kg=vehicle.tare_kg, gvw_limit_kg=vehicle.gvw_limit_kg,
+            capacity_tonnes=float(vehicle.capacity_tonnes) if vehicle.capacity_tonnes is not None else None,
+        )  # fmt: skip
     audit.record(
         db, actor_user_id=principal.user.id, action="trip.loaded", entity_type="trip", entity_id=trip.id,
-        after={"loaded_weight_kg": body.loaded_weight_kg},
+        after={"loaded_weight_kg": body.loaded_weight_kg, "overload_kg": trip.overload_kg},
     )  # fmt: skip
+    if trip.overload_kg:
+        audit.record(db, actor_user_id=principal.user.id, action="trip.overloaded", entity_type="trip", entity_id=trip.id, after={"overload_kg": trip.overload_kg})
     return trip
 
 
 async def do_mark_delivered(db: AsyncSession, principal: Principal, trip_id: uuid.UUID, body: ActionIn) -> Trip:
-    """Marks the cargo as delivered. Full proof of delivery (photos, signature, code) arrives in Sprint 8."""
+    """Marks the cargo as delivered with its proof of delivery. A trip for a client job must have one; confirming it
+    invoices the client. The caller commits."""
     at = capture_time(body.captured_at)
     trip = await get_trip(db, principal, trip_id)
     require_actor(principal, trip)
     if trip.status != TripStatus.IN_PROGRESS:
         raise error(status.HTTP_409_CONFLICT, "wrong_status", "Only a trip in progress can be delivered.")
     _not_before_start(trip, at)
+    if body.pod is None and trip.job_id is not None:
+        raise error(422, "pod_required", "Proof of delivery is needed: the recipient's name, the photos, and a signature or the code.")
     trip.status = TripStatus.DELIVERED
     trip.delivered_at = at
     audit.record(db, actor_user_id=principal.user.id, action="trip.delivered", entity_type="trip", entity_id=trip.id)
+    if body.pod is not None:
+        await confirm_pod(db, principal, trip, body.pod, at)
+        await invoice_for_trip(db, trip, principal.user.id)  # the invoice follows the proof of delivery
     await sync_job(db, trip.job_id)
     return trip
 
@@ -448,6 +509,22 @@ async def mark_delivered(
     trip = await do_mark_delivered(db, principal, trip_id, body or ActionIn())
     await db.commit()
     return await trip_out(db, trip)
+
+
+@router.post("/trips/{trip_id}/pod/code")
+async def send_pod_code(
+    trip_id: uuid.UUID,
+    principal: Principal = Depends(require_any("trips.own", "trips.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Texts the client a one-time delivery code. The recipient gives it to the driver, which proves they received the load."""
+    trip = await get_trip(db, principal, trip_id)
+    require_actor(principal, trip)
+    if trip.status != TripStatus.IN_PROGRESS:
+        raise error(status.HTTP_409_CONFLICT, "wrong_status", "A delivery code is sent while the trip is in progress.")
+    sent = await request_code(db, principal, trip)
+    await db.commit()
+    return sent
 
 
 @router.post("/trips/{trip_id}/end")

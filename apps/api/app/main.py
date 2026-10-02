@@ -18,6 +18,7 @@ from app.routers import (
     imports,
     incidents,
     inspections,
+    invoices,
     jobs,
     parts,
     photos,
@@ -45,7 +46,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for module in (auth, users, depots, vehicles, staff, documents, imports, photos, inspections, trips, fuel, floats, devices, sync, expenses, reconciliation, workshop, dashboard, tyres, parts, incidents, sos, clients, quotes, jobs, report_schedules, audit_log, privacy, support):
+for module in (auth, users, depots, vehicles, staff, documents, imports, photos, inspections, trips, fuel, floats, devices, sync, expenses, reconciliation, workshop, dashboard, tyres, parts, incidents, sos, clients, quotes, jobs, invoices, report_schedules, audit_log, privacy, support):
     app.include_router(module.router)
 
 

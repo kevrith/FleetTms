@@ -5,3 +5,5 @@ export * from "./fuel";
 export * from "./trips";
 export * from "./tyres";
 export * from "./quotes";
+export * from "./billing";
+export * from "./load";

@@ -23,6 +23,7 @@ CHECKS = {
     "list_quotes": ("GET", "/quotes", None, "clients.manage"),
     "list_jobs": ("GET", "/jobs", None, "trips.view"),
     "dispatch_calendar": ("GET", "/dispatch/calendar", None, "trips.view"),
+    "list_invoices": ("GET", "/invoices", None, "invoices.manage"),
     "list_sos": ("GET", "/sos", None, "sos.respond"),
     "list_report_schedules": ("GET", "/report-schedules", None, "reports.schedule"),
     "list_staff": ("GET", "/staff", None, "staff.view"),

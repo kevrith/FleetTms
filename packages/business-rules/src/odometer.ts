@@ -34,6 +34,17 @@ export function tripDistanceKm(start: number, end: number): number | null {
   return end >= start ? end - start : null;
 }
 
+/** The lowest reading that can be accepted: an odometer never goes backwards. */
+export function minimumReading(lastKnownKm: number, tripStartKm?: number): number {
+  return Math.max(lastKnownKm, tripStartKm ?? 0);
+}
+
+/** True when what was typed is a number below the lowest acceptable reading, which the server refuses. */
+export function isBelowMinimum(typed: string, minimumKm: number): boolean {
+  const value = parseOdometer(typed);
+  return value !== null && value < minimumKm;
+}
+
 /** A message for the person about to submit, or null when the number is fine. */
 export function odometerProblem(
   typed: string,
@@ -45,7 +56,7 @@ export function odometerProblem(
   if (minimumKm !== undefined && value < minimumKm)
     return "The end reading cannot be lower than the start reading.";
   if (value < lastKnownKm)
-    return "That is lower than the last reading for this vehicle. Check the number.";
+    return `That is lower than the last reading for this vehicle (${lastKnownKm.toLocaleString("en-KE")} km). A lower reading cannot be accepted. Check the number.`;
   if (value - lastKnownKm > LARGE_JUMP_KM)
     return "That is a long way above the last reading. Check the number.";
   return null;

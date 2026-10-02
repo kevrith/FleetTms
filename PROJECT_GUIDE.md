@@ -152,6 +152,13 @@ on the dev machine.
   with its trips. Permissions: `clients.manage` (owner, manager, accountant), `jobs.manage` (owner, manager); anyone with
   `trips.view` can see jobs and the calendar, without prices.
 
+- **Sprint 8 (proof of delivery, load checks, billing).** `app/pod.py` (code, signature, flags), `app/invoicing.py`
+  (trip and contract invoices), `app/invoice_files.py` (PDF with the proof attached), `app/routers/invoices.py`. Billing
+  and load rules are `app/billing_rules.py` and `app/load_rules.py`, mirrored in `packages/business-rules`
+  (`billing.ts`, `load.ts`) and tested against `billing-cases.json` and `load-cases.json`. A wrong delivery code is
+  counted in its own transaction, because the failed request rolls back. Odometer readings below the vehicle's last one
+  are refused in `_record_reading`. Permission: `invoices.manage` (owner, accountant).
+
 ## Testing against a real phone/emulator
 
 - API tests use a separate `fleettms_test` database that they create and migrate themselves.

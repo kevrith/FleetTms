@@ -67,6 +67,8 @@ import type {
   ClaimStatus,
   FinesSummary,
   SosAlert,
+  Invoice,
+  ProofOfDeliveryInput,
   Client,
   SavedRoute,
   Quote,
@@ -357,12 +359,24 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
     trip: (id: string) => get<Trip>(`/trips/${id}`),
     createTrip: (input: TripInput) => post<Trip>("/trips", input),
     startTrip: (id: string, reading: ReadingInput) => post<Trip>(`/trips/${id}/start`, reading),
-    recordLoading: (id: string, photoId: string, loadedWeightKg?: number | null) =>
+    recordLoading: (
+      id: string,
+      photoId: string,
+      loadedWeightKg?: number | null,
+      weighbridgePhotoId?: string | null,
+    ) =>
       post<Trip>(`/trips/${id}/loading`, {
         photo_id: photoId,
         loaded_weight_kg: loadedWeightKg ?? null,
+        weighbridge_photo_id: weighbridgePhotoId ?? null,
       }),
-    deliverTrip: (id: string) => post<Trip>(`/trips/${id}/deliver`),
+    deliverTrip: (id: string, pod?: ProofOfDeliveryInput) =>
+      post<Trip>(`/trips/${id}/deliver`, pod ? { pod } : undefined),
+    requestPodCode: (id: string) =>
+      post<{ sent_to_last4: string; expires_in_s: number }>(`/trips/${id}/pod/code`),
+    tripInvoice: (id: string) => get<{ invoice: Invoice | null }>(`/trips/${id}/invoice`),
+    invoiceTrip: (id: string, weightKg?: number) =>
+      post<Invoice>(`/trips/${id}/invoice`, { weight_kg: weightKg ?? null }),
     endTrip: (id: string, reading: ReadingInput) => post<Trip>(`/trips/${id}/end`, reading),
     cancelTrip: (id: string) => post<Trip>(`/trips/${id}/cancel`),
 
@@ -646,6 +660,33 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
       get<DispatchCalendar>(`/dispatch/calendar?from=${from}&to=${to}`),
     available: (start: string, hours: number) =>
       get<Availability>(`/dispatch/available?start=${encodeURIComponent(start)}&hours=${hours}`),
+
+    // ---- invoices ----
+    invoices: (params: { status?: string; unpaidOnly?: boolean; clientId?: string } = {}) => {
+      const q = new URLSearchParams();
+      if (params.status) q.set("status_filter", params.status);
+      if (params.unpaidOnly) q.set("unpaid_only", "true");
+      if (params.clientId) q.set("client_id", params.clientId);
+      const qs = q.toString();
+      return get<Invoice[]>(`/invoices${qs ? `?${qs}` : ""}`);
+    },
+    invoice: (id: string) => get<Invoice>(`/invoices/${id}`),
+    invoicePdf: (id: string) => request<Blob>("GET", `/invoices/${id}/pdf`, undefined, true, true),
+    addPayment: (
+      id: string,
+      input: {
+        amount_cents: number;
+        method: "cash" | "mpesa" | "bank" | "cheque";
+        reference?: string | null;
+        received_on?: string | null;
+        note?: string | null;
+      },
+    ) => post<Invoice>(`/invoices/${id}/payments`, input),
+    voidInvoice: (id: string, reason: string) => post<Invoice>(`/invoices/${id}/void`, { reason }),
+    sendInvoice: (id: string, channel: "email" | "whatsapp" | "sms", recipient?: string) =>
+      post<Invoice>(`/invoices/${id}/send`, { channel, recipient: recipient || null }),
+    runContractInvoices: (month: string) =>
+      post<{ month: string; issued: Invoice[] }>("/invoices/contracts/run", { month }),
 
     // ---- SOS ----
     myTyrePositions: () => get<MyTyrePositions>("/me/tyre-positions"),

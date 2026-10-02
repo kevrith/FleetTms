@@ -1,18 +1,27 @@
-import { nairobiDay, odometerProblem, parseOdometer } from "@fleettms/business-rules";
+import {
+  isBelowMinimum,
+  minimumReading,
+  nairobiDay,
+  odometerProblem,
+  parseOdometer,
+} from "@fleettms/business-rules";
 import { useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { CaptureScreen } from "../capture";
 import type { LocalPhoto } from "../offline/types";
 import { useOffline } from "../offline/runtime";
 import { Body, Button, ErrorText, errorMessage, Input, useTheme } from "../ui";
+import Delivery from "./Delivery";
 import InspectionFlow from "./InspectionFlow";
+import Loading from "./Loading";
 
 type Mode =
   | { kind: "idle" }
   | { kind: "inspection" }
   | { kind: "odometer"; phase: "start" | "end" }
   | { kind: "reading"; phase: "start" | "end"; photo: LocalPhoto }
-  | { kind: "cargo" };
+  | { kind: "cargo" }
+  | { kind: "delivery" };
 
 /**
  * The driver's current trip and the one next step. Everything works with no network: each step is saved on the phone
@@ -89,21 +98,16 @@ export default function TripPanel() {
         hint="Line the odometer up in the frame. Avoid glare, and keep the numbers sharp."
         guide
         onCancel={finish}
-        onDone={(photo) => setMode({ kind: "reading", phase: mode.phase, photo })}
+        onDone={(photo) => {
+          // A trip starts where the last one ended, so the vehicle's last reading is filled in; it can only be raised.
+          setTyped(mode.phase === "start" && lastKnown > 0 ? String(lastKnown) : "");
+          setMode({ kind: "reading", phase: mode.phase, photo });
+        }}
       />
     );
   }
-  if (mode.kind === "cargo") {
-    return (
-      <CaptureScreen
-        kind="cargo"
-        title="Photo of the cargo"
-        hint="Show the load on the vehicle."
-        onCancel={finish}
-        onDone={(photo) => void run(() => offline.recordLoading(photo))}
-      />
-    );
-  }
+  if (mode.kind === "cargo") return <Loading onDone={finish} onCancel={finish} />;
+  if (mode.kind === "delivery") return <Delivery onDone={finish} onCancel={finish} />;
   if (mode.kind === "reading") {
     const startValue = trip.start_reading?.value;
     const problem = typed
@@ -114,6 +118,8 @@ export default function TripPanel() {
         )
       : null;
     const value = parseOdometer(typed);
+    const minimum = minimumReading(lastKnown, mode.phase === "end" ? startValue : undefined);
+    const tooLow = isBelowMinimum(typed, minimum);
     const submit = () =>
       run(() =>
         mode.phase === "start"
@@ -123,7 +129,11 @@ export default function TripPanel() {
     return (
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
         <Text style={{ color: t.text, fontSize: 22, fontWeight: "700" }}>Confirm the odometer</Text>
-        <Body muted>The photo is saved. Type the number you see on the odometer.</Body>
+        <Body muted>
+          {mode.phase === "start" && lastKnown > 0
+            ? `The last reading, ${lastKnown.toLocaleString()} km, is filled in. If the odometer shows more, change it. It cannot be lower.`
+            : `Type the number you see on the odometer. It cannot be lower than ${minimum.toLocaleString()} km.`}
+        </Body>
         <Input
           label="Odometer (km)"
           value={typed}
@@ -137,7 +147,7 @@ export default function TripPanel() {
           label={mode.phase === "start" ? "Start trip" : "End trip"}
           onPress={submit}
           busy={busy}
-          disabled={value === null}
+          disabled={value === null || tooLow}
         />
         <Button label="Cancel" kind="secondary" onPress={finish} disabled={busy} />
       </ScrollView>
@@ -173,6 +183,14 @@ export default function TripPanel() {
           </Body>
         )}
         {trip.job?.instructions ? <Body>{trip.job.instructions}</Body> : null}
+        {trip.loaded_weight_kg ? (
+          <Body muted>Loaded {trip.loaded_weight_kg.toLocaleString()} kg</Body>
+        ) : null}
+        {trip.overload_kg ? (
+          <Text style={{ color: "#d92d20", fontSize: 16, fontWeight: "700" }}>
+            Overloaded by {trip.overload_kg.toLocaleString()} kg
+          </Text>
+        ) : null}
         <Body muted>
           {stateText}
           {trip.start_reading ? `, started at ${trip.start_reading.value.toLocaleString()} km` : ""}
@@ -191,6 +209,13 @@ export default function TripPanel() {
             </Body>
           )}
           {!status && <Body muted>Do the pre-trip inspection first.</Body>}
+          {!trip.loaded_at && (
+            <Button
+              label="Load and weigh the cargo"
+              kind="secondary"
+              onPress={() => setMode({ kind: "cargo" })}
+            />
+          )}
           {cleared ? (
             <Button
               label="Start trip"
@@ -208,7 +233,7 @@ export default function TripPanel() {
         <>
           {!trip.loaded_at && (
             <Button
-              label="Photograph the cargo"
+              label="Load and weigh the cargo"
               kind="secondary"
               onPress={() => setMode({ kind: "cargo" })}
             />
@@ -216,7 +241,9 @@ export default function TripPanel() {
           <Button
             label="Mark delivered"
             kind="secondary"
-            onPress={() => void run(() => offline.markDelivered())}
+            onPress={() =>
+              trip.job ? setMode({ kind: "delivery" }) : void run(() => offline.markDelivered())
+            }
             busy={busy}
           />
           <Button label="End trip" onPress={() => setMode({ kind: "odometer", phase: "end" })} />

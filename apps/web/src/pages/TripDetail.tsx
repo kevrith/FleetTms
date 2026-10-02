@@ -1,11 +1,11 @@
-import type { Inspection, OdometerReadingOut, PhotoKind, Trip } from "@fleettms/types";
+import type { Inspection, Invoice, OdometerReadingOut, PhotoKind, Trip } from "@fleettms/types";
 import { odometerProblem, parseOdometer } from "@fleettms/business-rules";
 import { Camera, CheckCircle2, Flag, PackageCheck, Play, Square } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
-import { FLAG_TEXT, fmtTime, TRIP_STATUS } from "../labels";
+import { FLAG_TEXT, fmtTime, kes, POD_FLAG, TRIP_STATUS } from "../labels";
 import { Card, ErrorBanner, errorMessage, Field } from "../ui";
 import InspectionCard from "./InspectionCard";
 
@@ -65,9 +65,18 @@ function CapturePanel({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const startValue = trip.start_reading?.value;
+  const phase = trip.status === "scheduled" ? "start" : trip.status === "completed" ? null : "end";
+
+  // A trip starts where the last one ended, so the vehicle's last reading is filled in once. It can only be raised.
+  const prefilled = useRef(false);
+  useEffect(() => {
+    if (phase === "start" && vehicleKm && !prefilled.current) {
+      prefilled.current = true;
+      setValue(String(vehicleKm));
+    }
+  }, [phase, vehicleKm]);
 
   if (!can("trips.manage")) return null;
-  const phase = trip.status === "scheduled" ? "start" : trip.status === "completed" ? null : "end";
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true);
@@ -177,6 +186,150 @@ function CapturePanel({
   );
 }
 
+function Photo({
+  photo,
+  title,
+}: {
+  photo: { url: string; captured_at: string } | null | undefined;
+  title: string;
+}) {
+  if (!photo) return null;
+  return (
+    <figure style={{ margin: 8, display: "inline-block" }}>
+      <a href={api.mediaUrl(photo.url)} target="_blank" rel="noreferrer">
+        <img src={api.mediaUrl(photo.url)} alt={title} width={220} />
+      </a>
+      <figcaption className="muted">{title}</figcaption>
+    </figure>
+  );
+}
+
+function Delivery({ trip, onChanged }: { trip: Trip; onChanged: () => void }) {
+  const { can } = useAuth();
+  const [invoice, setInvoice] = useState<Invoice | null>(null);
+  const [weight, setWeight] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const loadInvoice = useCallback(async () => {
+    try {
+      setInvoice((await api.tripInvoice(trip.id)).invoice);
+    } catch {
+      setInvoice(null);
+    }
+  }, [trip.id]);
+  useEffect(() => {
+    void loadInvoice();
+  }, [loadInvoice, trip.status]);
+  const pod = trip.pod;
+  const delivered = trip.status === "delivered" || trip.status === "completed";
+  if (!pod && !delivered && !trip.overload_kg && !trip.weighbridge_photo) return null;
+  return (
+    <>
+      {trip.overload_kg != null && trip.overload_kg > 0 && (
+        <p className="banner bad" role="alert">
+          <Flag size={18} /> Loaded {trip.overload_kg.toLocaleString()} kg over the legal limit.
+        </p>
+      )}
+      {(pod || trip.weighbridge_photo) && (
+        <Card title="Proof of delivery">
+          <ErrorBanner message={error} />
+          {trip.weighbridge_photo && (
+            <>
+              <h4>Weighbridge ticket</h4>
+              <Photo photo={trip.weighbridge_photo} title="Weighbridge ticket" />
+              <p className="muted">
+                {trip.loaded_weight_kg
+                  ? `${trip.loaded_weight_kg.toLocaleString()} kg of cargo`
+                  : ""}
+                {trip.overload_kg === 0 ? ", within the legal limit" : ""}
+              </p>
+            </>
+          )}
+          {pod && (
+            <>
+              <p>
+                Received by <strong>{pod.recipient_name}</strong>, {fmtTime(pod.captured_at)}.
+                Confirmed by{" "}
+                {pod.method === "code" ? "a one-time code sent to the client's phone" : "signature"}
+                .
+              </p>
+              {pod.lat != null && pod.lng != null && (
+                <p>
+                  <a
+                    href={`https://maps.google.com/?q=${pod.lat},${pod.lng}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Where it was delivered
+                  </a>
+                </p>
+              )}
+              {pod.flags.map((f) => (
+                <p key={f} className="status warn">
+                  <Flag size={16} /> {POD_FLAG[f] ?? f}
+                </p>
+              ))}
+              {pod.shortage_qty != null && (
+                <p>
+                  Shortage: {pod.shortage_qty} {pod.shortage_unit}
+                </p>
+              )}
+              {pod.damage_notes && <p>Damage: {pod.damage_notes}</p>}
+              <Photo photo={pod.note_photo} title="Signed delivery note" />
+              <Photo photo={pod.cargo_photo} title="Cargo delivered" />
+              {pod.damage_photos.map((p) => (
+                <Photo key={p.id} photo={p} title="Damage" />
+              ))}
+            </>
+          )}
+        </Card>
+      )}
+      {delivered && can("invoices.manage") && (
+        <Card title="Invoice">
+          <ErrorBanner message={error} />
+          {invoice ? (
+            <p>
+              <Link to={`/clients/invoices/${invoice.id}`}>{invoice.number}</Link>:{" "}
+              {kes(invoice.total_cents)}, {invoice.status.replace("_", " ")}.
+            </p>
+          ) : (
+            <>
+              <p className="muted">
+                No invoice yet. A per-tonne trip is billed from the weighbridge weight; if the
+                ticket was not recorded, enter the weight from the paper ticket.
+              </p>
+              <div className="form-grid">
+                <Field label="Weight (kg)">
+                  <input
+                    type="number"
+                    min="0"
+                    value={weight}
+                    onChange={(e) => setWeight(e.target.value)}
+                  />
+                </Field>
+                <button
+                  className="btn primary"
+                  onClick={async () => {
+                    setError(null);
+                    try {
+                      await api.invoiceTrip(trip.id, weight ? Number(weight) : undefined);
+                      await loadInvoice();
+                      onChanged();
+                    } catch (e) {
+                      setError(errorMessage(e));
+                    }
+                  }}
+                >
+                  Invoice this trip
+                </button>
+              </div>
+            </>
+          )}
+        </Card>
+      )}
+    </>
+  );
+}
+
 export default function TripDetail() {
   const { id = "" } = useParams();
   const [trip, setTrip] = useState<Trip | null>(null);
@@ -254,6 +407,7 @@ export default function TripDetail() {
           </p>
         </Card>
       )}
+      <Delivery trip={trip} onChanged={load} />
       <CapturePanel trip={trip} today={todayOk} vehicleKm={vehicleKm} onChanged={load} />
     </>
   );

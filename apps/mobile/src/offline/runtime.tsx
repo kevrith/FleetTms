@@ -3,6 +3,7 @@ import {
   inspectionOutcome,
   nairobiDay,
   normalizeMpesaCode,
+  overloadKg,
 } from "@fleettms/business-rules";
 import type { DeviceReport, ExpenseCategory, IncidentType } from "@fleettms/types";
 import NetInfo from "@react-native-community/netinfo";
@@ -29,6 +30,8 @@ import { fromB64, toB64 } from "./bytes";
 import { createSyncEngine, type EngineApi, type RunResult } from "./engine";
 import {
   assertInspectionClears,
+  assertNotBelowOdometer,
+  withOdometer,
   deliveredTrip,
   displayBalance,
   endedTrip,
@@ -171,6 +174,20 @@ export interface ExpenseFormInput {
   mpesaCode: string;
   receipt: LocalPhoto | null;
 }
+export interface DeliveryInput {
+  recipientName: string;
+  method: "code" | "signature";
+  code: string;
+  signature: number[][][] | null;
+  cargo: LocalPhoto;
+  note: LocalPhoto;
+  shortageQty: string;
+  shortageUnit: string;
+  damageNotes: string;
+  damagePhoto: LocalPhoto | null;
+  lat: number | null;
+  lng: number | null;
+}
 export interface IncidentFormInput {
   type: IncidentType;
   description: string;
@@ -204,12 +221,18 @@ interface Offline {
     tyreSerials?: { position: string; serial: string }[],
   ) => Promise<"passed" | "passed_with_defects" | "blocked">;
   reportIncident: (input: IncidentFormInput) => Promise<void>;
+  /** Weighs the load: the cargo photo and, from the weighbridge ticket, its weight. Done before the lorry leaves if possible. */
+  recordLoading: (
+    photo: LocalPhoto,
+    weigh?: { weightKg: number; ticket: LocalPhoto },
+  ) => Promise<void>;
+  /** Delivers the trip with proof of delivery. */
+  deliver: (input: DeliveryInput) => Promise<void>;
   /** Raises an SOS now. It is sent at once if there is a network, and the moment there is one if not. */
   sendSos: (
     position: { lat: number; lng: number; accuracy_m: number | null } | null,
   ) => Promise<void>;
   startTrip: (photo: LocalPhoto, value: number) => Promise<void>;
-  recordLoading: (photo: LocalPhoto) => Promise<void>;
   markDelivered: () => Promise<void>;
   endTrip: (photo: LocalPhoto, value: number) => Promise<void>;
   addFuel: (input: FuelFormInput) => Promise<void>;
@@ -379,6 +402,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
         const c = cache();
         const at = nowIso();
         assertInspectionClears(c, c.trip?.vehicle_id ?? "", at);
+        assertNotBelowOdometer(c, value);
         const trip = startedTrip(c.trip, value, at);
         await queueAndSync({
           type: "trip.start",
@@ -386,17 +410,60 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
           photoIds: [photo.clientId],
           payload: { trip_id: trip.id, photo_client_id: photo.clientId, value },
         });
-        await setCache({ trip });
+        await setCache({ trip, vehicle: withOdometer(c.vehicle, value) });
       },
 
-      async recordLoading(photo) {
+      async recordLoading(photo, weigh) {
         const at = nowIso();
-        const trip = loadedTrip(cache().trip, at);
+        const v = cache().vehicle?.vehicle;
+        const overloadKg = weigh ? overloadKgFor(weigh.weightKg, v) : null;
+        const trip = loadedTrip(cache().trip, at, {
+          weightKg: weigh?.weightKg ?? null,
+          overloadKg,
+        });
         await queueAndSync({
           type: "trip.loading",
           capturedAt: at,
-          photoIds: [photo.clientId],
-          payload: { trip_id: trip.id, photo_client_id: photo.clientId },
+          photoIds: [photo.clientId, ...(weigh ? [weigh.ticket.clientId] : [])],
+          payload: {
+            trip_id: trip.id,
+            photo_client_id: photo.clientId,
+            loaded_weight_kg: weigh?.weightKg ?? null,
+            weighbridge_photo_client_id: weigh?.ticket.clientId ?? null,
+          },
+        });
+        await setCache({ trip });
+      },
+
+      async deliver(input) {
+        const at = nowIso();
+        const trip = deliveredTrip(cache().trip, at);
+        const damage = input.damageNotes.trim() ? input.damagePhoto : null;
+        await queueAndSync({
+          type: "trip.deliver",
+          capturedAt: at,
+          photoIds: [
+            input.cargo.clientId,
+            input.note.clientId,
+            ...(damage ? [damage.clientId] : []),
+          ],
+          payload: {
+            trip_id: trip.id,
+            pod: {
+              recipient_name: input.recipientName.trim(),
+              method: input.method,
+              code: input.method === "code" ? input.code.trim() : null,
+              signature: input.method === "signature" ? input.signature : null,
+              cargo_photo_client_id: input.cargo.clientId,
+              note_photo_client_id: input.note.clientId,
+              shortage_qty: Number(input.shortageQty) > 0 ? input.shortageQty : null,
+              shortage_unit: input.shortageUnit.trim() || null,
+              damage_notes: input.damageNotes.trim() || null,
+              damage_photo_client_ids: damage ? [damage.clientId] : [],
+              lat: input.lat,
+              lng: input.lng,
+            },
+          },
         });
         await setCache({ trip });
       },
@@ -415,6 +482,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
 
       async endTrip(photo, value) {
         const at = nowIso();
+        assertNotBelowOdometer(cache(), value);
         const trip = endedTrip(cache().trip, value, at);
         await queueAndSync({
           type: "trip.end",
@@ -422,7 +490,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
           photoIds: [photo.clientId],
           payload: { trip_id: trip.id, photo_client_id: photo.clientId, value },
         });
-        await setCache({ trip });
+        await setCache({ trip, vehicle: withOdometer(cache().vehicle, value) });
       },
 
       async addFuel(input) {
@@ -542,6 +610,21 @@ export function useOffline(): Offline {
 }
 
 /** A location check that does not ask for permission: used to notice a mock-location app while the app is open. */
+/** Kilograms over the legal limit for this lorry, judged with the same rule the server uses. */
+function overloadKgFor(
+  cargoKg: number,
+  v:
+    | { tare_kg: number | null; gvw_limit_kg: number | null; capacity_tonnes: string | null }
+    | undefined,
+): number | null {
+  return overloadKg({
+    cargo_kg: cargoKg,
+    tare_kg: v?.tare_kg ?? null,
+    gvw_limit_kg: v?.gvw_limit_kg ?? null,
+    capacity_tonnes: v?.capacity_tonnes ? Number(v.capacity_tonnes) : null,
+  });
+}
+
 export async function sampleForMockLocation(note: () => void): Promise<void> {
   try {
     const perm = await Location.getForegroundPermissionsAsync();

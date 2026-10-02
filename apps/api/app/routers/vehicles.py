@@ -34,7 +34,7 @@ router = APIRouter(tags=["vehicles"])
 VEHICLE_FIELDS = [
     "registration", "make", "model", "capacity_tonnes", "fuel_type", "tank_litres",
     "expected_kmpl_loaded", "expected_kmpl_empty", "odometer_km", "tracking_tier", "depot_id",
-    "ownership_type", "party_id", "gvw_limit_kg", "axle_config", "is_active",
+    "ownership_type", "party_id", "gvw_limit_kg", "tare_kg", "axle_config", "is_active",
 ]  # fmt: skip
 CREW_FIELDS = ["vehicle_id", "membership_id", "role", "started_at", "ended_at"]
 PARTY_FIELDS = ["kind", "name", "phone", "kra_pin", "payment_details"]
@@ -64,6 +64,7 @@ class VehicleIn(BaseModel):
     ownership_type: OwnershipType = OwnershipType.OWNED
     party_id: uuid.UUID | None = None
     gvw_limit_kg: int | None = Field(default=None, gt=0, le=100_000)
+    tare_kg: int | None = Field(default=None, gt=0, le=60_000)
     axle_config: str | None = Field(default=None, max_length=20)
     is_active: bool = True
 
@@ -394,6 +395,7 @@ async def my_vehicle(principal: Principal = Depends(require("trips.own")), db: A
             "id": vehicle.id, "registration": vehicle.registration, "make": vehicle.make, "model": vehicle.model,
             "capacity_tonnes": vehicle.capacity_tonnes, "fuel_type": vehicle.fuel_type.value,
             "tank_litres": vehicle.tank_litres, "odometer_km": vehicle.odometer_km,
+            "gvw_limit_kg": vehicle.gvw_limit_kg, "tare_kg": vehicle.tare_kg,
         },
         "my_role": mine.role.value,
         "crew": [

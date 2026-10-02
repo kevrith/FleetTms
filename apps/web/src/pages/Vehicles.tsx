@@ -29,6 +29,7 @@ export const EMPTY_VEHICLE: VehicleInput = {
   ownership_type: "owned",
   party_id: null,
   gvw_limit_kg: null,
+  tare_kg: null,
   axle_config: null,
   is_active: true,
 };
@@ -190,6 +191,14 @@ export function VehicleForm({
           min="0"
           value={v.gvw_limit_kg ?? ""}
           onChange={(e) => set("gvw_limit_kg", num(e.target.value))}
+        />
+      </Field>
+      <Field label="Empty weight of the lorry (kg)">
+        <input
+          type="number"
+          min="0"
+          value={v.tare_kg ?? ""}
+          onChange={(e) => set("tare_kg", num(e.target.value))}
         />
       </Field>
       <Field label="Axle configuration">

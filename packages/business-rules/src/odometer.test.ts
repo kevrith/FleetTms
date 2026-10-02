@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { odometerProblem, parseOdometer, readingFlags, tripDistanceKm } from "./odometer";
+import {
+  isBelowMinimum,
+  minimumReading,
+  odometerProblem,
+  parseOdometer,
+  readingFlags,
+  tripDistanceKm,
+} from "./odometer";
 
 describe("parseOdometer", () => {
   it("accepts whole numbers, ignoring spaces and commas", () => {
@@ -50,5 +57,17 @@ describe("odometerProblem", () => {
     expect(odometerProblem("100", 125000)).toMatch(/lower than the last reading/);
     expect(odometerProblem("140000", 125000)).toMatch(/long way/);
     expect(odometerProblem("125000", 125000, 125100)).toMatch(/end reading/);
+  });
+});
+
+describe("minimum reading", () => {
+  it("is the vehicle's last reading, or this trip's start if that is higher", () => {
+    expect(minimumReading(125580)).toBe(125580);
+    expect(minimumReading(125000, 125100)).toBe(125100);
+  });
+  it("catches a number below it, and nothing else", () => {
+    expect(isBelowMinimum("125,579", 125580)).toBe(true);
+    expect(isBelowMinimum("125580", 125580)).toBe(false);
+    expect(isBelowMinimum("abc", 125580)).toBe(false);
   });
 });

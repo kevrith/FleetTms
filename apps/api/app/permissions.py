@@ -41,6 +41,7 @@ ALL = {
     "sos.respond",
     "clients.manage",
     "jobs.manage",
+    "invoices.manage",
     "lease.view_own",
 }
 
@@ -93,6 +94,7 @@ ROLE_PERMISSIONS: dict[Role, set[str]] = {
         "expenses.view",
         "expenses.manage",
         "clients.manage",
+        "invoices.manage",
     },
     Role.DRIVER: {"trips.own", "expenses.own"},
     Role.TURNBOY: {"trips.own", "expenses.own"},

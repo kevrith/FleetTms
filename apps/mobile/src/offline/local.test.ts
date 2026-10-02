@@ -2,6 +2,8 @@ import type { Trip } from "@fleettms/types";
 import { describe, expect, it } from "vitest";
 import {
   assertInspectionClears,
+  assertNotBelowOdometer,
+  withOdometer,
   deliveredTrip,
   displayBalance,
   endedTrip,
@@ -48,11 +50,19 @@ describe("local trip rules", () => {
       distance_km: 480,
     });
   });
+  it("lets the cargo be weighed before the lorry leaves, and remembers an overload", () => {
+    const weighed = loadedTrip(trip(), at, { weightKg: 11500, overloadKg: 1500 });
+    expect(weighed).toMatchObject({
+      status: "scheduled",
+      loaded_weight_kg: 11500,
+      overload_kg: 1500,
+    });
+  });
   it("can end a trip straight from in progress", () =>
     expect(endedTrip(startedTrip(trip(), 1000, at), 1200, at).distance_km).toBe(200));
   it("refuses steps that make no sense", () => {
     expect(() => startedTrip(trip({ status: "in_progress" }), 1, at)).toThrow(LocalRuleError);
-    expect(() => loadedTrip(trip(), at)).toThrow(LocalRuleError);
+    expect(() => loadedTrip(trip({ status: "completed" }), at)).toThrow(LocalRuleError);
     expect(() => deliveredTrip(null, at)).toThrow(LocalRuleError);
     expect(() => endedTrip(startedTrip(trip(), 1000, at), 900, at)).toThrow(/lower/);
   });
@@ -113,4 +123,22 @@ describe("displayBalance", () => {
         queued("expense.add", 40000, "rejected"),
       ]),
     ).toBe(300000));
+});
+
+describe("odometer on the phone", () => {
+  const withVehicle = (km: number) =>
+    ({
+      ...emptyCache(),
+      vehicle: { vehicle: { id: "v1", odometer_km: km }, my_role: "driver", crew: [] },
+    }) as never;
+  it("refuses a reading below the vehicle's last one", () => {
+    expect(() => assertNotBelowOdometer(withVehicle(125580), 125100)).toThrow(/lower than/);
+    expect(() => assertNotBelowOdometer(withVehicle(125580), 125580)).not.toThrow();
+  });
+  it("moves the vehicle's odometer up with each reading, never down", () => {
+    const c = withVehicle(125000) as ReturnType<typeof emptyCache>;
+    expect(withOdometer(c.vehicle, 125580)?.vehicle.odometer_km).toBe(125580);
+    expect(withOdometer(c.vehicle, 100)?.vehicle.odometer_km).toBe(125000);
+    expect(withOdometer(null, 5)).toBeNull();
+  });
 });

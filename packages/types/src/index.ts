@@ -139,6 +139,7 @@ export interface Vehicle {
   ownership_type: OwnershipType;
   party_id: string | null;
   gvw_limit_kg: number | null;
+  tare_kg: number | null;
   axle_config: string | null;
   is_active: boolean;
   /** Only on the vehicle list. */
@@ -215,6 +216,8 @@ export interface MyVehicle {
     fuel_type: FuelType;
     tank_litres: number | null;
     odometer_km: number;
+    gvw_limit_kg: number | null;
+    tare_kg: number | null;
   };
   my_role: CrewRole;
   crew: { role: CrewRole; name: string; phone: string | null }[];
@@ -228,7 +231,16 @@ export interface ImportResult {
   invite_tokens: { row: number; name: string; invite_token: string }[];
 }
 
-export type PhotoKind = "odometer" | "cargo" | "defect" | "receipt" | "incident";
+export type PhotoKind =
+  | "odometer"
+  | "cargo"
+  | "defect"
+  | "receipt"
+  | "incident"
+  | "pod_cargo"
+  | "delivery_note"
+  | "damage"
+  | "weighbridge";
 
 export interface PhotoRef {
   id: string;
@@ -289,6 +301,41 @@ export interface OdometerReadingOut {
   recorded_at: string;
 }
 
+export interface ProofOfDeliveryOut {
+  recipient_name: string;
+  method: "code" | "signature";
+  captured_at: string;
+  flags: ("outside_site" | "no_location" | "shortage" | "damage")[];
+  has_signature: boolean;
+  lat: number | null;
+  lng: number | null;
+  shortage_qty: number | null;
+  shortage_unit: string | null;
+  damage_notes: string | null;
+  cargo_photo: PhotoRef | null;
+  note_photo: PhotoRef | null;
+  damage_photos: PhotoRef[];
+}
+
+/** What the driver sends to prove a delivery. Photos are named by the id the phone gave them. */
+export interface ProofOfDeliveryInput {
+  recipient_name: string;
+  method: "code" | "signature";
+  code?: string | null;
+  signature?: number[][][] | null;
+  cargo_photo_id?: string | null;
+  cargo_photo_client_id?: string | null;
+  note_photo_id?: string | null;
+  note_photo_client_id?: string | null;
+  shortage_qty?: string | null;
+  shortage_unit?: string | null;
+  damage_notes?: string | null;
+  damage_photo_ids?: string[];
+  damage_photo_client_ids?: string[];
+  lat?: number | null;
+  lng?: number | null;
+}
+
 /** The job a trip belongs to, as the driver needs to see it. */
 export interface TripJob {
   id: string;
@@ -298,6 +345,8 @@ export interface TripJob {
   pickup_at: string | null;
   deliver_by: string | null;
   trips_planned: number;
+  /** Per-tonne jobs need the weighbridge ticket when the cargo is loaded. */
+  billing_method: "per_trip" | "per_tonne" | "per_km" | "monthly_contract";
 }
 
 export interface Trip {
@@ -317,6 +366,10 @@ export interface Trip {
   loaded_at: string | null;
   loaded_weight_kg: number | null;
   cargo_photo: PhotoRef | null;
+  /** How far over the legal limit the load was when it was weighed; 0 when within it. */
+  overload_kg?: number | null;
+  weighbridge_photo?: PhotoRef | null;
+  pod?: ProofOfDeliveryOut | null;
   delivered_at: string | null;
   ended_at: string | null;
   distance_km: number | null;
@@ -903,6 +956,7 @@ export interface Client {
   billing_method: BillingMethod;
   rate_cents: number;
   payment_terms_days: number;
+  vat_pct: number;
   notes: string | null;
   is_active: boolean;
   routes: number;
@@ -917,6 +971,9 @@ export interface SavedRoute {
   name: string;
   pickup: string;
   dropoff: string;
+  dropoff_lat: number | null;
+  dropoff_lng: number | null;
+  site_radius_m: number;
   path_notes: string | null;
   distance_km: number;
   expected_hours: number;
@@ -1073,5 +1130,48 @@ export interface Availability {
     role: "driver" | "turnboy";
     free: boolean;
     reason: "booked" | null;
+  }[];
+}
+
+export type InvoiceStatus = "issued" | "partially_paid" | "paid" | "void";
+
+export interface Invoice {
+  id: string;
+  number: string;
+  client_id: string;
+  client_name: string | null;
+  kind: "trip" | "contract";
+  job_id: string | null;
+  trip_id: string | null;
+  period_start: string | null;
+  period_end: string | null;
+  issue_date: string;
+  due_date: string;
+  status: InvoiceStatus;
+  overdue: boolean;
+  subtotal_cents: number;
+  vat_pct: number;
+  vat_cents: number;
+  total_cents: number;
+  paid_cents: number;
+  balance_cents: number;
+  void_reason: string | null;
+  sent_via: string | null;
+  sent_at: string | null;
+  lines?: {
+    id: string;
+    trip_id: string | null;
+    description: string;
+    quantity: number;
+    unit_cents: number;
+    amount_cents: number;
+  }[];
+  payments?: {
+    id: string;
+    amount_cents: number;
+    method: string;
+    reference: string | null;
+    received_on: string;
+    note: string | null;
   }[];
 }

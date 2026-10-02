@@ -105,6 +105,10 @@ class PhotoKind(enum.StrEnum):
     DEFECT = "defect"
     RECEIPT = "receipt"
     INCIDENT = "incident"
+    POD_CARGO = "pod_cargo"  # the cargo offloaded at the client
+    DELIVERY_NOTE = "delivery_note"  # the signed delivery note
+    DAMAGE = "damage"
+    WEIGHBRIDGE = "weighbridge"  # the weighbridge ticket
 
 
 class PhotoSource(enum.StrEnum):
@@ -384,6 +388,7 @@ class Vehicle(TenantMixin, Base):
     party_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("parties.id", ondelete="RESTRICT"))
     # Legal limits for overload checks (masterplan 5.22).
     gvw_limit_kg: Mapped[int | None] = mapped_column(Integer)
+    tare_kg: Mapped[int | None] = mapped_column(Integer)  # the lorry's own weight, to work out gross weight from the cargo
     axle_config: Mapped[str | None] = mapped_column(String(20))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -567,6 +572,8 @@ class Trip(TenantMixin, Base):
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     distance_km: Mapped[int | None] = mapped_column(Integer)  # end odometer minus start odometer
+    weighbridge_photo_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("photos.id", ondelete="SET NULL"))
+    overload_kg: Mapped[int | None] = mapped_column(Integer)  # how far over the legal limit the loaded lorry was, if it was
     job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), index=True)
     planned_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # when the booking is expected to finish
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
@@ -1087,6 +1094,7 @@ class Client(TenantMixin, Base):
     billing_method: Mapped[BillingMethod] = mapped_column(_enum(BillingMethod), default=BillingMethod.PER_TRIP)
     rate_cents: Mapped[int] = mapped_column(BigInteger, default=0)  # per trip, per tonne, per km or the monthly fee
     payment_terms_days: Mapped[int] = mapped_column(Integer, default=30)
+    vat_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=0)  # VAT added to this client's invoices
     notes: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -1102,6 +1110,9 @@ class SavedRoute(TenantMixin, Base):
     name: Mapped[str] = mapped_column(String(160))
     pickup: Mapped[str] = mapped_column(String(160))
     dropoff: Mapped[str] = mapped_column(String(160))
+    dropoff_lat: Mapped[float | None] = mapped_column(Float)  # the client's site, so a delivery elsewhere can be flagged
+    dropoff_lng: Mapped[float | None] = mapped_column(Float)
+    site_radius_m: Mapped[int] = mapped_column(Integer, default=500)
     path_notes: Mapped[str | None] = mapped_column(Text)  # the preferred path
     distance_km: Mapped[int] = mapped_column(Integer, default=0)
     expected_hours: Mapped[float] = mapped_column(Float, default=12)
@@ -1178,3 +1189,102 @@ class Job(TenantMixin, Base):
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+# ---- Proof of delivery and invoices (masterplan 5.18 and 5.10) -------------------------------------
+
+
+class ProofOfDelivery(TenantMixin, Base):
+    __tablename__ = "proofs_of_delivery"
+    __table_args__ = (UniqueConstraint("business_id", "trip_id"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    trip_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("trips.id", ondelete="CASCADE"), index=True)
+    recipient_name: Mapped[str] = mapped_column(String(120))
+    method: Mapped[str] = mapped_column(String(12))  # code (one-time code to the client's phone) or signature
+    signature: Mapped[list | None] = mapped_column(JSONB)  # pen strokes, drawn into the invoice when it is printed
+    cargo_photo_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("photos.id", ondelete="SET NULL"))
+    note_photo_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("photos.id", ondelete="SET NULL"))
+    damage_photo_ids: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    shortage_qty: Mapped[Decimal | None] = mapped_column(Numeric(9, 2))
+    shortage_unit: Mapped[str | None] = mapped_column(String(20))
+    damage_notes: Mapped[str | None] = mapped_column(Text)
+    lat: Mapped[float | None] = mapped_column(Float)
+    lng: Mapped[float | None] = mapped_column(Float)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    flags: Mapped[list[str]] = mapped_column(JSONB, default=list)  # outside_site, no_location, shortage, damage
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PodCode(TenantMixin, Base):
+    """A one-time code texted to the client's phone, which the recipient gives the driver as proof they received the load."""
+
+    __tablename__ = "pod_codes"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    trip_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("trips.id", ondelete="CASCADE"), index=True)
+    code_hash: Mapped[str] = mapped_column(String(64))
+    sent_to: Mapped[str] = mapped_column(String(20))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Invoice(TenantMixin, Base):
+    __tablename__ = "invoices"
+    __table_args__ = (
+        UniqueConstraint("business_id", "number"),
+        UniqueConstraint("business_id", "trip_id"),
+        UniqueConstraint("business_id", "job_id", "period_start"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    number: Mapped[str] = mapped_column(String(20))
+    client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"))
+    trip_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("trips.id", ondelete="SET NULL"))
+    kind: Mapped[str] = mapped_column(String(10))  # trip or contract
+    period_start: Mapped[date | None] = mapped_column(Date)
+    period_end: Mapped[date | None] = mapped_column(Date)
+    issue_date: Mapped[date] = mapped_column(Date)
+    due_date: Mapped[date] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(20), default="issued", index=True)  # issued, partially_paid, paid, void
+    subtotal_cents: Mapped[int] = mapped_column(BigInteger)
+    vat_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=0)
+    vat_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    total_cents: Mapped[int] = mapped_column(BigInteger)
+    paid_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    void_reason: Mapped[str | None] = mapped_column(String(255))
+    sent_via: Mapped[str | None] = mapped_column(String(20))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    lines: Mapped[list["InvoiceLine"]] = relationship(lazy="selectin", cascade="all, delete-orphan", order_by="InvoiceLine.sort_order")
+    payments: Mapped[list["InvoicePayment"]] = relationship(lazy="selectin", cascade="all, delete-orphan", order_by="InvoicePayment.created_at")
+
+
+class InvoiceLine(TenantMixin, Base):
+    __tablename__ = "invoice_lines"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    invoice_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("invoices.id", ondelete="CASCADE"), index=True)
+    trip_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("trips.id", ondelete="SET NULL"))
+    description: Mapped[str] = mapped_column(String(255))
+    quantity: Mapped[Decimal] = mapped_column(Numeric(12, 3), default=1)
+    unit_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    amount_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class InvoicePayment(TenantMixin, Base):
+    """Money received against an invoice, entered by hand for now (M-Pesa matching arrives in a later sprint)."""
+
+    __tablename__ = "invoice_payments"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    invoice_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("invoices.id", ondelete="CASCADE"), index=True)
+    amount_cents: Mapped[int] = mapped_column(BigInteger)
+    method: Mapped[str] = mapped_column(String(20))  # cash, mpesa, bank or cheque
+    reference: Mapped[str | None] = mapped_column(String(60))
+    received_on: Mapped[date] = mapped_column(Date)
+    note: Mapped[str | None] = mapped_column(String(255))
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
