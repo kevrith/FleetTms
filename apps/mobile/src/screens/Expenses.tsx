@@ -1,4 +1,4 @@
-import { formatKes, kesToCents } from "@fleettms/business-rules";
+import { formatKes, kesToCents, litresFromTotal } from "@fleettms/business-rules";
 import type { ExpenseCategory } from "@fleettms/types";
 import { useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
@@ -45,6 +45,7 @@ export default function ExpensesScreen() {
     station: "",
     code: "",
   });
+  const [litresTyped, setLitresTyped] = useState(false); // once the driver types litres, stop working them out
   const [fuelReceipt, setFuelReceipt] = useState<LocalPhoto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -98,6 +99,12 @@ export default function ExpensesScreen() {
   const litres = Number(fuelForm.litres);
   const price = Number(fuelForm.price);
   const total = Number(fuelForm.total);
+  /** Price or total changed: the litres follow (total paid divided by price) unless the driver typed their own. */
+  function changeFuel(change: { price?: string; total?: string }) {
+    const next = { ...fuelForm, ...change };
+    if (!litresTyped) next.litres = litresFromTotal(Number(next.total), Number(next.price));
+    setFuelForm(next);
+  }
   async function saveFuel() {
     if (!vehicle) return;
     setBusy(true);
@@ -114,6 +121,7 @@ export default function ExpensesScreen() {
         receipt: fuelReceipt,
       });
       setFuelForm({ litres: "", price: "", total: "", station: "", code: "" });
+      setLitresTyped(false);
       setFuelReceipt(null);
       setFuelOpen(false);
       setSaved("Fuel saved on this phone. It will be sent when there is a connection.");
@@ -259,19 +267,22 @@ export default function ExpensesScreen() {
           <Input
             label="Litres"
             value={fuelForm.litres}
-            onChangeText={(v) => setFuelForm({ ...fuelForm, litres: v })}
+            onChangeText={(v) => {
+              setLitresTyped(v !== "");
+              setFuelForm({ ...fuelForm, litres: v });
+            }}
             keyboardType="decimal-pad"
           />
           <Input
             label="Price per litre (KES)"
             value={fuelForm.price}
-            onChangeText={(v) => setFuelForm({ ...fuelForm, price: v })}
+            onChangeText={(v) => changeFuel({ price: v })}
             keyboardType="decimal-pad"
           />
           <Input
             label="Total paid (KES)"
             value={fuelForm.total}
-            onChangeText={(v) => setFuelForm({ ...fuelForm, total: v })}
+            onChangeText={(v) => changeFuel({ total: v })}
             keyboardType="decimal-pad"
           />
           <Input

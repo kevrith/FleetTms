@@ -1,8 +1,144 @@
-import type { ReportSummary } from "@fleettms/types";
+import type { ReportSchedule, ReportSummary } from "@fleettms/types";
+import { Download, Pause, Play, Send, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import { EXPENSE_CATEGORY, kes, todayIso } from "../labels";
+import { useAuth } from "../auth";
 import { Card, ErrorBanner, errorMessage } from "../ui";
+
+const FREQUENCY = {
+  daily: "Every day (yesterday)",
+  weekly: "Every Monday (last week)",
+  monthly: "1st of the month (last month)",
+};
+const CHANNEL = { email: "Email", whatsapp: "WhatsApp" };
+
+/** Reports sent as a PDF on a schedule, by email or WhatsApp. */
+function ScheduledReports() {
+  const [rows, setRows] = useState<ReportSchedule[]>([]);
+  const [form, setForm] = useState<{
+    frequency: ReportSchedule["frequency"];
+    channel: ReportSchedule["channel"];
+    recipient: string;
+  }>({ frequency: "weekly", channel: "email", recipient: "" });
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setRows(await api.reportSchedules());
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function act(work: () => Promise<unknown>, done?: string) {
+    setError(null);
+    setNote(null);
+    try {
+      await work();
+      if (done) setNote(done);
+      await load();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+
+  return (
+    <Card title="Scheduled reports">
+      <ErrorBanner message={error} />
+      {note && <p className="banner ok">{note}</p>}
+      {rows.length === 0 && <p className="muted">No scheduled reports yet.</p>}
+      <ul className="list">
+        {rows.map((s) => (
+          <li key={s.id}>
+            <span>
+              {CHANNEL[s.channel]} to {s.recipient}: {FREQUENCY[s.frequency]}
+              {!s.is_active && " (paused)"}
+              {s.last_error && <span className="muted"> Last attempt failed: {s.last_error}</span>}
+            </span>
+            <span className="actions">
+              <button
+                className="btn"
+                title="Send the latest report now"
+                onClick={() => act(() => api.sendReportScheduleNow(s.id), "Report sent.")}
+              >
+                <Send size={16} />
+              </button>
+              <button
+                className="btn"
+                title={s.is_active ? "Pause" : "Resume"}
+                onClick={() => act(() => api.setReportScheduleActive(s.id, !s.is_active))}
+              >
+                {s.is_active ? <Pause size={16} /> : <Play size={16} />}
+              </button>
+              <button
+                className="btn"
+                title="Delete"
+                onClick={() => act(() => api.deleteReportSchedule(s.id))}
+              >
+                <Trash2 size={16} />
+              </button>
+            </span>
+          </li>
+        ))}
+      </ul>
+      <div className="form-grid">
+        <label className="field">
+          <span>How often</span>
+          <select
+            value={form.frequency}
+            onChange={(e) =>
+              setForm({ ...form, frequency: e.target.value as typeof form.frequency })
+            }
+          >
+            {Object.entries(FREQUENCY).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>Send by</span>
+          <select
+            value={form.channel}
+            onChange={(e) => setForm({ ...form, channel: e.target.value as typeof form.channel })}
+          >
+            {Object.entries(CHANNEL).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>{form.channel === "email" ? "Email address" : "WhatsApp number"}</span>
+          <input
+            value={form.recipient}
+            onChange={(e) => setForm({ ...form, recipient: e.target.value })}
+          />
+        </label>
+        <button
+          className="btn primary"
+          disabled={!form.recipient.trim()}
+          onClick={() =>
+            act(async () => {
+              await api.createReportSchedule(form);
+              setForm({ ...form, recipient: "" });
+            })
+          }
+        >
+          Add
+        </button>
+      </div>
+      <p className="muted">Each report is sent once, as a PDF, at 06:30 Nairobi time.</p>
+    </Card>
+  );
+}
 
 const shift = (iso: string, days: number) => {
   const d = new Date(`${iso}T00:00:00Z`);
@@ -12,6 +148,7 @@ const shift = (iso: string, days: number) => {
 
 /** Daily, weekly, monthly or any date range: trips, distance, fuel and expenses, by category, vehicle and day. */
 export default function Reports() {
+  const { can } = useAuth();
   const today = todayIso();
   const [range, setRange] = useState({ from: today, to: today });
   const [data, setData] = useState<ReportSummary | null>(null);
@@ -33,6 +170,19 @@ export default function Reports() {
     setRange({ from, to });
     void run(from, to);
   };
+  async function download(format: "xlsx" | "pdf") {
+    setError(null);
+    try {
+      const url = URL.createObjectURL(await api.exportReport(data!.from, data!.to, format));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `fleettms-report-${data!.from}-to-${data!.to}.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
   const t = data?.totals;
   return (
     <>
@@ -74,6 +224,14 @@ export default function Reports() {
       <ErrorBanner message={error} />
       {t && (
         <>
+          <p className="actions">
+            <button className="btn" onClick={() => download("xlsx")}>
+              <Download size={16} /> Excel
+            </button>
+            <button className="btn" onClick={() => download("pdf")}>
+              <Download size={16} /> PDF
+            </button>
+          </p>
           <Card title="Totals">
             <ul className="list">
               <li>
@@ -177,6 +335,7 @@ export default function Reports() {
           )}
         </>
       )}
+      {can("reports.schedule") && <ScheduledReports />}
     </>
   );
 }

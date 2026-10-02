@@ -15,6 +15,7 @@ CHECKS = {
     "audit": ("GET", "/audit", None, "audit.view"),
     "list_vehicles": ("GET", "/vehicles", None, "vehicles.view"),
     "create_party": ("POST", "/parties", {"kind": "lessor", "name": "Some Lessor"}, "vehicles.manage"),
+    "list_report_schedules": ("GET", "/report-schedules", None, "reports.schedule"),
     "list_staff": ("GET", "/staff", None, "staff.view"),
     "list_trips": ("GET", "/trips", None, "trips.view"),
     "my_trips": ("GET", "/me/trips", None, "trips.own"),

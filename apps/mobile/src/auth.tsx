@@ -9,7 +9,39 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { ApiError } from "@fleettms/api-client";
+import * as SecureStore from "expo-secure-store";
 import { api, hasStoredTokens, onSignedOut } from "./api";
+
+const ME_KEY = "fleettms.me";
+
+// The last signed-in identity, kept in the secure keystore so the app opens with no network.
+// Only the fields the app uses; cleared when the person signs out or the server ends the session.
+async function saveMe(me: Me): Promise<void> {
+  try {
+    await SecureStore.setItemAsync(
+      ME_KEY,
+      JSON.stringify({ ...me, companies: [], pending_documents: [] }),
+    );
+  } catch {
+    /* the next open will need a connection */
+  }
+}
+async function loadMe(): Promise<Me | null> {
+  try {
+    const raw = await SecureStore.getItemAsync(ME_KEY);
+    return raw ? (JSON.parse(raw) as Me) : null;
+  } catch {
+    return null;
+  }
+}
+async function forgetMe(): Promise<void> {
+  try {
+    await SecureStore.deleteItemAsync(ME_KEY);
+  } catch {
+    /* nothing to clear */
+  }
+}
 
 interface AuthState {
   me: Me | null;
@@ -33,15 +65,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const next = await api.me();
       setMe(next);
+      void saveMe(next);
       return next;
-    } catch {
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.status >= 500) {
+        // No network or the server is down: carry on from the saved identity. The server decides again once it is reachable.
+        const saved = await loadMe();
+        if (saved) {
+          setMe(saved);
+          return saved;
+        }
+      } else {
+        void forgetMe();
+      }
       setMe(null);
       return null;
     }
   }, []);
 
   useEffect(() => {
-    onSignedOut(() => setMe(null));
+    onSignedOut(() => {
+      setMe(null);
+      void forgetMe();
+    });
     (async () => {
       if (await hasStoredTokens()) await reload();
       setLoading(false);
@@ -56,6 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setMe(null);
     setChosenView(null);
+    void forgetMe();
   }, []);
 
   const value = useMemo<AuthState>(() => {

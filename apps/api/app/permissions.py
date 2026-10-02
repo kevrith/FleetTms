@@ -35,6 +35,7 @@ ALL = {
     "finance.view",
     "payroll.view",
     "reports.view",
+    "reports.schedule",
     "workshop.manage",
     "lease.view_own",
 }
@@ -61,6 +62,7 @@ ROLE_PERMISSIONS: dict[Role, set[str]] = {
         "approvals.approve",
         "livemap.view",
         "reports.view",
+        "reports.schedule",
         "workshop.manage",
     },
     # Assigned vehicles only (enforced by vehicle_scope); no company-wide finances or payroll.

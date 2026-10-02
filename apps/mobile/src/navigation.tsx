@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { colors, tapTarget } from "@fleettms/design-tokens";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { DarkTheme, DefaultTheme, NavigationContainer } from "@react-navigation/native";
-import { ActivityIndicator, useColorScheme, View } from "react-native";
+import { ActivityIndicator, ScrollView, useColorScheme, View } from "react-native";
 import { useAuth } from "./auth";
 import { Screen } from "./ui";
 import HomeScreen from "./screens/Home";
@@ -23,9 +23,15 @@ interface TabDef {
   component: React.ComponentType;
 }
 
+// Scrolls: the pre-trip inspection list is longer than the screen.
 const Trips = () => (
   <Screen>
-    <TripPanel />
+    <ScrollView
+      contentContainerStyle={{ gap: 16, paddingVertical: 16 }}
+      keyboardShouldPersistTaps="handled"
+    >
+      <TripPanel />
+    </ScrollView>
   </Screen>
 );
 

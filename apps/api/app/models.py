@@ -798,3 +798,29 @@ class WorkOrderPart(TenantMixin, Base):
     name: Mapped[str] = mapped_column(String(160))
     quantity: Mapped[int] = mapped_column(Integer, default=1)
     unit_cost_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+
+
+class ReportFrequency(enum.StrEnum):
+    DAILY = "daily"
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
+
+
+class ReportChannel(enum.StrEnum):
+    EMAIL = "email"
+    WHATSAPP = "whatsapp"
+
+
+class ReportSchedule(TenantMixin, Base):
+    """A report that is sent as a PDF on a schedule: yesterday, last week (Monday to Sunday) or last month."""
+
+    __tablename__ = "report_schedules"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    frequency: Mapped[ReportFrequency] = mapped_column(Enum(ReportFrequency, native_enum=False, length=20, values_callable=lambda e: [m.value for m in e]))
+    channel: Mapped[ReportChannel] = mapped_column(Enum(ReportChannel, native_enum=False, length=20, values_callable=lambda e: [m.value for m in e]))
+    recipient: Mapped[str] = mapped_column(String(255))  # an email address, or a phone number for WhatsApp
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_period_end: Mapped[date | None] = mapped_column(Date)  # the last day covered by the report most recently sent
+    last_error: Mapped[str | None] = mapped_column(String(255))
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

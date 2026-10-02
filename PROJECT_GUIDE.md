@@ -132,6 +132,10 @@ on the dev machine.
 - **Dashboard.** `GET /dashboard` builds numbers and alerts limited by the caller's permissions and vehicle scope.
   New alert kinds go in `app/routers/dashboard.py`; keep red (act now) ahead of amber (soon).
 
+- **Scheduled reports.** `app/report_schedules.py` (job, 06:30 Nairobi), `app/report_delivery.py` (SMTP and WhatsApp
+  senders; with no keys in `.env` an in-memory outbox is used), `app/report_files.py` (Excel and PDF). Keys are
+  `SMTP_*` and `WHATSAPP_*` in `.env.example`. Permission: `reports.schedule` (owner, manager).
+
 ## Testing against a real phone/emulator
 
 - API tests use a separate `fleettms_test` database that they create and migrate themselves.

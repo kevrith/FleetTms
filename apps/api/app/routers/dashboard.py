@@ -1,9 +1,12 @@
 """Owner dashboard v1 and basic reports (masterplan 5.15 and Section 6)."""
 
+import io
 import uuid
 from datetime import date, timedelta
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,6 +34,7 @@ from app.models import (
     WorkOrder,
 )
 from app.reminders import NAIROBI, nairobi_today
+from app.report_files import report_pdf, report_xlsx
 from app.routers.workshop import OPEN, schedule_out
 from app.trust import flag_summary
 from app.vehicle_scope import scope_vehicles
@@ -127,13 +131,7 @@ async def dashboard(
     return {"numbers": numbers, "alerts": alerts, "open_defects": open_defects}
 
 
-@router.get("/reports/summary")
-async def summary(
-    date_from: date = Query(alias="from"),
-    date_to: date = Query(alias="to"),
-    principal: Principal = Depends(require("reports.view")),
-    db: AsyncSession = Depends(get_db),
-):
+async def build_summary(db: AsyncSession, date_from: date, date_to: date) -> dict:
     """Totals for a date range (a day, a week, a month, or any range), by category, vehicle and day."""
     if date_to < date_from:
         raise error(422, "bad_range", "The end date is before the start date.")
@@ -194,3 +192,29 @@ async def summary(
     }
 
 
+@router.get("/reports/summary")
+async def summary(
+    date_from: date = Query(alias="from"),
+    date_to: date = Query(alias="to"),
+    principal: Principal = Depends(require("reports.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    return await build_summary(db, date_from, date_to)
+
+
+@router.get("/reports/export")
+async def export(
+    date_from: date = Query(alias="from"),
+    date_to: date = Query(alias="to"),
+    format: Literal["xlsx", "pdf"] = Query("xlsx"),
+    principal: Principal = Depends(require("reports.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """The same report as /reports/summary, as an Excel workbook or a PDF to print or send."""
+    data = await build_summary(db, date_from, date_to)
+    name = f"fleettms-report-{date_from.isoformat()}-to-{date_to.isoformat()}"
+    if format == "xlsx":
+        body, media = report_xlsx(data), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    else:
+        body, media = report_pdf(data), "application/pdf"
+    return StreamingResponse(io.BytesIO(body), media_type=media, headers={"Content-Disposition": f'attachment; filename="{name}.{format}"'})

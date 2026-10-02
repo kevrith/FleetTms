@@ -15,6 +15,7 @@ import type {
   FuelInput,
   HealthResponse,
   ImportResult,
+  ReportSchedule,
   Inspection,
   InspectionAnswer,
   InviteInput,
@@ -439,6 +440,23 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
     dashboard: () => get<Dashboard>("/dashboard"),
     reportSummary: (from: string, to: string) =>
       get<ReportSummary>(`/reports/summary?from=${from}&to=${to}`),
+    exportReport: (from: string, to: string, format: "xlsx" | "pdf") =>
+      request<Blob>(
+        "GET",
+        `/reports/export?from=${from}&to=${to}&format=${format}`,
+        undefined,
+        true,
+        true,
+      ),
+
+    reportSchedules: () => get<ReportSchedule[]>("/report-schedules"),
+    createReportSchedule: (input: Pick<ReportSchedule, "frequency" | "channel" | "recipient">) =>
+      post<ReportSchedule>("/report-schedules", input),
+    setReportScheduleActive: (id: string, isActive: boolean) =>
+      request<ReportSchedule>("PATCH", `/report-schedules/${id}`, { is_active: isActive }),
+    deleteReportSchedule: (id: string) => request<void>("DELETE", `/report-schedules/${id}`),
+    sendReportScheduleNow: (id: string) =>
+      post<{ sent: boolean }>(`/report-schedules/${id}/send-now`),
 
     // ---- audit, privacy, support ----
     audit: (params: { action?: string; limit?: number; offset?: number } = {}) => {

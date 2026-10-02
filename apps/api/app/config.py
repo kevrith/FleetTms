@@ -24,6 +24,16 @@ class Settings(BaseSettings):
     otp_resend_seconds: int = 60
     invite_ttl_hours: int = 72
 
+    # Report delivery. Leave these empty in development: reports then go to an in-memory outbox.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    whatsapp_token: str = ""
+    whatsapp_phone_number_id: str = ""
+    whatsapp_report_template: str = ""  # an approved template with a document header, needed to message people first
+
     # Photos live in private storage and are only ever viewed through short-lived signed links.
     media_dir: str = "media_store"
     media_link_seconds: int = 300

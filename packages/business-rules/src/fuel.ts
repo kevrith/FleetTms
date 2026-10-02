@@ -23,3 +23,9 @@ export function fuelFlags(input: {
   if (!input.hasReceipt) flags.push("no_receipt");
   return flags;
 }
+
+/** Litres bought, worked out from the total paid and the price per litre. Empty until both are positive numbers. */
+export function litresFromTotal(totalKes: number, priceKes: number): string {
+  if (!(totalKes > 0) || !(priceKes > 0)) return "";
+  return (Math.round((totalKes / priceKes) * 100) / 100).toString();
+}

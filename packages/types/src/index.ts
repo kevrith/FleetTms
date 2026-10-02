@@ -615,6 +615,16 @@ export interface Dashboard {
   open_defects: number | null;
 }
 
+export interface ReportSchedule {
+  id: string;
+  frequency: "daily" | "weekly" | "monthly";
+  channel: "email" | "whatsapp";
+  recipient: string;
+  is_active: boolean;
+  last_period_end: string | null;
+  last_error: string | null;
+}
+
 export interface ReportSummary {
   from: string;
   to: string;

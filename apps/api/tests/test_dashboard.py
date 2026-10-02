@@ -171,3 +171,22 @@ async def test_report_ranges_and_permissions(client):
     assert (await client.get("/reports/summary" + q, headers=bearer(stranger))).status_code == 403
     other, _ = await owner_session(client, "Bravo", "b@example.com")
     assert (await client.get("/reports/summary" + q, headers=bearer(other))).json()["totals"]["expenses_cents"] == 0
+
+
+async def test_a_report_can_be_downloaded_as_excel_or_pdf(client):
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    f = await fleet(client)
+    await client.post("/expenses", headers=bearer(f.driver), json={"category": "toll", "amount_cents": 50000})
+    today = nairobi_today().isoformat()
+    q = f"?from={today}&to={today}"
+    xlsx = await client.get("/reports/export" + q, headers=bearer(f.owner))
+    assert xlsx.status_code == 200 and "spreadsheetml" in xlsx.headers["content-type"]
+    book = load_workbook(BytesIO(xlsx.content))
+    assert book.sheetnames == ["Totals", "Expenses by type", "By vehicle", "By day"]
+    assert ["Toll", 500] in [list(r) for r in book["Expenses by type"].iter_rows(min_row=2, values_only=True)]
+    pdf = await client.get("/reports/export" + q + "&format=pdf", headers=bearer(f.owner))
+    assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
+    assert (await client.get("/reports/export" + q, headers=bearer(f.driver))).status_code == 403
