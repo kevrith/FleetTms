@@ -112,7 +112,7 @@ Keep a project guide at the root of the repository (`PROJECT_GUIDE.md`) and read
 - [x] **Web:** React + TypeScript app with routing, layout shell (navigation from masterplan Section 6), light/dark theme. *Verified: renders "Connected to FleetTms API" in headless Chrome.*
 - [x] **Mobile:** Expo app with navigation shell, app name "FleetTms", builds on Android. *Verified on the Android emulator (Pixel 6) through Expo Go.*
 - [x] **Shared:** design tokens (red/amber/green with meaning), typography, spacing; shared API client.
-- [ ] **Tooling:** linting, formatting, test runners, CI running tests on every push. *ESLint, Prettier, tsc, ruff, vitest and pytest all pass locally. The CI workflow (with Redis and lint) is written but has never run: there is no GitHub remote yet.*
+- [x] **Tooling:** linting, formatting, test runners, CI running tests on every push. *ESLint, Prettier, tsc, ruff, vitest and pytest all pass locally. CI runs on every push (GitHub repo kevrith/FleetTms) with Redis and a PostGIS/TimescaleDB Postgres; green on main.*
 - [ ] **Environments:** local (Docker for database and Redis), staging server, file storage bucket. *Local Docker done. Staging server and storage bucket not started.*
 - [x] **Docs:** `PROJECT_GUIDE.md`, `/docs/masterplan.md`, `/docs/sprint-plan.md`, progress log.
 - [ ] **Other:** start ODPC registration for Kastra Enterprises; book a data protection advocate; apply for M-Pesa Daraja production access, KRA eTIMS integration, Africa's Talking sender ID, and Google Maps billing. *Needs Kelvin; not started.*
@@ -120,7 +120,7 @@ Keep a project guide at the root of the repository (`PROJECT_GUIDE.md`) and read
 **Acceptance criteria**
 - [x] One command starts the whole stack locally. *(`pnpm dev` verified: Docker, migrations, API and web all came up.)*
 - [x] Web and mobile both display data from the backend health endpoint. *Web home shows the health status. On Android the app now opens on the real sign-in screen and signs in against the API (the health text was replaced by real screens).*
-- [ ] CI passes on a pull request; staging deploy works.
+- [ ] CI passes on a pull request; staging deploy works. *CI passes on push to main; PR run and staging deploy still to do.*
 
 **Kickoff brief**
 > Set up the FleetTms monorepo: React + TypeScript web, Expo mobile, FastAPI backend with PostgreSQL (PostGIS + TimescaleDB) and Redis, shared packages for business rules, types, design tokens, and API client. Add linting, tests, CI, local Docker, and the project guide per Section 1.1. Agree the folder structure before creating anything.
@@ -550,7 +550,7 @@ Keep a project guide at the root of the repository (`PROJECT_GUIDE.md`) and read
 
 | Sprint | Dates | Status | What shipped | Carried over | Notes / decisions |
 |---|---|---|---|---|---|
-| S0 | 2026-10-02 | 🟨 In progress | Monorepo, API, web, mobile shells, Docker, job queue, lint/test tooling | CI never run (no GitHub remote), staging deploy, storage bucket, external applications | Ports 5442/8010/5180 |
+| S0 | 2026-10-02 | 🟨 In progress | Monorepo, API, web, mobile shells, Docker, job queue, lint/test tooling | staging deploy, storage bucket, external applications | Ports 5442/8010/5180 |
 | S1 | 2026-10-02 | ✅ Done, with carry-overs | Tenancy, auth (OTP + password + TOTP), roles, audit log, depots, support access, web + mobile screens, draft legal docs | SMS second step; enforcing supervisor vehicle scope (needs S2 vehicles); advocate review of `docs/legal/` | Tenant isolation is ORM-level; RLS planned for S16. Dev-only: OTP codes are printed to the API console. |
 | S2 | | ⬜ | | | |
 | S3 | | ⬜ | | | |
