@@ -1,4 +1,5 @@
 import type {
+  Inspection,
   CrewAssignment,
   CrewRole,
   Depot,
@@ -15,6 +16,7 @@ import { useAuth } from "../auth";
 import { CREW, OWNERSHIP, VEHICLE_DOC_TYPES } from "../labels";
 import { Card, ErrorBanner, errorMessage, Field } from "./../ui";
 import DocumentsPanel from "./DocumentsPanel";
+import InspectionCard from "./InspectionCard";
 import { VehicleForm } from "./Vehicles";
 
 function Crew({ vehicle, canManage }: { vehicle: Vehicle; canManage: boolean }) {
@@ -113,6 +115,31 @@ function Crew({ vehicle, canManage }: { vehicle: Vehicle; canManage: boolean }) 
   );
 }
 
+function Inspections({ vehicleId }: { vehicleId: string }) {
+  const [rows, setRows] = useState<Inspection[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    try {
+      setRows((await api.inspections(vehicleId)).slice(0, 5));
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }, [vehicleId]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <Card title="Recent inspections">
+      <ErrorBanner message={error} />
+      {rows.length === 0 && <p className="muted">No inspections yet.</p>}
+      {rows.map((i) => (
+        <InspectionCard key={i.id} inspection={i} onChanged={load} />
+      ))}
+    </Card>
+  );
+}
+
 export default function VehicleDetail() {
   const { id = "" } = useParams();
   const { can } = useAuth();
@@ -186,6 +213,7 @@ export default function VehicleDetail() {
         </Card>
       )}
       <Crew vehicle={vehicle} canManage={manage} />
+      <Inspections vehicleId={vehicle.id} />
       <DocumentsPanel
         owner={{ vehicleId: vehicle.id }}
         types={VEHICLE_DOC_TYPES}

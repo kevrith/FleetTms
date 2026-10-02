@@ -177,7 +177,7 @@ Keep a project guide at the root of the repository (`PROJECT_GUIDE.md`) and read
 - [x] **Staff:** profiles, licence details, crew assignments with history. *Salary is visible and editable only with payroll access (Owner).*
 - [x] **Documents:** insurance, inspection, NTSA/TLB licences, permits, driving licences, with expiry reminders (30/14/7 days) by SMS to owners, managers and the staff member. *Records and expiry dates only: attaching a scanned copy needs the storage bucket (Sprint 0 carry-over). SMS goes through the fake sender until Africa's Talking arrives.*
 - [~] **Excel import:** vehicles and staff, with validation and an error report (all or nothing, row numbers, dry-run, downloadable templates). *Clients, suppliers and opening balances are not built: their tables do not exist yet (clients Sprint 7, suppliers and balances later). Add them to the importer when those tables arrive.*
-- [x] **Web:** vehicles list and detail (edit, crew, documents), lessors and lenders, staff page, import page, "documents needing attention" on Home. **Mobile:** owner vehicle list, driver "My vehicle" card. *Web driven end to end in headless Chrome (sign-up, SMS two-step, depot, lessor, leased-in vehicle, driver invite, crew, document, expiry card, bad and good Excel imports, fresh SMS sign-in). Mobile screens type-check but have not been run on the emulator.*
+- [x] **Web:** vehicles list and detail (edit, crew, documents), lessors and lenders, staff page, import page, "documents needing attention" on Home. **Mobile:** owner vehicle list, driver "My vehicle" card. *Web driven end to end in headless Chrome (sign-up, SMS two-step, depot, lessor, leased-in vehicle, driver invite, crew, document, expiry card, bad and good Excel imports, fresh SMS sign-in). Mobile verified on the Android emulator (Pixel 6): driver sign-in with SMS code, My vehicle card with crew, owner sign-in, two-step chooser (text option disabled without a phone), owner vehicle list.*
 - [x] **Seed data:** `python -m app.cli seed-demo` builds a Kenyan demo fleet with leased-in, asset-financed and leased-out lorries.
 
 **Acceptance criteria**
@@ -198,17 +198,17 @@ Keep a project guide at the root of the repository (`PROJECT_GUIDE.md`) and read
 **Goal:** drivers inspect the lorry, then start and end trips with trustworthy odometer photos.
 
 **Stories**
-- **Pre-trip inspection:** configurable checklist (tyres, brakes, lights, oil, coolant, leaks, body), photos for faults; critical defects **block the trip** unless a manager overrides with a reason.
-- **Trips:** status flow (scheduled → in progress → delivered → completed); loading step with cargo photo.
-- **Odometer readings:** live camera only, guided frame, quality check, on-device number reading with driver confirmation, time + GPS stamp; flags for mismatched or backward readings.
-- **Photos:** private storage with short-lived viewing links.
-- **Web:** trips list and detail with inspection results, odometer photos, and distance; web capture with metadata freshness check.
-- **Shared:** distance and odometer validation rules.
+- [x] **Pre-trip inspection:** configurable checklist (tyres, brakes, lights, oil, coolant, leaks, body, tyre serials; each business can reword, add, retire, and mark items critical), photos for faults, critical defects **block the trip** unless a manager overrides with a reason. *Minor faults are saved as open defects, ready to become work orders in Sprint 5.*
+- [x] **Trips:** status flow (scheduled, in progress, delivered, completed; cancel before start), loading step with cargo photo and optional loaded weight. *A manager schedules the trip for the vehicle's crew; jobs and dispatch arrive in Sprint 7.*
+- [~] **Odometer readings:** live camera only, guided frame, quality checks (size, blank or covered lens, freshness), time and GPS stamp, driver confirmation, flags for mismatched or backward readings (also `large_jump` and `no_location`). *Not built: automatic reading of the number from the photo. It needs an on-device text-recognition module, which Expo Go cannot run; it needs a development build. The reading is typed and confirmed by the driver today. The `mismatch` flag is ready for when the reader exists.*
+- [x] **Photos:** private storage with short-lived (5 minute) signed viewing links; duplicate photos refused. *Local-disk storage for now. The S3-compatible bucket (a Sprint 0 carry-over) slots in behind the same functions.*
+- [x] **Web:** trips list and detail with inspection result, odometer photos, flags and distance; manager override; inspection checklist editor; web capture with EXIF freshness check.
+- [x] **Shared:** distance and odometer validation rules (`packages/business-rules`, enforced again by the API).
 
 **Acceptance criteria**
-- A trip cannot start without a passed inspection and an odometer photo.
-- Gallery uploads are impossible on mobile.
-- A failed brake check blocks the trip; a manager override is audit-logged.
+- [x] A trip cannot start without a passed inspection and an odometer photo. *API tests; also seen on the emulator (no Start button until inspected).*
+- [x] Gallery uploads are impossible on mobile. *There is no gallery picker anywhere in the app; the only photo path is the live camera. The server also refuses photos that are stale, blank, repeated or too small.*
+- [x] A failed brake check blocks the trip; a manager override is audit-logged. *API tests, web, and the emulator.*
 
 **Kickoff brief**
 > Implement pre-trip inspections and trips with odometer capture per masterplan Sections 5.2, 5.4, and 5.19 (inspection part). Live camera only on mobile, number reading with confirmation, time + GPS stamps, private photo storage. Defects are stored ready to become work orders in Sprint 5.
@@ -553,8 +553,8 @@ Keep a project guide at the root of the repository (`PROJECT_GUIDE.md`) and read
 |---|---|---|---|---|---|
 | S0 | 2026-10-02 | 🟨 In progress | Monorepo, API, web, mobile shells, Docker, job queue, lint/test tooling | staging deploy, storage bucket, external applications | Ports 5442/8010/5180 |
 | S1 | 2026-10-02 | ✅ Done, with carry-overs | Tenancy, auth (OTP + password + TOTP or SMS second step), roles, audit log, depots, support access, web + mobile screens, draft legal docs | advocate review of `docs/legal/` | Tenant isolation is ORM-level; RLS planned for S16. Dev-only: OTP codes are printed to the API console. |
-| S2 | 2026-10-02 | 🟨 Built; mobile screens not yet run on emulator | Vehicles, ownership, lessors/lenders, staff profiles, crew with history, documents with SMS expiry reminders, Excel import (vehicles, staff), demo seed, web pages, mobile vehicle list and My vehicle card | Import of clients, suppliers and opening balances (tables do not exist yet); document file upload (needs storage bucket); emulator walk-through of the two new mobile screens | Reminders run daily at 07:00 Africa/Nairobi through the arq worker. Supervisor scope now enforced. |
-| S3 | | ⬜ | | | |
+| S2 | 2026-10-02 | ✅ Done, with carry-overs | Vehicles, ownership, lessors/lenders, staff profiles, crew with history, documents with SMS expiry reminders, Excel import (vehicles, staff), demo seed, web pages, mobile vehicle list and My vehicle card | Import of clients, suppliers and opening balances (tables do not exist yet); document file upload (needs storage bucket) | Reminders run daily at 07:00 Africa/Nairobi through the arq worker. Supervisor scope now enforced. |
+| S3 | 2026-10-02 | 🟨 Built; mobile capture partly verified | Pre-trip inspection with configurable checklist, critical-fault block and manager override, trips with start/loading/delivered/end, odometer photos with flags and distance, private photo storage with signed links, web trips and checklist pages, mobile inspection and trip flow | Automatic odometer reading from the photo (needs a development build); odometer confirm and submit screens on mobile not run end to end (the emulator's camera returns black stills); S3 bucket for photos | Photos refused if stale (10 min), blank, too small or repeated. Local-disk photo storage in `media_store/` (git-ignored). |
 | S4 | | ⬜ | | | |
 | S5 | | ⬜ | | | |
 | S6 | | ⬜ | | | |

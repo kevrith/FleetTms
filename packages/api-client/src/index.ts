@@ -1,5 +1,6 @@
 import type {
   AuditEntry,
+  ChecklistItem,
   ComplianceDocument,
   CrewAssignment,
   CrewRole,
@@ -7,13 +8,18 @@ import type {
   DocumentInput,
   HealthResponse,
   ImportResult,
+  Inspection,
+  InspectionAnswer,
   InviteInput,
   Me,
   MyVehicle,
   Party,
   PartyInput,
   PendingDocument,
+  PhotoRef,
+  PhotoUpload,
   ProfileInput,
+  ReadingInput,
   Role,
   SignupInput,
   StaffMember,
@@ -21,6 +27,8 @@ import type {
   SupportGrant,
   TokenResponse,
   Tokens,
+  Trip,
+  TripInput,
   Vehicle,
   VehicleInput,
 } from "@fleettms/types";
@@ -237,6 +245,59 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
       form.append("file", file);
       return request<ImportResult>("POST", `/imports/${kind}?dry_run=${dryRun}`, form);
     },
+
+    // ---- photos, inspections, trips ----
+    /** Turns a relative photo link from the API into an address an image view can load. */
+    mediaUrl: (path: string) => `${baseUrl}${path}`,
+    /** `file` is a Blob on the web, or { uri, name, type } in React Native. */
+    uploadPhoto: (file: unknown, meta: PhotoUpload) => {
+      const form = new FormData();
+      form.append("kind", meta.kind);
+      form.append("source", meta.source);
+      if (meta.captured_at) form.append("captured_at", meta.captured_at);
+      if (meta.lat != null && meta.lng != null) {
+        form.append("lat", String(meta.lat));
+        form.append("lng", String(meta.lng));
+      }
+      form.append("file", file as never);
+      return request<PhotoRef>("POST", "/photos", form);
+    },
+    checklist: (includeInactive = false) =>
+      get<ChecklistItem[]>(
+        `/inspection/checklist${includeInactive ? "?include_inactive=true" : ""}`,
+      ),
+    addChecklistItem: (input: Omit<ChecklistItem, "id">) =>
+      post<ChecklistItem>("/inspection/checklist", input),
+    updateChecklistItem: (id: string, input: Omit<ChecklistItem, "id">) =>
+      request<ChecklistItem>("PUT", `/inspection/checklist/${id}`, input),
+    submitInspection: (vehicleId: string, results: InspectionAnswer[], notes?: string) =>
+      post<Inspection>(`/vehicles/${vehicleId}/inspections`, { results, notes: notes ?? null }),
+    inspections: (vehicleId: string) => get<Inspection[]>(`/vehicles/${vehicleId}/inspections`),
+    inspectionToday: (vehicleId: string) =>
+      get<{ inspection: Inspection | null; can_start_trip: boolean }>(
+        `/vehicles/${vehicleId}/inspections/today`,
+      ),
+    overrideInspection: (id: string, reason: string) =>
+      post<Inspection>(`/inspections/${id}/override`, { reason }),
+    trips: (params: { status?: string; vehicleId?: string } = {}) => {
+      const q = new URLSearchParams();
+      if (params.status) q.set("status_filter", params.status);
+      if (params.vehicleId) q.set("vehicle_id", params.vehicleId);
+      const qs = q.toString();
+      return get<Trip[]>(`/trips${qs ? `?${qs}` : ""}`);
+    },
+    myTrips: () => get<Trip[]>("/me/trips"),
+    trip: (id: string) => get<Trip>(`/trips/${id}`),
+    createTrip: (input: TripInput) => post<Trip>("/trips", input),
+    startTrip: (id: string, reading: ReadingInput) => post<Trip>(`/trips/${id}/start`, reading),
+    recordLoading: (id: string, photoId: string, loadedWeightKg?: number | null) =>
+      post<Trip>(`/trips/${id}/loading`, {
+        photo_id: photoId,
+        loaded_weight_kg: loadedWeightKg ?? null,
+      }),
+    deliverTrip: (id: string) => post<Trip>(`/trips/${id}/deliver`),
+    endTrip: (id: string, reading: ReadingInput) => post<Trip>(`/trips/${id}/end`, reading),
+    cancelTrip: (id: string) => post<Trip>(`/trips/${id}/cancel`),
 
     // ---- audit, privacy, support ----
     audit: (params: { action?: string; limit?: number; offset?: number } = {}) => {

@@ -53,6 +53,12 @@ async def _clean():
     yield
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _media_dir(tmp_path_factory):
+    """Photos written by tests go to a temporary folder, never the real storage."""
+    settings.media_dir = str(tmp_path_factory.mktemp("media"))
+
+
 @pytest.fixture
 async def client():
     from app.main import app

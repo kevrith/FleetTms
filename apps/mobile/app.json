@@ -5,7 +5,25 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "android": { "package": "com.kastra.fleettms" },
-    "ios": { "bundleIdentifier": "com.kastra.fleettms" }
+    "android": {
+      "package": "com.kastra.fleettms"
+    },
+    "ios": {
+      "bundleIdentifier": "com.kastra.fleettms"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "FleetTms uses the camera to photograph the odometer, cargo and any faults."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "FleetTms stamps each photo with where it was taken."
+        }
+      ]
+    ]
   }
 }

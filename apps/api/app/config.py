@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     otp_resend_seconds: int = 60
     invite_ttl_hours: int = 72
 
+    # Photos live in private storage and are only ever viewed through short-lived signed links.
+    media_dir: str = "media_store"
+    media_link_seconds: int = 300
+    max_photo_bytes: int = 8 * 1024 * 1024
+    photo_fresh_minutes: int = 10  # how old a captured photo may be when it is uploaded
+
     # Current versions of the legal documents users must accept (masterplan Section 11).
     terms_version: str = "draft-1"
     privacy_version: str = "draft-1"

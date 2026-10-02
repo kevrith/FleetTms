@@ -9,6 +9,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -96,6 +97,37 @@ class ComplianceDocType(enum.StrEnum):
     PERMIT = "permit"
     DRIVING_LICENCE = "driving_licence"
     OTHER = "other"
+
+
+class PhotoKind(enum.StrEnum):
+    ODOMETER = "odometer"
+    CARGO = "cargo"
+    DEFECT = "defect"
+
+
+class PhotoSource(enum.StrEnum):
+    CAMERA = "camera"  # live capture in the mobile app
+    WEB = "web"  # uploaded from the web dashboard; EXIF freshness is checked
+
+
+class InspectionStatus(enum.StrEnum):
+    PASSED = "passed"
+    PASSED_WITH_DEFECTS = "passed_with_defects"
+    BLOCKED = "blocked"  # a critical fault: no trip until a manager overrides
+    OVERRIDDEN = "overridden"
+
+
+class TripStatus(enum.StrEnum):
+    SCHEDULED = "scheduled"
+    IN_PROGRESS = "in_progress"
+    DELIVERED = "delivered"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+
+class ReadingPhase(enum.StrEnum):
+    START = "start"
+    END = "end"
 
 
 def _enum(e: type[enum.Enum]) -> Enum:
@@ -335,3 +367,128 @@ class DocumentReminder(TenantMixin, Base):
     expires_on: Mapped[date] = mapped_column(Date)  # renewing the document starts a fresh set
     days_before: Mapped[int] = mapped_column(Integer)
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Photo(TenantMixin, Base):
+    """A photo in private storage. Viewed only through short-lived signed links."""
+
+    __tablename__ = "photos"
+    __table_args__ = (UniqueConstraint("business_id", "sha256"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    kind: Mapped[PhotoKind] = mapped_column(_enum(PhotoKind))
+    source: Mapped[PhotoSource] = mapped_column(_enum(PhotoSource))
+    storage_key: Mapped[str] = mapped_column(String(200), unique=True)
+    content_type: Mapped[str] = mapped_column(String(40))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    sha256: Mapped[str] = mapped_column(String(64))
+    width: Mapped[int] = mapped_column(Integer)
+    height: Mapped[int] = mapped_column(Integer)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    lat: Mapped[float | None] = mapped_column(Float)
+    lng: Mapped[float | None] = mapped_column(Float)
+    uploaded_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # a photo backs one record only
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ChecklistItem(TenantMixin, Base):
+    """One line of the pre-trip checklist. Each business can reword, add, and mark items critical."""
+
+    __tablename__ = "checklist_items"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    label: Mapped[str] = mapped_column(String(120))
+    critical: Mapped[bool] = mapped_column(Boolean, default=False)
+    photo_on_fault: Mapped[bool] = mapped_column(Boolean, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class Inspection(TenantMixin, Base):
+    __tablename__ = "inspections"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True)
+    inspector_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    performed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    local_date: Mapped[date] = mapped_column(Date, index=True)  # Africa/Nairobi day the inspection counts for
+    status: Mapped[InspectionStatus] = mapped_column(_enum(InspectionStatus))
+    notes: Mapped[str | None] = mapped_column(Text)
+    override_reason: Mapped[str | None] = mapped_column(Text)
+    overridden_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    overridden_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    results: Mapped[list["InspectionResult"]] = relationship(
+        lazy="selectin", cascade="all, delete-orphan", order_by="InspectionResult.sort_order"
+    )
+
+
+class InspectionResult(TenantMixin, Base):
+    __tablename__ = "inspection_results"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    inspection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("inspections.id", ondelete="CASCADE"), index=True
+    )
+    item_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("checklist_items.id", ondelete="SET NULL"))
+    # Label and criticality are copied, so later checklist edits never rewrite history.
+    label: Mapped[str] = mapped_column(String(120))
+    critical: Mapped[bool] = mapped_column(Boolean)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    ok: Mapped[bool] = mapped_column(Boolean)
+    note: Mapped[str | None] = mapped_column(Text)
+    photo_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("photos.id", ondelete="SET NULL"))
+
+
+class Defect(TenantMixin, Base):
+    """A fault found in an inspection. Sprint 5 turns these into work orders."""
+
+    __tablename__ = "defects"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    inspection_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("inspections.id", ondelete="CASCADE"), index=True)
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True)
+    label: Mapped[str] = mapped_column(String(120))
+    critical: Mapped[bool] = mapped_column(Boolean)
+    note: Mapped[str | None] = mapped_column(Text)
+    photo_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("photos.id", ondelete="SET NULL"))
+    status: Mapped[str] = mapped_column(String(20), default="open")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Trip(TenantMixin, Base):
+    __tablename__ = "trips"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True)
+    driver_membership_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("memberships.id", ondelete="SET NULL"), index=True
+    )
+    turnboy_membership_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("memberships.id", ondelete="SET NULL")
+    )
+    status: Mapped[TripStatus] = mapped_column(_enum(TripStatus), default=TripStatus.SCHEDULED, index=True)
+    cargo_description: Mapped[str | None] = mapped_column(String(255))
+    origin: Mapped[str | None] = mapped_column(String(160))
+    destination: Mapped[str | None] = mapped_column(String(160))
+    scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    inspection_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("inspections.id", ondelete="SET NULL"))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    loaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cargo_photo_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("photos.id", ondelete="SET NULL"))
+    loaded_weight_kg: Mapped[int | None] = mapped_column(Integer)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    distance_km: Mapped[int | None] = mapped_column(Integer)  # end odometer minus start odometer
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class OdometerReading(TenantMixin, Base):
+    __tablename__ = "odometer_readings"
+    __table_args__ = (UniqueConstraint("trip_id", "phase"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    trip_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("trips.id", ondelete="CASCADE"), index=True)
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True)
+    phase: Mapped[ReadingPhase] = mapped_column(_enum(ReadingPhase))
+    photo_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("photos.id", ondelete="RESTRICT"))
+    auto_read_value: Mapped[int | None] = mapped_column(Integer)  # what the number reader saw, if it ran
+    confirmed_value: Mapped[int] = mapped_column(Integer)  # what the person confirmed
+    flags: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    recorded_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

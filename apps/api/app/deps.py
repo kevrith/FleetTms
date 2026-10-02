@@ -135,6 +135,17 @@ def require(*permissions: str) -> Callable[..., Principal]:
     return dependency
 
 
+def require_any(*permissions: str) -> Callable[..., Principal]:
+    """Allows the request if the caller holds at least one of the permissions."""
+
+    async def dependency(principal: Principal = Depends(current_principal)) -> Principal:
+        if not any(p in principal.permissions for p in permissions):
+            raise error(status.HTTP_403_FORBIDDEN, "forbidden", "You do not have permission to do this.")
+        return principal
+
+    return dependency
+
+
 async def platform_admin(principal: Principal = Depends(current_principal)) -> Principal:
     if not principal.user.is_platform_admin:
         raise error(status.HTTP_403_FORBIDDEN, "forbidden", "You do not have permission to do this.")

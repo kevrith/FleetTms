@@ -11,6 +11,8 @@ import AcceptInvite from "./pages/AcceptInvite";
 import Login from "./pages/Login";
 import Settings from "./pages/Settings";
 import Staff from "./pages/Staff";
+import TripDetail from "./pages/TripDetail";
+import Trips from "./pages/Trips";
 import VehicleDetail from "./pages/VehicleDetail";
 import Vehicles from "./pages/Vehicles";
 import Signup from "./pages/Signup";
@@ -90,6 +92,8 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/vehicles" element={<Vehicles />} />
         <Route path="/vehicles/:id" element={<VehicleDetail />} />
+        <Route path="/trips" element={<Trips />} />
+        <Route path="/trips/:id" element={<TripDetail />} />
         <Route path="/staff" element={<Staff />} />
         <Route path="/settings/*" element={<Settings />} />
         <Route path="*" element={<Placeholder />} />

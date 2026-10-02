@@ -10,4 +10,4 @@ testpaths = ["tests"]
 pythonpath = ["."]
 
 [tool.ruff.lint.flake8-bugbear]
-extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Security", "app.deps.require"]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Security", "app.deps.require", "app.deps.require_any"]

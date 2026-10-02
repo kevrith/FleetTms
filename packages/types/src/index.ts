@@ -225,3 +225,112 @@ export interface ImportResult {
   errors: { row: number; column: string | null; message: string }[];
   invite_tokens: { row: number; name: string; invite_token: string }[];
 }
+
+export type PhotoKind = "odometer" | "cargo" | "defect";
+
+export interface PhotoRef {
+  id: string;
+  kind: PhotoKind;
+  source: "camera" | "web";
+  captured_at: string;
+  lat: number | null;
+  lng: number | null;
+  /** Relative, short-lived viewing link. Build the full address with api.mediaUrl(). */
+  url: string;
+}
+
+export interface ChecklistItem {
+  id: string;
+  label: string;
+  critical: boolean;
+  photo_on_fault: boolean;
+  is_active: boolean;
+  sort_order: number;
+}
+
+export type InspectionStatus = "passed" | "passed_with_defects" | "blocked" | "overridden";
+
+export interface InspectionResultRow {
+  label: string;
+  critical: boolean;
+  ok: boolean;
+  note: string | null;
+  photo: PhotoRef | null;
+}
+
+export interface Inspection {
+  id: string;
+  vehicle_id: string;
+  performed_at: string;
+  status: InspectionStatus;
+  notes: string | null;
+  override_reason: string | null;
+  overridden_at: string | null;
+  results: InspectionResultRow[];
+}
+
+export interface InspectionAnswer {
+  item_id: string;
+  ok: boolean;
+  note?: string | null;
+  photo_id?: string | null;
+}
+
+export type TripStatus = "scheduled" | "in_progress" | "delivered" | "completed" | "cancelled";
+export type OdometerFlag = "mismatch" | "backward" | "large_jump" | "no_location";
+
+export interface OdometerReadingOut {
+  value: number;
+  auto_read_value: number | null;
+  flags: OdometerFlag[];
+  photo: PhotoRef | null;
+  recorded_at: string;
+}
+
+export interface Trip {
+  id: string;
+  status: TripStatus;
+  vehicle_id: string;
+  registration: string | null;
+  driver_membership_id: string | null;
+  turnboy_membership_id: string | null;
+  cargo_description: string | null;
+  origin: string | null;
+  destination: string | null;
+  scheduled_for: string | null;
+  started_at: string | null;
+  loaded_at: string | null;
+  loaded_weight_kg: number | null;
+  cargo_photo: PhotoRef | null;
+  delivered_at: string | null;
+  ended_at: string | null;
+  distance_km: number | null;
+  start_reading: OdometerReadingOut | null;
+  end_reading: OdometerReadingOut | null;
+  inspection: { id: string; status: InspectionStatus; performed_at: string } | null;
+}
+
+export interface TripInput {
+  vehicle_id: string;
+  driver_membership_id?: string | null;
+  turnboy_membership_id?: string | null;
+  cargo_description?: string | null;
+  origin?: string | null;
+  destination?: string | null;
+  scheduled_for?: string | null;
+}
+
+export interface ReadingInput {
+  photo_id: string;
+  value: number;
+  auto_read_value?: number | null;
+}
+
+export interface PhotoUpload {
+  kind: PhotoKind;
+  source: "camera" | "web";
+  /** ISO time the picture was taken. Required for camera photos; web photos are judged by their own metadata. */
+  captured_at?: string;
+  lat?: number | null;
+  lng?: number | null;
+}

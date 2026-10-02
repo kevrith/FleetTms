@@ -16,6 +16,8 @@ CHECKS = {
     "list_vehicles": ("GET", "/vehicles", None, "vehicles.view"),
     "create_party": ("POST", "/parties", {"kind": "lessor", "name": "Some Lessor"}, "vehicles.manage"),
     "list_staff": ("GET", "/staff", None, "staff.view"),
+    "list_trips": ("GET", "/trips", None, "trips.view"),
+    "my_trips": ("GET", "/me/trips", None, "trips.own"),
     "import_template": ("GET", "/imports/staff/template", None, "data.import"),
     "grant_support": ("POST", "/support/grants", {"hours": 1, "reason": "help"}, "support.grant"),
 }
@@ -84,6 +86,11 @@ def test_driver_and_turnboy_only_see_their_own_work():
 def test_workshop_only_does_workshop_and_lessor_only_their_own_lease():
     assert permissions_for({Role.WORKSHOP}) == {"workshop.manage"}
     assert permissions_for({Role.LESSOR}) == {"lease.view_own"}
+
+
+def test_only_owner_and_manager_can_override_a_blocked_inspection():
+    allowed = {r for r in Role if "inspections.override" in permissions_for({r})}
+    assert allowed == {Role.OWNER, Role.MANAGER}
 
 
 def test_owner_driver_gets_union_of_permissions():

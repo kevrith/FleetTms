@@ -1,10 +1,11 @@
 import { ROLE_LABELS } from "@fleettms/business-rules";
 import type { MyVehicle } from "@fleettms/types";
 import { useEffect, useState } from "react";
-import { Text, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { api } from "../api";
 import { useAuth } from "../auth";
-import { Body, Button, Screen, Title, useTheme } from "../ui";
+import { Body, Screen, Title, useTheme } from "../ui";
+import TripPanel from "./TripPanel";
 
 function MyVehicleCard() {
   const t = useTheme();
@@ -46,19 +47,16 @@ function MyVehicleCard() {
 
 function DriverHome() {
   const { me } = useAuth();
-  const t = useTheme();
   return (
-    <>
+    <ScrollView
+      contentContainerStyle={{ gap: 16, paddingVertical: 16 }}
+      keyboardShouldPersistTaps="handled"
+    >
       <Title>Hello, {me?.user.name.split(" ")[0]}</Title>
       <MyVehicleCard />
-      <View style={{ padding: 16, borderRadius: 12, backgroundColor: t.surface, gap: 4 }}>
-        <Body muted>Today's trip</Body>
-        <Text style={{ color: t.text, fontSize: 20 }}>No trip assigned yet</Text>
-      </View>
-      <Button label="Start trip" onPress={() => {}} disabled />
-      <Button label="Add expense" kind="secondary" onPress={() => {}} disabled />
-      <Body muted>Trips, expenses and float balance arrive in the next updates.</Body>
-    </>
+      <TripPanel />
+      <Body muted>Expenses and float balance arrive in the next updates.</Body>
+    </ScrollView>
   );
 }
 

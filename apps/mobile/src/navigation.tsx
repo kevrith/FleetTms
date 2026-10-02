@@ -4,10 +4,12 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { DarkTheme, DefaultTheme, NavigationContainer } from "@react-navigation/native";
 import { ActivityIndicator, useColorScheme, View } from "react-native";
 import { useAuth } from "./auth";
+import { Screen } from "./ui";
 import HomeScreen from "./screens/Home";
 import LoginScreen from "./screens/Login";
 import MoreScreen, { Placeholder } from "./screens/More";
 import NoticesScreen from "./screens/Notices";
+import TripPanel from "./screens/TripPanel";
 import TwoFactorScreen from "./screens/TwoFactor";
 import VehiclesScreen from "./screens/Vehicles";
 
@@ -20,7 +22,11 @@ interface TabDef {
   component: React.ComponentType;
 }
 
-const Trips = () => <Placeholder title="Trips" />;
+const Trips = () => (
+  <Screen>
+    <TripPanel />
+  </Screen>
+);
 const Expenses = () => <Placeholder title="Expenses" />;
 
 // Driver tabs per masterplan Section 6; the owner view is leaner until later sprints add content.
