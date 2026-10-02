@@ -1,4 +1,4 @@
-"""Operator commands. Usage: python -m app.cli create-platform-admin
+"""Operator commands. Usage: python -m app.cli [create-platform-admin|seed-demo]
 
 Reads PLATFORM_ADMIN_EMAIL, PLATFORM_ADMIN_NAME and PLATFORM_ADMIN_PASSWORD from the environment
 (see .env.example). The admin sets up two-step verification at first sign-in.
@@ -37,7 +37,9 @@ async def create_platform_admin() -> None:
 
 
 def main() -> None:
-    commands = {"create-platform-admin": create_platform_admin}
+    from app.seed import seed_demo
+
+    commands = {"create-platform-admin": create_platform_admin, "seed-demo": seed_demo}
     if len(sys.argv) != 2 or sys.argv[1] not in commands:
         sys.exit(f"Usage: python -m app.cli [{'|'.join(commands)}]")
     asyncio.run(commands[sys.argv[1]]())

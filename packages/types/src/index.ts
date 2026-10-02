@@ -107,3 +107,120 @@ export interface InviteInput {
   depot_id?: string | null;
   vehicle_scope?: string[] | null;
 }
+
+export type FuelType = "diesel" | "petrol";
+export type TrackingTier = "basic" | "standard" | "premium";
+export type OwnershipType = "owned" | "asset_financed" | "leased_in" | "leased_out";
+export type PartyKind = "lessor" | "lender" | "lessee";
+export type CrewRole = "driver" | "turnboy";
+export type ComplianceDocType =
+  | "insurance"
+  | "inspection"
+  | "ntsa_licence"
+  | "tlb_licence"
+  | "permit"
+  | "driving_licence"
+  | "other";
+
+export interface Vehicle {
+  id: string;
+  registration: string;
+  make: string | null;
+  model: string | null;
+  capacity_tonnes: string | null;
+  fuel_type: FuelType;
+  tank_litres: number | null;
+  expected_kmpl_loaded: string | null;
+  expected_kmpl_empty: string | null;
+  odometer_km: number;
+  tracking_tier: TrackingTier;
+  depot_id: string | null;
+  ownership_type: OwnershipType;
+  party_id: string | null;
+  gvw_limit_kg: number | null;
+  axle_config: string | null;
+  is_active: boolean;
+}
+
+export type VehicleInput = Omit<Vehicle, "id">;
+
+export interface Party {
+  id: string;
+  kind: PartyKind;
+  name: string;
+  phone: string | null;
+  kra_pin: string | null;
+  payment_details: string | null;
+}
+
+export type PartyInput = Omit<Party, "id">;
+
+export interface CrewAssignment {
+  id: string;
+  vehicle_id: string;
+  membership_id: string;
+  role: CrewRole;
+  started_at: string;
+  ended_at: string | null;
+}
+
+export interface StaffProfile {
+  membership_id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  roles: Role[];
+  status: "active" | "revoked";
+  depot_id: string | null;
+  licence_number: string | null;
+  licence_class: string | null;
+  emergency_contact_name: string | null;
+  emergency_contact_phone: string | null;
+  vehicle_id: string | null;
+  crew_role: CrewRole | null;
+  /** Present only for people with payroll access. */
+  monthly_salary_cents?: number | null;
+}
+
+export interface ProfileInput {
+  licence_number: string | null;
+  licence_class: string | null;
+  emergency_contact_name: string | null;
+  emergency_contact_phone: string | null;
+  monthly_salary_cents?: number | null;
+}
+
+export interface ComplianceDocument {
+  id: string;
+  doc_type: ComplianceDocType;
+  vehicle_id: string | null;
+  membership_id: string | null;
+  reference: string | null;
+  issued_on: string | null;
+  expires_on: string;
+}
+
+export type DocumentInput = Omit<ComplianceDocument, "id">;
+
+export interface MyVehicle {
+  vehicle: {
+    id: string;
+    registration: string;
+    make: string | null;
+    model: string | null;
+    capacity_tonnes: string | null;
+    fuel_type: FuelType;
+    tank_litres: number | null;
+    odometer_km: number;
+  };
+  my_role: CrewRole;
+  crew: { role: CrewRole; name: string; phone: string | null }[];
+}
+
+export interface ImportResult {
+  dry_run: boolean;
+  rows: number;
+  imported: number;
+  errors: { row: number; column: string | null; message: string }[];
+  invite_tokens: { row: number; name: string; invite_token: string }[];
+}

@@ -1,16 +1,22 @@
 import enum
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from decimal import Decimal
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -51,6 +57,45 @@ class Document(enum.StrEnum):
     PRIVACY = "privacy"
     DPA = "dpa"
     MONITORING_NOTICE = "monitoring_notice"
+
+
+class FuelType(enum.StrEnum):
+    DIESEL = "diesel"
+    PETROL = "petrol"
+
+
+class TrackingTier(enum.StrEnum):
+    BASIC = "basic"  # driver phone GPS + odometer photos
+    STANDARD = "standard"  # hardware GPS tracker
+    PREMIUM = "premium"  # tracker + fuel level sensor
+
+
+class OwnershipType(enum.StrEnum):
+    OWNED = "owned"
+    ASSET_FINANCED = "asset_financed"
+    LEASED_IN = "leased_in"
+    LEASED_OUT = "leased_out"
+
+
+class PartyKind(enum.StrEnum):
+    LESSOR = "lessor"  # owns a lorry we hire in
+    LENDER = "lender"  # bank or asset finance company
+    LESSEE = "lessee"  # hires one of our lorries
+
+
+class CrewRole(enum.StrEnum):
+    DRIVER = "driver"
+    TURNBOY = "turnboy"
+
+
+class ComplianceDocType(enum.StrEnum):
+    INSURANCE = "insurance"
+    INSPECTION = "inspection"
+    NTSA_LICENCE = "ntsa_licence"
+    TLB_LICENCE = "tlb_licence"
+    PERMIT = "permit"
+    DRIVING_LICENCE = "driving_licence"
+    OTHER = "other"
 
 
 def _enum(e: type[enum.Enum]) -> Enum:
@@ -184,3 +229,105 @@ class SupportGrant(TenantMixin, Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Party(TenantMixin, Base):
+    """A lessor, lender or lessee. The full lease engine arrives in Sprint 10."""
+
+    __tablename__ = "parties"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    kind: Mapped[PartyKind] = mapped_column(_enum(PartyKind))
+    name: Mapped[str] = mapped_column(String(200))
+    phone: Mapped[str | None] = mapped_column(String(20))
+    kra_pin: Mapped[str | None] = mapped_column(String(20))
+    payment_details: Mapped[str | None] = mapped_column(Text)  # M-Pesa or bank details
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Vehicle(TenantMixin, Base):
+    __tablename__ = "vehicles"
+    __table_args__ = (UniqueConstraint("business_id", "registration"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    registration: Mapped[str] = mapped_column(String(20))
+    make: Mapped[str | None] = mapped_column(String(80))
+    model: Mapped[str | None] = mapped_column(String(80))
+    capacity_tonnes: Mapped[Decimal | None] = mapped_column(Numeric(7, 2))
+    fuel_type: Mapped[FuelType] = mapped_column(_enum(FuelType), default=FuelType.DIESEL)
+    tank_litres: Mapped[int | None] = mapped_column(Integer)
+    expected_kmpl_loaded: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    expected_kmpl_empty: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    odometer_km: Mapped[int] = mapped_column(Integer, default=0)
+    tracking_tier: Mapped[TrackingTier] = mapped_column(_enum(TrackingTier), default=TrackingTier.BASIC)
+    depot_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("depots.id", ondelete="SET NULL"))
+    ownership_type: Mapped[OwnershipType] = mapped_column(_enum(OwnershipType), default=OwnershipType.OWNED)
+    party_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("parties.id", ondelete="RESTRICT"))
+    # Legal limits for overload checks (masterplan 5.22).
+    gvw_limit_kg: Mapped[int | None] = mapped_column(Integer)
+    axle_config: Mapped[str | None] = mapped_column(String(20))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class StaffProfile(TenantMixin, Base):
+    __tablename__ = "staff_profiles"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    membership_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("memberships.id", ondelete="CASCADE"), unique=True
+    )
+    licence_number: Mapped[str | None] = mapped_column(String(40))
+    licence_class: Mapped[str | None] = mapped_column(String(20))
+    emergency_contact_name: Mapped[str | None] = mapped_column(String(200))
+    emergency_contact_phone: Mapped[str | None] = mapped_column(String(20))
+    monthly_salary_cents: Mapped[int | None] = mapped_column(BigInteger)
+
+
+class CrewAssignment(TenantMixin, Base):
+    """Who crews which vehicle. Rows are closed, never deleted, so history is kept."""
+
+    __tablename__ = "crew_assignments"
+    __table_args__ = (
+        Index(
+            "uq_crew_active_slot", "vehicle_id", "role", unique=True, postgresql_where=text("ended_at IS NULL")
+        ),
+        Index("uq_crew_active_person", "membership_id", unique=True, postgresql_where=text("ended_at IS NULL")),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True)
+    membership_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("memberships.id", ondelete="CASCADE"), index=True
+    )
+    role: Mapped[CrewRole] = mapped_column(_enum(CrewRole))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ComplianceDocument(TenantMixin, Base):
+    """Insurance, inspection and licence records. Belongs to a vehicle or to a staff member."""
+
+    __tablename__ = "compliance_documents"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    doc_type: Mapped[ComplianceDocType] = mapped_column(_enum(ComplianceDocType))
+    vehicle_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("vehicles.id", ondelete="CASCADE"), index=True
+    )
+    membership_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("memberships.id", ondelete="CASCADE"), index=True
+    )
+    reference: Mapped[str | None] = mapped_column(String(80))
+    issued_on: Mapped[date | None] = mapped_column(Date)
+    expires_on: Mapped[date] = mapped_column(Date, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class DocumentReminder(TenantMixin, Base):
+    """One row per reminder sent, so a reminder never goes out twice."""
+
+    __tablename__ = "document_reminders"
+    __table_args__ = (UniqueConstraint("document_id", "expires_on", "days_before"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("compliance_documents.id", ondelete="CASCADE"), index=True
+    )
+    expires_on: Mapped[date] = mapped_column(Date)  # renewing the document starts a fresh set
+    days_before: Mapped[int] = mapped_column(Integer)
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

@@ -137,7 +137,7 @@ Keep a project guide at the root of the repository (`PROJECT_GUIDE.md`) and read
 - **Backend:**
   - [x] Business (tenant) model; automatic tenant scoping on every query. *ORM-level filter on every SELECT/UPDATE/DELETE, fails closed without a tenant, blocks cross-tenant writes. Postgres row-level security as a second layer is a Sprint 16 item.*
   - [x] **Depots/branches** per business.
-  - [ ] Users and role assignments: Owner, Manager, Supervisor, Accountant, Driver, Turnboy, Workshop/Storekeeper, **Lessor** placeholder. Multiple roles per user; supervisor scope by assigned vehicles. *All roles and multi-role work. Supervisor `vehicle_scope` is stored and loaded onto the principal, but nothing enforces it until vehicles exist in Sprint 2.*
+  - [x] Users and role assignments: Owner, Manager, Supervisor, Accountant, Driver, Turnboy, Workshop/Storekeeper, **Lessor** placeholder. Multiple roles per user; supervisor scope by assigned vehicles. *All roles and multi-role work. Supervisor `vehicle_scope` is enforced on vehicles, crew and documents since Sprint 2.*
   - [x] **One login, several companies**, with a company switcher.
   - [x] Driver login: phone + SMS one-time code (fake SMS sender in development).
   - [ ] Owner/staff login: email or phone + password + two-step verification. *Password and authenticator-app (TOTP) two-step done. SMS as a second-step option is not built.*
@@ -172,18 +172,19 @@ Keep a project guide at the root of the repository (`PROJECT_GUIDE.md`) and read
 **Goal:** an owner can set up the whole fleet and team, including how each lorry is owned.
 
 **Stories**
-- **Vehicles:** registration, model, capacity, fuel type, tank size, expected consumption, odometer, tracking tier, depot, **legal load limits and axle configuration**.
-- **Ownership type:** Owned, Asset-financed, Leased-in, Leased-out, with the basic lessor/lender record (full lease engine in S10).
-- **Staff:** profiles, licence details, crew assignments with history.
-- **Documents:** insurance, inspection, NTSA/TLB licences, permits, with expiry reminders (30/14/7 days).
-- **Excel import:** vehicles, staff, clients, suppliers, opening balances, with validation and an error report.
-- **Web:** management pages; **Mobile:** owner vehicle list, driver "My vehicle" card.
+- [x] **Vehicles:** registration, make/model, capacity, fuel type, tank size, expected consumption (loaded and empty), odometer, tracking tier, depot, **legal load limit and axle configuration**. *Supervisors see only their assigned vehicles (closes the Sprint 1 carry-over).*
+- [x] **Ownership type:** Owned, Asset-financed, Leased-in, Leased-out, with the basic lessor/lender/lessee record (full lease engine in S10). *The party kind must match the ownership type.*
+- [x] **Staff:** profiles, licence details, crew assignments with history. *Salary is visible and editable only with payroll access (Owner).*
+- [x] **Documents:** insurance, inspection, NTSA/TLB licences, permits, driving licences, with expiry reminders (30/14/7 days) by SMS to owners, managers and the staff member. *Records and expiry dates only: attaching a scanned copy needs the storage bucket (Sprint 0 carry-over). SMS goes through the fake sender until Africa's Talking arrives.*
+- [~] **Excel import:** vehicles and staff, with validation and an error report (all or nothing, row numbers, dry-run, downloadable templates). *Clients, suppliers and opening balances are not built: their tables do not exist yet (clients Sprint 7, suppliers and balances later). Add them to the importer when those tables arrive.*
+- [x] **Web:** vehicles list and detail (edit, crew, documents), lessors and lenders, staff page, import page, "documents needing attention" on Home. **Mobile:** owner vehicle list, driver "My vehicle" card. *Both type-check and build; not yet clicked through in a browser or on the emulator.*
+- [x] **Seed data:** `python -m app.cli seed-demo` builds a Kenyan demo fleet with leased-in, asset-financed and leased-out lorries.
 
 **Acceptance criteria**
-- Owner adds a lorry, sets it as leased-in from a named lessor, and assigns a driver and turnboy.
-- Reassigning crew keeps history.
-- An Excel file with 20 vehicles imports cleanly; a bad row is reported, not silently skipped.
-- Expiry reminders fire on schedule (test with fake dates).
+- [x] Owner adds a lorry, sets it as leased-in from a named lessor, and assigns a driver and turnboy. *API tests.*
+- [x] Reassigning crew keeps history. *API tests.*
+- [x] An Excel file with 20 vehicles imports cleanly; a bad row is reported, not silently skipped. *API tests.*
+- [x] Expiry reminders fire on schedule (test with fake dates).
 
 **Kickoff brief**
 > Implement vehicles (with ownership type, load limits, depot), staff, crew assignments, documents with reminders, and Excel import per masterplan Sections 5.1, 5.11, 5.23 (setup only), and 5.29. Add realistic Kenyan seed data, including one leased-in and one asset-financed lorry.
@@ -552,7 +553,7 @@ Keep a project guide at the root of the repository (`PROJECT_GUIDE.md`) and read
 |---|---|---|---|---|---|
 | S0 | 2026-10-02 | 🟨 In progress | Monorepo, API, web, mobile shells, Docker, job queue, lint/test tooling | staging deploy, storage bucket, external applications | Ports 5442/8010/5180 |
 | S1 | 2026-10-02 | ✅ Done, with carry-overs | Tenancy, auth (OTP + password + TOTP), roles, audit log, depots, support access, web + mobile screens, draft legal docs | SMS second step; enforcing supervisor vehicle scope (needs S2 vehicles); advocate review of `docs/legal/` | Tenant isolation is ORM-level; RLS planned for S16. Dev-only: OTP codes are printed to the API console. |
-| S2 | | ⬜ | | | |
+| S2 | 2026-10-02 | 🟨 Built, not yet clicked through | Vehicles, ownership, lessors/lenders, staff profiles, crew with history, documents with SMS expiry reminders, Excel import (vehicles, staff), demo seed, web pages, mobile vehicle list and My vehicle card | Import of clients, suppliers and opening balances (tables do not exist yet); document file upload (needs storage bucket); browser and emulator walk-through of the new screens | Reminders run daily at 07:00 Africa/Nairobi through the arq worker. Supervisor scope now enforced. |
 | S3 | | ⬜ | | | |
 | S4 | | ⬜ | | | |
 | S5 | | ⬜ | | | |

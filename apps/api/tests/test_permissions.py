@@ -13,6 +13,10 @@ CHECKS = {
     "list_depots": ("GET", "/depots", None, "depots.view"),
     "create_depot": ("POST", "/depots", {"name": "Yard"}, "depots.manage"),
     "audit": ("GET", "/audit", None, "audit.view"),
+    "list_vehicles": ("GET", "/vehicles", None, "vehicles.view"),
+    "create_party": ("POST", "/parties", {"kind": "lessor", "name": "Some Lessor"}, "vehicles.manage"),
+    "list_staff": ("GET", "/staff", None, "staff.view"),
+    "import_template": ("GET", "/imports/staff/template", None, "data.import"),
     "grant_support": ("POST", "/support/grants", {"hours": 1, "reason": "help"}, "support.grant"),
 }
 

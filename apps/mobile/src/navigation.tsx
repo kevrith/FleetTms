@@ -9,6 +9,7 @@ import LoginScreen from "./screens/Login";
 import MoreScreen, { Placeholder } from "./screens/More";
 import NoticesScreen from "./screens/Notices";
 import TwoFactorScreen from "./screens/TwoFactor";
+import VehiclesScreen from "./screens/Vehicles";
 
 const Tab = createBottomTabNavigator();
 
@@ -21,7 +22,6 @@ interface TabDef {
 
 const Trips = () => <Placeholder title="Trips" />;
 const Expenses = () => <Placeholder title="Expenses" />;
-const Vehicles = () => <Placeholder title="Vehicles" />;
 
 // Driver tabs per masterplan Section 6; the owner view is leaner until later sprints add content.
 const DRIVER_TABS: TabDef[] = [
@@ -32,7 +32,7 @@ const DRIVER_TABS: TabDef[] = [
 ];
 const OWNER_TABS: TabDef[] = [
   { name: "Home", icon: "home-outline", component: HomeScreen },
-  { name: "Vehicles", icon: "bus-outline", component: Vehicles },
+  { name: "Vehicles", icon: "bus-outline", component: VehiclesScreen },
   { name: "More", icon: "menu-outline", component: MoreScreen },
 ];
 

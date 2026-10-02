@@ -6,9 +6,13 @@ import { api } from "./api";
 import { useAuth } from "./auth";
 import Layout from "./Layout";
 import { navItems } from "./nav";
+import ExpiringDocuments from "./pages/ExpiringDocuments";
 import AcceptInvite from "./pages/AcceptInvite";
 import Login from "./pages/Login";
 import Settings from "./pages/Settings";
+import Staff from "./pages/Staff";
+import VehicleDetail from "./pages/VehicleDetail";
+import Vehicles from "./pages/Vehicles";
 import Signup from "./pages/Signup";
 import TwoFactor from "./pages/TwoFactor";
 
@@ -30,6 +34,7 @@ function Home() {
       <p>
         Welcome, {me?.user.name}. Your dashboard fills up as vehicles, trips and expenses are added.
       </p>
+      <ExpiringDocuments />
       {health && (
         <p className="status ok">
           <CheckCircle2 size={18} /> Connected to FleetTms API (v{health.version})
@@ -83,6 +88,9 @@ export default function App() {
         }
       >
         <Route path="/" element={<Home />} />
+        <Route path="/vehicles" element={<Vehicles />} />
+        <Route path="/vehicles/:id" element={<VehicleDetail />} />
+        <Route path="/staff" element={<Staff />} />
         <Route path="/settings/*" element={<Settings />} />
         <Route path="*" element={<Placeholder />} />
       </Route>

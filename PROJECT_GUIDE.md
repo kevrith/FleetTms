@@ -76,8 +76,18 @@ on the dev machine.
 - **Dev only.** With `ENVIRONMENT=development` the fake SMS sender prints the one-time code to the API console.
 - **Web tokens** live in localStorage for now (simple, but exposed to XSS). Revisit in Sprint 16 (httpOnly cookies).
 - **Deleting a tenant** will need a privileged purge job: the audit trigger blocks cascading deletes by design.
-- **Supervisor vehicle scope** is stored and loaded (`Principal.vehicle_scope`) but only enforced once vehicles
-  exist (Sprint 2).
+- **Supervisor vehicle scope** (`Principal.vehicle_scope`) is enforced through `app/vehicle_scope.py`: use
+  `scope_vehicles()` on vehicle queries and `require_vehicle_in_scope()` for single records. Out-of-scope
+  vehicles return 404, not 403. Every new vehicle-linked endpoint must use these.
+- **Crew assignments** are closed, never deleted (history). Partial unique indexes allow one open driver and one
+  open turnboy per vehicle, and one open vehicle per person.
+- **Document reminders** (`app/reminders.py`) run daily at 07:00 Africa/Nairobi from the arq worker
+  (`cd apps/api && .venv/bin/arq app.worker.WorkerSettings`). Each reminder is recorded, so none repeats.
+- **Excel import** (`app/routers/imports.py`) is all-or-nothing with per-row savepoints. New importable things
+  (clients, suppliers, balances) go in as another `_kind_row` function plus a template.
+- **Audit snapshots** go through `audit.snapshot()`, which makes dates, decimals and ids JSON-safe. Do not pass raw
+  model fields to `audit.record()`.
+- **Demo data:** set `DEMO_OWNER_EMAIL` and `DEMO_OWNER_PASSWORD` in `.env`, then `python -m app.cli seed-demo`.
 
 ## Testing against a real phone/emulator
 
@@ -91,8 +101,10 @@ See docs/sprint-plan.md Section 1.3.
 
 ## Current sprint
 
-Sprint 1 (auth, multi-tenancy, roles, audit) is done. Sprint 0 still has open items (CI never run, staging,
-storage bucket, external applications). Next: Sprint 2 (vehicles, ownership, staff, crews, documents).
+Sprints 0 and 1 are done apart from carry-overs (staging, storage bucket, external applications, SMS second
+step, advocate review). Sprint 2 (vehicles, ownership, staff, crews, documents, Excel import) is built and tested
+at the API level; the web and mobile screens still need a browser and emulator walk-through. Next: finish that
+walk-through, then Sprint 3 (trips, odometer capture, pre-trip inspection).
 
 Create the first platform admin with `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_NAME` and `PLATFORM_ADMIN_PASSWORD`
 set in `.env`, then `cd apps/api && .venv/bin/python -m app.cli create-platform-admin`.

@@ -71,6 +71,9 @@ body {
 .status.bad {
   color: var(--alert);
 }
+.status.warn {
+  color: var(--warning);
+}
 @media (max-width: 720px) {
   .shell {
     grid-template-columns: 1fr;

@@ -1,4 +1,6 @@
 import uuid
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +17,12 @@ def snapshot(obj: Any, fields: list[str]) -> dict:
         if f in _REDACT:
             continue
         v = getattr(obj, f)
-        out[f] = str(v) if isinstance(v, uuid.UUID) else getattr(v, "value", v)
+        if isinstance(v, uuid.UUID | Decimal):
+            out[f] = str(v)
+        elif isinstance(v, date | datetime):
+            out[f] = v.isoformat()
+        else:
+            out[f] = getattr(v, "value", v)
     return out
 
 

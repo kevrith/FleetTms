@@ -1,16 +1,28 @@
 import type {
   AuditEntry,
+  ComplianceDocument,
+  CrewAssignment,
+  CrewRole,
   Depot,
+  DocumentInput,
   HealthResponse,
+  ImportResult,
   InviteInput,
   Me,
+  MyVehicle,
+  Party,
+  PartyInput,
   PendingDocument,
+  ProfileInput,
   Role,
   SignupInput,
   StaffMember,
+  StaffProfile,
   SupportGrant,
   TokenResponse,
   Tokens,
+  Vehicle,
+  VehicleInput,
 } from "@fleettms/types";
 
 /** Where tokens live. Web uses localStorage, mobile uses the secure keystore. */
@@ -55,12 +67,13 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
 
   async function send(method: string, path: string, body: unknown, accessToken?: string) {
     const headers: Record<string, string> = {};
-    if (body !== undefined) headers["Content-Type"] = "application/json";
+    const isForm = typeof FormData !== "undefined" && body instanceof FormData;
+    if (body !== undefined && !isForm) headers["Content-Type"] = "application/json";
     if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
     return doFetch(`${baseUrl}${path}`, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : isForm ? (body as FormData) : JSON.stringify(body),
     });
   }
 
@@ -88,7 +101,13 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
     return refreshing;
   }
 
-  async function request<T>(method: string, path: string, body?: unknown, auth = true): Promise<T> {
+  async function request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    auth = true,
+    asBlob = false,
+  ): Promise<T> {
     let tokens = auth ? await options.store?.get() : null;
     let res = await send(method, path, body, tokens?.access_token);
     if (auth && res.status === 401 && tokens) {
@@ -100,6 +119,7 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
       }
     }
     if (res.status === 204) return undefined as T;
+    if (asBlob && res.ok) return (await res.blob()) as T;
     const data = await res.json().catch(() => null);
     if (!res.ok) throw toApiError(res.status, data);
     return data as T;
@@ -173,6 +193,47 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
     updateDepot: (id: string, input: { name: string; location?: string | null }) =>
       request<Depot>("PUT", `/depots/${id}`, input),
     deleteDepot: (id: string) => request<void>("DELETE", `/depots/${id}`),
+
+    // ---- vehicles, lessors, crew ----
+    vehicles: () => get<Vehicle[]>("/vehicles"),
+    vehicle: (id: string) => get<Vehicle>(`/vehicles/${id}`),
+    createVehicle: (input: VehicleInput) => post<Vehicle>("/vehicles", input),
+    updateVehicle: (id: string, input: VehicleInput) =>
+      request<Vehicle>("PUT", `/vehicles/${id}`, input),
+    parties: () => get<Party[]>("/parties"),
+    createParty: (input: PartyInput) => post<Party>("/parties", input),
+    updateParty: (id: string, input: PartyInput) => request<Party>("PUT", `/parties/${id}`, input),
+    crew: (vehicleId: string) => get<CrewAssignment[]>(`/vehicles/${vehicleId}/crew`),
+    assignCrew: (vehicleId: string, membershipId: string, role: CrewRole) =>
+      post<CrewAssignment>(`/vehicles/${vehicleId}/crew`, { membership_id: membershipId, role }),
+    unassignCrew: (vehicleId: string, role: CrewRole) =>
+      request<void>("DELETE", `/vehicles/${vehicleId}/crew/${role}`),
+    myVehicle: () => get<MyVehicle | null>("/me/vehicle"),
+
+    // ---- staff and documents ----
+    staff: () => get<StaffProfile[]>("/staff"),
+    updateStaffProfile: (membershipId: string, input: ProfileInput) =>
+      request<StaffProfile>("PUT", `/staff/${membershipId}/profile`, input),
+    documents: (owner: { vehicleId: string } | { membershipId: string }) =>
+      get<ComplianceDocument[]>(
+        "vehicleId" in owner
+          ? `/documents?vehicle_id=${owner.vehicleId}`
+          : `/documents?membership_id=${owner.membershipId}`,
+      ),
+    expiringDocuments: (days = 30) => get<ComplianceDocument[]>(`/documents/expiring?days=${days}`),
+    createDocument: (input: DocumentInput) => post<ComplianceDocument>("/documents", input),
+    updateDocument: (id: string, input: DocumentInput) =>
+      request<ComplianceDocument>("PUT", `/documents/${id}`, input),
+    deleteDocument: (id: string) => request<void>("DELETE", `/documents/${id}`),
+
+    // ---- Excel import ----
+    importTemplate: (kind: "vehicles" | "staff") =>
+      request<Blob>("GET", `/imports/${kind}/template`, undefined, true, true),
+    importFile: (kind: "vehicles" | "staff", file: Blob, dryRun: boolean) => {
+      const form = new FormData();
+      form.append("file", file);
+      return request<ImportResult>("POST", `/imports/${kind}?dry_run=${dryRun}`, form);
+    },
 
     // ---- audit, privacy, support ----
     audit: (params: { action?: string; limit?: number; offset?: number } = {}) => {

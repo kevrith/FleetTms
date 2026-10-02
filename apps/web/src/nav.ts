@@ -32,7 +32,7 @@ export const navItems: NavItem[] = [
   { path: "/expenses", label: "Expenses", icon: Wallet, permission: "finance.view" },
   { path: "/workshop", label: "Workshop", icon: Wrench, permission: "workshop.manage" },
   { path: "/leases", label: "Leases & Finance", icon: Building2, permission: "finance.view" },
-  { path: "/staff", label: "Staff & Payroll", icon: Users, permission: "payroll.view" },
+  { path: "/staff", label: "Staff & Payroll", icon: Users, permission: "staff.view" },
   { path: "/suppliers", label: "Suppliers", icon: Package, permission: "vehicles.manage" },
   { path: "/reports", label: "Reports", icon: BarChart3, permission: "reports.view" },
   { path: "/settings", label: "Settings", icon: Settings },

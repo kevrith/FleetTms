@@ -76,27 +76,31 @@ async def list_users(_: Principal = Depends(require("users.view")), db: AsyncSes
     return [_out(m) for m in rows]
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
-async def invite_user(
-    body: InviteIn,
-    principal: Principal = Depends(require("users.manage")),
-    db: AsyncSession = Depends(get_db),
-):
-    roles = set(body.roles)
+async def invite_member(
+    db: AsyncSession,
+    actor: Principal,
+    *,
+    name: str,
+    email: str | None,
+    phone: str | None,
+    roles: set[Role],
+    depot_id: uuid.UUID | None = None,
+    vehicle_scope: list[str] | None = None,
+) -> tuple[Membership, str | None]:
+    """Adds a person to the current business and audits it. The caller commits. Returns (membership, invite token)."""
     otp_only = roles <= OTP_ONLY_ROLES
-    phone = None
-    if body.phone:
-        phone = normalize_phone(body.phone)
+    if phone:
+        phone = normalize_phone(phone)
         if phone is None:
             raise error(422, "invalid_phone", "Enter a valid Kenyan phone number.")
     if otp_only and phone is None:
         raise error(422, "phone_required", "Drivers and turnboys sign in with a phone number.")
-    if not otp_only and body.email is None:
+    if not otp_only and email is None:
         raise error(422, "email_required", "This role signs in with an email address.")
-    if body.depot_id is not None and await db.get(Depot, body.depot_id) is None:
+    if depot_id is not None and await db.get(Depot, depot_id) is None:
         raise error(status.HTTP_404_NOT_FOUND, "depot_not_found", "That depot was not found.")
 
-    email = body.email.lower() if body.email else None
+    email = email.lower() if email else None
     user = None
     if email or phone:
         candidates = []
@@ -111,7 +115,7 @@ async def invite_user(
 
     invite_token = None
     if user is None:
-        user = User(name=body.name.strip(), email=email, phone=phone)
+        user = User(name=name.strip(), email=email, phone=phone)
         if not otp_only:
             invite_token = new_secret_token()
             user.invite_token_hash = sha256(invite_token)
@@ -126,19 +130,38 @@ async def invite_user(
             await db.delete(existing)  # re-inviting someone whose access was revoked
             await db.flush()
 
-    membership = Membership(user_id=user.id, depot_id=body.depot_id)
+    membership = Membership(user_id=user.id, depot_id=depot_id)
     db.add(membership)
     await db.flush()
     for role in roles:
-        scope = body.vehicle_scope if role == Role.SUPERVISOR else None
+        scope = vehicle_scope if role == Role.SUPERVISOR else None
         db.add(RoleAssignment(membership_id=membership.id, role=role, vehicle_scope=scope))
     audit.record(
         db,
-        actor_user_id=principal.user.id,
+        actor_user_id=actor.user.id,
         action="user.invited",
         entity_type="membership",
         entity_id=membership.id,
         after={"user_id": str(user.id), "roles": sorted(r.value for r in roles)},
+    )
+    return membership, invite_token
+
+
+@router.post("", status_code=status.HTTP_201_CREATED)
+async def invite_user(
+    body: InviteIn,
+    principal: Principal = Depends(require("users.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    membership, invite_token = await invite_member(
+        db,
+        principal,
+        name=body.name,
+        email=body.email,
+        phone=body.phone,
+        roles=set(body.roles),
+        depot_id=body.depot_id,
+        vehicle_scope=body.vehicle_scope,
     )
     await db.commit()
     membership = await _get_membership(db, membership.id)

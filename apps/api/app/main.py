@@ -4,7 +4,18 @@ from redis.asyncio import Redis
 
 from app.config import settings
 from app.db import database_is_up
-from app.routers import audit_log, auth, depots, privacy, support, users
+from app.routers import (
+    audit_log,
+    auth,
+    depots,
+    documents,
+    imports,
+    privacy,
+    staff,
+    support,
+    users,
+    vehicles,
+)
 
 app = FastAPI(title="FleetTms API", version=settings.version)
 
@@ -15,7 +26,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for module in (auth, users, depots, audit_log, privacy, support):
+for module in (auth, users, depots, vehicles, staff, documents, imports, audit_log, privacy, support):
     app.include_router(module.router)
 
 
