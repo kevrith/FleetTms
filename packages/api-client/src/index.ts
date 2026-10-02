@@ -67,7 +67,27 @@ import type {
   ClaimStatus,
   FinesSummary,
   SosAlert,
+  Debtors,
+  FinanceAgreement,
+  LeaseAgreement,
+  LeaseDetail,
+  LeaseEntry,
+  LeaseStatement,
+  OwnershipCost,
+  PartsOrder,
+  PayrollRun,
+  PortalLease,
+  ProfitReport,
+  SalaryAdvance,
+  Supplier,
+  DebtorDetail,
+  EtimsSubmission,
+  EtimsSummary,
   Invoice,
+  MpesaPayment,
+  PaymentSettings,
+  StatementImport,
+  StatementLine,
   ProofOfDeliveryInput,
   Client,
   SavedRoute,
@@ -687,6 +707,189 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
       post<Invoice>(`/invoices/${id}/send`, { channel, recipient: recipient || null }),
     runContractInvoices: (month: string) =>
       post<{ month: string; issued: Invoice[] }>("/invoices/contracts/run", { month }),
+
+    remindInvoice: (id: string, channels: ("sms" | "email")[]) =>
+      post<{
+        sent: { channel: string; recipient: string; status: string; error: string | null }[];
+      }>(`/invoices/${id}/remind`, { channels }),
+
+    // ---- client payments, debtors, statements, eTIMS ----
+    mpesaPayments: (status?: string) =>
+      get<MpesaPayment[]>(`/payments/mpesa${status ? `?status_filter=${status}` : ""}`),
+    mpesaPayment: (id: string) => get<MpesaPayment>(`/payments/mpesa/${id}`),
+    matchPayment: (id: string, invoiceId: string, amountCents?: number) =>
+      post<MpesaPayment>(`/payments/mpesa/${id}/match`, {
+        invoice_id: invoiceId,
+        amount_cents: amountCents ?? null,
+      }),
+    dismissPayment: (id: string, reason: string) =>
+      post<MpesaPayment>(`/payments/mpesa/${id}/dismiss`, { reason }),
+    paymentSettings: () => get<PaymentSettings>("/payments/settings"),
+    savePaymentSettings: (input: Partial<PaymentSettings>) =>
+      request<PaymentSettings>("PUT", "/payments/settings", input),
+    registerDarajaUrls: () =>
+      post<{ registered_at: string }>("/payments/settings/register-urls", {}),
+    simulatePayment: (amountCents: number, billRef: string) =>
+      post<MpesaPayment | { sent_to_safaricom: boolean }>("/payments/simulate", {
+        amount_cents: amountCents,
+        bill_ref: billRef,
+      }),
+    debtors: () => get<Debtors>("/debtors"),
+    debtor: (clientId: string) => get<DebtorDetail>(`/debtors/${clientId}`),
+    uploadStatement: (file: Blob) => {
+      const form = new FormData();
+      form.append("file", file);
+      return request<StatementImport>("POST", "/payments/statements", form);
+    },
+    statementImports: () => get<StatementImport[]>("/payments/statements"),
+    statementLines: (params: { state?: string; direction?: "in" | "out" } = {}) => {
+      const q = new URLSearchParams();
+      if (params.state) q.set("state", params.state);
+      if (params.direction) q.set("direction", params.direction);
+      const qs = q.toString();
+      return get<StatementLine[]>(`/payments/statements/lines${qs ? `?${qs}` : ""}`);
+    },
+    ignoreStatementLine: (id: string, note: string) =>
+      post<StatementLine>(`/payments/statements/lines/${id}/ignore`, { note }),
+    etimsSubmissions: (status?: string) =>
+      get<EtimsSubmission[]>(`/etims/submissions${status ? `?status_filter=${status}` : ""}`),
+    etimsSummary: () => get<EtimsSummary>("/etims/summary"),
+    etimsConnect: () => post<{ connected_at: string }>("/etims/connect", {}),
+    etimsRetry: (id: string) => post<EtimsSubmission>(`/etims/submissions/${id}/retry`, {}),
+    etimsResolve: (id: string, note: string, receiptNo?: string) =>
+      post<EtimsSubmission>(`/etims/submissions/${id}/resolve`, {
+        note,
+        receipt_no: receiptNo || null,
+      }),
+
+    // ---- leases, loans, ownership costs, profit ----
+    leaseItems: () =>
+      get<{ items: Record<string, string>; defaults: Record<string, "lessee" | "lessor"> }>(
+        "/leases/responsibility-items",
+      ),
+    leases: () => get<LeaseAgreement[]>("/leases"),
+    lease: (id: string) => get<LeaseDetail>(`/leases/${id}`),
+    createLease: (input: Record<string, unknown>) => post<LeaseAgreement>("/leases", input),
+    updateLease: (id: string, input: Record<string, unknown>) =>
+      request<LeaseAgreement>("PUT", `/leases/${id}`, input),
+    endLease: (id: string, endDate?: string) =>
+      post<LeaseAgreement>(`/leases/${id}/end`, { end_date: endDate ?? null }),
+    runLease: (
+      id: string,
+      month: string,
+      reported?: { trips: number; km: number; revenue_cents: number; profit_cents: number },
+    ) =>
+      post<{ charge: LeaseEntry; offsets: LeaseEntry[] }>(`/leases/${id}/run`, {
+        month,
+        reported: reported ?? null,
+      }),
+    runAllLeases: (month: string) =>
+      post<{ month: string; done: number; waiting_for_lessee_figures: string[] }>(
+        "/leases/run-month",
+        { month },
+      ),
+    leasePayment: (
+      id: string,
+      input: {
+        amount_cents: number;
+        method: "mpesa" | "bank" | "cash" | "cheque";
+        mpesa_code?: string | null;
+        reference?: string | null;
+        received_on?: string | null;
+      },
+    ) => post<LeaseEntry>(`/leases/${id}/payments`, input),
+    leaseAdjustment: (id: string, amountCents: number, reason: string) =>
+      post<LeaseEntry>(`/leases/${id}/adjustments`, { amount_cents: amountCents, reason }),
+    leaseStatement: (id: string, month: string) =>
+      get<LeaseStatement>(`/leases/${id}/statement?month=${month}`),
+    leaseStatementPdf: (id: string, month: string) =>
+      request<Blob>("GET", `/leases/${id}/statement.pdf?month=${month}`, undefined, true, true),
+    sendLeaseStatement: (id: string, month: string, channel: "email" | "whatsapp") =>
+      post<{ sent: boolean; to: string }>(`/leases/${id}/statement/send`, { month, channel }),
+    loans: () => get<FinanceAgreement[]>("/finance"),
+    loan: (id: string) => get<FinanceAgreement>(`/finance/${id}`),
+    createLoan: (input: Record<string, unknown>) => post<FinanceAgreement>("/finance", input),
+    repayLoan: (
+      id: string,
+      number: number,
+      input: {
+        amount_cents?: number | null;
+        method: "mpesa" | "bank" | "cash" | "cheque";
+        mpesa_code?: string | null;
+        reference?: string | null;
+      },
+    ) => post<FinanceAgreement>(`/finance/${id}/instalments/${number}/pay`, input),
+    ownershipCosts: (vehicleId?: string) =>
+      get<OwnershipCost[]>(`/ownership-costs${vehicleId ? `?vehicle_id=${vehicleId}` : ""}`),
+    addOwnershipCost: (input: Record<string, unknown>) =>
+      post<OwnershipCost>("/ownership-costs", input),
+    deleteOwnershipCost: (id: string) => request<void>("DELETE", `/ownership-costs/${id}`),
+    profit: (fromMonth?: string, toMonth?: string, includeTrips = false) => {
+      const q = new URLSearchParams();
+      if (fromMonth) q.set("from_month", fromMonth);
+      if (toMonth) q.set("to_month", toMonth);
+      if (includeTrips) q.set("include_trips", "true");
+      const qs = q.toString();
+      return get<ProfitReport>(`/profit${qs ? `?${qs}` : ""}`);
+    },
+
+    // ---- payroll ----
+    payrollRuns: () => get<PayrollRun[]>("/payroll/runs"),
+    payrollRun: (id: string) => get<PayrollRun>(`/payroll/runs/${id}`),
+    createPayrollRun: (month: string) => post<PayrollRun>("/payroll/runs", { month }),
+    recalculatePayroll: (id: string) => post<PayrollRun>(`/payroll/runs/${id}/recalculate`, {}),
+    approvePayroll: (id: string) => post<PayrollRun>(`/payroll/runs/${id}/approve`, {}),
+    payPayroll: (id: string) => post<PayrollRun>(`/payroll/runs/${id}/paid`, {}),
+    advances: (owingOnly = false) =>
+      get<SalaryAdvance[]>(`/payroll/advances${owingOnly ? "?owing_only=true" : ""}`),
+    giveAdvance: (input: {
+      membership_id: string;
+      amount_cents: number;
+      note?: string | null;
+      mpesa_code?: string | null;
+    }) => post<SalaryAdvance>("/payroll/advances", input),
+    salaried: () =>
+      get<{ membership_id: string; name: string | null; monthly_salary_cents: number }[]>(
+        "/payroll/people",
+      ),
+
+    // ---- suppliers and parts orders ----
+    suppliers: () => get<Supplier[]>("/suppliers"),
+    addSupplier: (input: Partial<Supplier>) => post<Supplier>("/suppliers", input),
+    updateSupplier: (id: string, input: Partial<Supplier>) =>
+      request<Supplier>("PUT", `/suppliers/${id}`, input),
+    orders: (status?: string) =>
+      get<PartsOrder[]>(`/orders${status ? `?status_filter=${status}` : ""}`),
+    createOrder: (input: {
+      supplier_id: string;
+      lines: {
+        part_id?: string | null;
+        description: string;
+        quantity: number;
+        unit_cost_cents: number;
+      }[];
+      notes?: string | null;
+      expected_on?: string | null;
+    }) => post<PartsOrder>("/orders", input),
+    draftLowStockOrders: (supplierId?: string) =>
+      post<PartsOrder[]>("/orders/from-low-stock", { supplier_id: supplierId ?? null }),
+    sendOrder: (id: string) => post<PartsOrder>(`/orders/${id}/send`, {}),
+    moveOrder: (id: string, status: string, reference?: string) =>
+      post<PartsOrder>(`/orders/${id}/status`, { status, reference: reference ?? null }),
+
+    // ---- the lessor portal ----
+    portalLeases: () => get<PortalLease[]>("/portal/leases"),
+    portalLease: (id: string) => get<PortalLease>(`/portal/leases/${id}`),
+    portalStatement: (id: string, month: string) =>
+      get<LeaseStatement>(`/portal/leases/${id}/statement?month=${month}`),
+    portalStatementPdf: (id: string, month: string) =>
+      request<Blob>(
+        "GET",
+        `/portal/leases/${id}/statement.pdf?month=${month}`,
+        undefined,
+        true,
+        true,
+      ),
 
     // ---- SOS ----
     myTyrePositions: () => get<MyTyrePositions>("/me/tyre-positions"),

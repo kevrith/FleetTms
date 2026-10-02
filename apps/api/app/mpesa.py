@@ -5,7 +5,7 @@ import re
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Expense, FuelEntry
+from app.models import Expense, FinanceInstalment, FuelEntry, LeaseEntry, SalaryAdvance
 
 PATTERN = re.compile(r"^[A-Z0-9]{10}$")
 
@@ -21,7 +21,8 @@ def tidy(raw: str | None) -> str | None:
 
 
 async def taken(db: AsyncSession, code: str) -> bool:
-    """True if a fuel entry or an expense in this business already used the code."""
-    fuel = (await db.execute(select(FuelEntry.id).where(FuelEntry.mpesa_code == code).limit(1))).first()
-    spent = (await db.execute(select(Expense.id).where(Expense.mpesa_code == code).limit(1))).first()
-    return fuel is not None or spent is not None
+    """True if a fuel entry, an expense, a lease payment, a loan repayment or a salary advance in this business already used the code."""
+    for model in (FuelEntry, Expense, LeaseEntry, FinanceInstalment, SalaryAdvance):
+        if (await db.execute(select(model.id).where(model.mpesa_code == code).limit(1))).first() is not None:
+            return True
+    return False

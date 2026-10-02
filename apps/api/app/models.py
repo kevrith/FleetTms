@@ -302,6 +302,8 @@ class Membership(TenantMixin, Base):
     status: Mapped[MembershipStatus] = mapped_column(
         _enum(MembershipStatus), default=MembershipStatus.ACTIVE
     )
+    # A lessor's portal login belongs to the lessor it is for, and sees only that lessor's leases.
+    party_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("parties.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     user: Mapped[User] = relationship(lazy="joined")
@@ -366,6 +368,7 @@ class Party(TenantMixin, Base):
     phone: Mapped[str | None] = mapped_column(String(20))
     kra_pin: Mapped[str | None] = mapped_column(String(20))
     payment_details: Mapped[str | None] = mapped_column(Text)  # M-Pesa or bank details
+    email: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -1005,7 +1008,8 @@ class Incident(TenantMixin, Base):
     cost_cents: Mapped[int | None] = mapped_column(BigInteger)  # what it cost the business, once known
     fine_amount_cents: Mapped[int | None] = mapped_column(BigInteger)
     fine_payer: Mapped[FinePayer | None] = mapped_column(_enum(FinePayer))
-    deduct_from_payroll: Mapped[bool] = mapped_column(Boolean, default=False)  # payroll arrives in a later sprint
+    deduct_from_payroll: Mapped[bool] = mapped_column(Boolean, default=False)
+    payroll_deducted_cents: Mapped[int] = mapped_column(BigInteger, default=0)  # how much of the driver's fine payroll has taken so far
     reference: Mapped[str | None] = mapped_column(String(60))  # ticket or receipt number
     work_order_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("work_orders.id", ondelete="SET NULL"))
     expense_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("expenses.id", ondelete="SET NULL"))
@@ -1095,6 +1099,7 @@ class Client(TenantMixin, Base):
     rate_cents: Mapped[int] = mapped_column(BigInteger, default=0)  # per trip, per tonne, per km or the monthly fee
     payment_terms_days: Mapped[int] = mapped_column(Integer, default=30)
     vat_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=0)  # VAT added to this client's invoices
+    reminders_enabled: Mapped[bool] = mapped_column(Boolean, default=True)  # False: never send this client payment reminders
     notes: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -1276,7 +1281,7 @@ class InvoiceLine(TenantMixin, Base):
 
 
 class InvoicePayment(TenantMixin, Base):
-    """Money received against an invoice, entered by hand for now (M-Pesa matching arrives in a later sprint)."""
+    """Money received against an invoice: entered by hand, or matched from an M-Pesa payment."""
 
     __tablename__ = "invoice_payments"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
@@ -1286,5 +1291,348 @@ class InvoicePayment(TenantMixin, Base):
     reference: Mapped[str | None] = mapped_column(String(60))
     received_on: Mapped[date] = mapped_column(Date)
     note: Mapped[str | None] = mapped_column(String(255))
+    mpesa_transaction_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("mpesa_transactions.id", ondelete="SET NULL"), index=True)
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PaymentSettings(TenantMixin, Base):
+    """One row per business: where clients pay by M-Pesa, when they are reminded, and how invoices go to KRA eTIMS."""
+
+    __tablename__ = "payment_settings"
+    __table_args__ = (UniqueConstraint("business_id"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    shortcode: Mapped[str | None] = mapped_column(String(10))  # the Paybill or Till number clients pay to
+    shortcode_type: Mapped[str] = mapped_column(String(8), default="paybill")
+    urls_registered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reminders_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    reminder_offsets: Mapped[list[int]] = mapped_column(JSONB, default=lambda: [-3, 1, 7, 14, 30])  # days from the due date
+    reminder_channels: Mapped[list[str]] = mapped_column(JSONB, default=lambda: ["sms", "email"])
+    etims_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    etims_branch_id: Mapped[str] = mapped_column(String(2), default="00")
+    etims_device_serial: Mapped[str | None] = mapped_column(String(100))
+    etims_zero_vat_code: Mapped[str] = mapped_column(String(1), default="A")  # eTIMS tax code for invoices with no VAT
+    etims_item_code: Mapped[str] = mapped_column(String(20), default="KE3NTXU0000001")
+    etims_item_class_code: Mapped[str] = mapped_column(String(10), default="78101800")  # UNSPSC: road cargo transport
+    etims_pkg_unit: Mapped[str] = mapped_column(String(5), default="NT")
+    etims_qty_unit: Mapped[str] = mapped_column(String(5), default="U")
+    etims_connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class MpesaTransaction(TenantMixin, Base):
+    """Money a client paid in by M-Pesa, as Safaricom reported it (or as the statement showed it). One row per M-Pesa
+    code, so Safaricom sending the same payment twice changes nothing. Matched to invoices through InvoicePayment."""
+
+    __tablename__ = "mpesa_transactions"
+    __table_args__ = (UniqueConstraint("business_id", "trans_id"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    trans_id: Mapped[str] = mapped_column(String(12))
+    amount_cents: Mapped[int] = mapped_column(BigInteger)
+    allocated_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    bill_ref: Mapped[str | None] = mapped_column(String(60))  # what the client typed as the account number
+    payer_name: Mapped[str | None] = mapped_column(String(160))
+    payer_phone: Mapped[str | None] = mapped_column(String(80))  # Safaricom may send this hashed
+    shortcode: Mapped[str | None] = mapped_column(String(10))
+    paid_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    source: Mapped[str] = mapped_column(String(12), default="daraja")  # daraja, statement or simulated
+    status: Mapped[str] = mapped_column(String(14), default="unmatched", index=True)  # matched, partly_matched, unmatched, dismissed
+    reason: Mapped[str | None] = mapped_column(String(30))  # why it is not fully matched
+    dismissed_reason: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class MpesaStatementImport(TenantMixin, Base):
+    __tablename__ = "mpesa_statement_imports"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    filename: Mapped[str | None] = mapped_column(String(200))
+    rows: Mapped[int] = mapped_column(Integer, default=0)
+    new_rows: Mapped[int] = mapped_column(Integer, default=0)
+    period_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    summary: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class MpesaStatementLine(TenantMixin, Base):
+    """One line of an M-Pesa statement. Money that left the account is matched to a fuel entry, an expense or a float
+    transfer by its M-Pesa code; money that came in is matched to a client payment."""
+
+    __tablename__ = "mpesa_statement_lines"
+    __table_args__ = (UniqueConstraint("business_id", "receipt"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    import_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("mpesa_statement_imports.id", ondelete="SET NULL"), index=True)
+    receipt: Mapped[str] = mapped_column(String(12))
+    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    details: Mapped[str | None] = mapped_column(String(255))
+    paid_in_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    withdrawn_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    match_kind: Mapped[str | None] = mapped_column(String(16))  # fuel, expense, float, client_payment
+    match_id: Mapped[uuid.UUID | None] = mapped_column()
+    state: Mapped[str] = mapped_column(String(14), default="unmatched", index=True)  # matched, amount_differs, unmatched, ignored
+    note: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PaymentReminder(TenantMixin, Base):
+    """A reminder sent to a client about an unpaid invoice. An automatic one is sent once per invoice, step and channel."""
+
+    __tablename__ = "payment_reminders"
+    __table_args__ = (UniqueConstraint("business_id", "invoice_id", "offset_days", "channel"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    invoice_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("invoices.id", ondelete="CASCADE"), index=True)
+    offset_days: Mapped[int | None] = mapped_column(Integer)  # days from the due date; empty for one sent by hand
+    channel: Mapped[str] = mapped_column(String(10))
+    recipient: Mapped[str] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(8), default="sent")  # sent or failed
+    attempts: Mapped[int] = mapped_column(Integer, default=1)
+    error: Mapped[str | None] = mapped_column(String(255))
+    sent_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class EtimsSubmission(TenantMixin, Base):
+    """An invoice (or the credit note that cancels a voided one) on its way to KRA eTIMS."""
+
+    __tablename__ = "etims_submissions"
+    __table_args__ = (UniqueConstraint("business_id", "invoice_id", "kind"), UniqueConstraint("business_id", "invoice_no"))
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    invoice_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("invoices.id", ondelete="CASCADE"), index=True)
+    invoice_no: Mapped[int] = mapped_column(Integer)  # the number eTIMS knows it by: one sequence per business, credit notes included
+    kind: Mapped[str] = mapped_column(String(12), default="sale")  # sale or credit_note
+    status: Mapped[str] = mapped_column(String(12), default="pending", index=True)  # pending, submitted, needs_review, resolved
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(String(500))
+    receipt_no: Mapped[str | None] = mapped_column(String(40))
+    sdc_id: Mapped[str | None] = mapped_column(String(40))
+    sdc_time: Mapped[str | None] = mapped_column(String(20))
+    receipt_signature: Mapped[str | None] = mapped_column(String(200))
+    internal_data: Mapped[str | None] = mapped_column(String(200))
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_note: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ---- Leasing, asset finance, ownership costs (masterplan 5.23) -------------------------------------------------
+
+
+class LeaseAgreement(TenantMixin, Base):
+    """A lorry hired in from a lessor, or hired out to a lessee. One running agreement per vehicle."""
+
+    __tablename__ = "lease_agreements"
+    __table_args__ = (Index("uq_lease_active_vehicle", "vehicle_id", unique=True, postgresql_where=text("status = 'active'")),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    direction: Mapped[str] = mapped_column(String(3))  # in (we pay a lessor) or out (a lessee pays us)
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True)
+    party_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("parties.id", ondelete="RESTRICT"), index=True)
+    status: Mapped[str] = mapped_column(String(8), default="active")  # active or ended
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date | None] = mapped_column(Date)
+    notice_days: Mapped[int] = mapped_column(Integer, default=30)
+    deposit_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    fixed_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    fixed_period: Mapped[str | None] = mapped_column(String(5))  # month, week or day
+    per_trip_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    per_km_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    revenue_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=0)
+    profit_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=0)
+    min_guarantee_cents: Mapped[int] = mapped_column(BigInteger, default=0)  # per month
+    responsibilities: Mapped[dict] = mapped_column(JSONB, default=dict)  # cost responsibility matrix: item -> lessee or lessor
+    payment_due_days: Mapped[int] = mapped_column(Integer, default=7)  # days after a month ends that its charge is due
+    share_trips: Mapped[bool] = mapped_column(Boolean, default=False)  # the lessor may see this lorry's trips
+    share_location: Mapped[bool] = mapped_column(Boolean, default=False)  # the lessor may see its location (live map arrives in Sprint 11)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class LeaseEntry(TenantMixin, Base):
+    """One line of a lease account. A charge or adjustment adds to what is owed; an offset or a payment takes away."""
+
+    __tablename__ = "lease_entries"
+    __table_args__ = (
+        Index("uq_lease_charge_period", "agreement_id", "period_start", unique=True, postgresql_where=text("kind = 'charge'")),
+        UniqueConstraint("business_id", "source_kind", "source_id"),
+        UniqueConstraint("business_id", "mpesa_code"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    agreement_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("lease_agreements.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(10))  # charge, offset, payment or adjustment
+    period_start: Mapped[date | None] = mapped_column(Date)  # the month a charge or offset belongs to
+    entry_date: Mapped[date] = mapped_column(Date)
+    due_date: Mapped[date | None] = mapped_column(Date)
+    amount_cents: Mapped[int] = mapped_column(BigInteger)  # signed: charges and adjustments up, offsets and payments down
+    description: Mapped[str] = mapped_column(String(255))
+    basis: Mapped[dict | None] = mapped_column(JSONB)  # the workings behind a charge
+    source_kind: Mapped[str | None] = mapped_column(String(10))  # expense or fuel: what an offset is for
+    source_id: Mapped[uuid.UUID | None] = mapped_column()
+    method: Mapped[str | None] = mapped_column(String(10))  # for a payment: mpesa, bank, cash or cheque
+    mpesa_code: Mapped[str | None] = mapped_column(String(12))
+    reference: Mapped[str | None] = mapped_column(String(60))
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class LeaseNotice(TenantMixin, Base):
+    """A due-date or overdue message already sent for a lease, so it is sent once."""
+
+    __tablename__ = "lease_notices"
+    __table_args__ = (UniqueConstraint("business_id", "agreement_id", "period_start", "kind"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    agreement_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("lease_agreements.id", ondelete="CASCADE"), index=True)
+    period_start: Mapped[date] = mapped_column(Date)
+    kind: Mapped[str] = mapped_column(String(8))  # due or overdue
+    sent_to: Mapped[int] = mapped_column(Integer, default=0)
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class FinanceAgreement(TenantMixin, Base):
+    """A loan on a lorry: the schedule is worked out once, then repayments are ticked off against it."""
+
+    __tablename__ = "finance_agreements"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True)
+    party_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("parties.id", ondelete="RESTRICT"))
+    principal_cents: Mapped[int] = mapped_column(BigInteger)
+    annual_rate_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=0)
+    months: Mapped[int] = mapped_column(Integer)
+    first_due: Mapped[date] = mapped_column(Date)
+    instalment_cents: Mapped[int] = mapped_column(BigInteger)
+    reference: Mapped[str | None] = mapped_column(String(60))
+    status: Mapped[str] = mapped_column(String(8), default="active")  # active or closed
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    instalments: Mapped[list["FinanceInstalment"]] = relationship(lazy="selectin", cascade="all, delete-orphan", order_by="FinanceInstalment.number")
+
+
+class FinanceInstalment(TenantMixin, Base):
+    __tablename__ = "finance_instalments"
+    __table_args__ = (UniqueConstraint("agreement_id", "number"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    agreement_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("finance_agreements.id", ondelete="CASCADE"), index=True)
+    number: Mapped[int] = mapped_column(Integer)
+    due_date: Mapped[date] = mapped_column(Date, index=True)
+    amount_cents: Mapped[int] = mapped_column(BigInteger)
+    interest_cents: Mapped[int] = mapped_column(BigInteger)
+    principal_cents: Mapped[int] = mapped_column(BigInteger)
+    paid_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    paid_on: Mapped[date | None] = mapped_column(Date)
+    method: Mapped[str | None] = mapped_column(String(10))
+    mpesa_code: Mapped[str | None] = mapped_column(String(12))
+    reference: Mapped[str | None] = mapped_column(String(60))
+
+
+class OwnershipCost(TenantMixin, Base):
+    """A fixed cost of owning a lorry, spread evenly across months: insurance, licences, depreciation."""
+
+    __tablename__ = "ownership_costs"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(12))  # insurance, licence, depreciation or other
+    name: Mapped[str] = mapped_column(String(120))
+    amount_cents: Mapped[int] = mapped_column(BigInteger)  # per year or per month, or the purchase cost for depreciation
+    period: Mapped[str] = mapped_column(String(5), default="year")
+    salvage_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    life_months: Mapped[int | None] = mapped_column(Integer)
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date | None] = mapped_column(Date)
+    notes: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ---- Payroll (masterplan 5.11) -------------------------------------------------------------------------------------
+
+
+class SalaryAdvance(TenantMixin, Base):
+    __tablename__ = "salary_advances"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    membership_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("memberships.id", ondelete="CASCADE"), index=True)
+    amount_cents: Mapped[int] = mapped_column(BigInteger)
+    remaining_cents: Mapped[int] = mapped_column(BigInteger)  # still to be taken from salary
+    given_on: Mapped[date] = mapped_column(Date)
+    mpesa_code: Mapped[str | None] = mapped_column(String(12))
+    note: Mapped[str | None] = mapped_column(String(255))
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PayrollRun(TenantMixin, Base):
+    __tablename__ = "payroll_runs"
+    __table_args__ = (UniqueConstraint("business_id", "month"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    month: Mapped[date] = mapped_column(Date)  # the first day of the month
+    status: Mapped[str] = mapped_column(String(10), default="draft")  # draft, approved or paid
+    approved_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    paid_on: Mapped[date | None] = mapped_column(Date)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    lines: Mapped[list["PayrollLine"]] = relationship(lazy="selectin", cascade="all, delete-orphan")
+
+
+class PayrollLine(TenantMixin, Base):
+    __tablename__ = "payroll_lines"
+    __table_args__ = (UniqueConstraint("run_id", "membership_id"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("payroll_runs.id", ondelete="CASCADE"), index=True)
+    membership_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("memberships.id", ondelete="CASCADE"), index=True)
+    gross_cents: Mapped[int] = mapped_column(BigInteger)
+    advances_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    fines_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    net_cents: Mapped[int] = mapped_column(BigInteger)
+    deductions: Mapped[list[dict]] = mapped_column(JSONB, default=list)  # what was taken and from what: advance or fine, id, cents
+    allocation: Mapped[list[dict]] = mapped_column(JSONB, default=list)  # the salary cost spread over vehicles by days crewed
+
+
+# ---- Suppliers and parts orders (masterplan 5.9) ---------------------------------------------------------------------
+
+
+class Supplier(TenantMixin, Base):
+    __tablename__ = "suppliers"
+    __table_args__ = (UniqueConstraint("business_id", "name"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(160))
+    phone: Mapped[str | None] = mapped_column(String(20))
+    email: Mapped[str | None] = mapped_column(String(255))
+    category: Mapped[str | None] = mapped_column(String(60))  # for example spares, tyres, fuel
+    notes: Mapped[str | None] = mapped_column(String(500))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PartsOrder(TenantMixin, Base):
+    __tablename__ = "parts_orders"
+    __table_args__ = (UniqueConstraint("business_id", "number"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    number: Mapped[str] = mapped_column(String(20))
+    supplier_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("suppliers.id", ondelete="RESTRICT"), index=True)
+    status: Mapped[str] = mapped_column(String(10), default="draft", index=True)  # draft, sent, confirmed, collected, paid, cancelled
+    notes: Mapped[str | None] = mapped_column(String(500))
+    expected_on: Mapped[date | None] = mapped_column(Date)
+    total_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    collected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    paid_reference: Mapped[str | None] = mapped_column(String(60))
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    lines: Mapped[list["PartsOrderLine"]] = relationship(lazy="selectin", cascade="all, delete-orphan", order_by="PartsOrderLine.sort_order")
+
+
+class PartsOrderLine(TenantMixin, Base):
+    __tablename__ = "parts_order_lines"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    order_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("parts_orders.id", ondelete="CASCADE"), index=True)
+    part_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("parts.id", ondelete="SET NULL"))
+    description: Mapped[str] = mapped_column(String(200))
+    quantity: Mapped[int] = mapped_column(Integer)
+    unit_cost_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    received_quantity: Mapped[int] = mapped_column(Integer, default=0)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)

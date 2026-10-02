@@ -17,7 +17,10 @@ import Incidents from "./pages/Incidents";
 import Jobs from "./pages/Jobs";
 import Workshop from "./pages/Workshop";
 import Settings from "./pages/Settings";
-import Staff from "./pages/Staff";
+import StaffArea from "./pages/Payroll";
+import Leases from "./pages/Leases";
+import Portal from "./pages/Portal";
+import Suppliers from "./pages/Suppliers";
 import TripDetail from "./pages/TripDetail";
 import Trips from "./pages/Trips";
 import VehicleDetail from "./pages/VehicleDetail";
@@ -37,6 +40,9 @@ function Home() {
       .catch(() => setFailed(true));
   }, []);
 
+  if (me?.permissions.includes("lease.view_own") && !me.permissions.includes("vehicles.view")) {
+    return <Navigate to="/portal" replace />;
+  }
   const dashboard = [
     "finance.view",
     "vehicles.view",
@@ -111,7 +117,10 @@ export default function App() {
         <Route path="/clients/*" element={<Clients />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/trips/:id" element={<TripDetail />} />
-        <Route path="/staff" element={<Staff />} />
+        <Route path="/staff/*" element={<StaffArea />} />
+        <Route path="/leases/*" element={<Leases />} />
+        <Route path="/suppliers/*" element={<Suppliers />} />
+        <Route path="/portal" element={<Portal />} />
         <Route path="/settings/*" element={<Settings />} />
         <Route path="*" element={<Placeholder />} />
       </Route>

@@ -2,6 +2,7 @@ import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from email_validator import EmailNotValidError, validate_email
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select, update
@@ -37,7 +38,7 @@ VEHICLE_FIELDS = [
     "ownership_type", "party_id", "gvw_limit_kg", "tare_kg", "axle_config", "is_active",
 ]  # fmt: skip
 CREW_FIELDS = ["vehicle_id", "membership_id", "role", "started_at", "ended_at"]
-PARTY_FIELDS = ["kind", "name", "phone", "kra_pin", "payment_details"]
+PARTY_FIELDS = ["kind", "name", "phone", "email", "kra_pin", "payment_details"]
 
 # Which kind of party each ownership type needs (None means no party).
 PARTY_FOR_OWNERSHIP = {
@@ -79,6 +80,7 @@ class PartyIn(BaseModel):
     kind: PartyKind
     name: str = Field(min_length=2, max_length=200)
     phone: str | None = None
+    email: str | None = Field(default=None, max_length=255)
     kra_pin: str | None = Field(default=None, max_length=20)
     payment_details: str | None = Field(default=None, max_length=1000)
 
@@ -247,7 +249,13 @@ def _party_values(body: PartyIn) -> dict:
         phone = normalize_phone(body.phone)
         if phone is None:
             raise error(422, "invalid_phone", "Enter a valid Kenyan phone number.")
-    return {**body.model_dump(), "name": body.name.strip(), "phone": phone}
+    email = None
+    if body.email:
+        try:
+            email = validate_email(body.email.strip(), check_deliverability=False).normalized
+        except EmailNotValidError:
+            raise error(422, "invalid_email", "Enter a valid email address.") from None
+    return {**body.model_dump(), "name": body.name.strip(), "phone": phone, "email": email}
 
 
 # ---- Crew ----------------------------------------------------------------------------------------

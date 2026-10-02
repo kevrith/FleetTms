@@ -1,5 +1,5 @@
 import { ROLE_LABELS, isOtpOnly } from "@fleettms/business-rules";
-import type { Depot, InviteInput, Role, StaffMember } from "@fleettms/types";
+import type { Depot, InviteInput, Party, Role, StaffMember } from "@fleettms/types";
 import { Pencil, Trash2, UserPlus } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api } from "../api";
@@ -28,6 +28,8 @@ export default function Users() {
   const manage = can("users.manage");
   const [rows, setRows] = useState<StaffMember[]>([]);
   const [depots, setDepots] = useState<Depot[]>([]);
+  const [lessors, setLessors] = useState<Party[]>([]);
+  const [partyId, setPartyId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
@@ -39,6 +41,8 @@ export default function Users() {
     try {
       setRows(await api.users());
       if (can("depots.view")) setDepots(await api.depots());
+      if (can("vehicles.view"))
+        setLessors((await api.parties()).filter((p) => p.kind === "lessor"));
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -57,6 +61,7 @@ export default function Users() {
       phone: form.phone || null,
       roles,
       depot_id: form.depot_id || null,
+      party_id: roles.includes("lessor") ? partyId || null : null,
     };
     try {
       const created = await api.inviteUser(body);
@@ -65,6 +70,7 @@ export default function Users() {
       }
       setForm({ name: "", email: "", phone: "", depot_id: "" });
       setRoles([]);
+      setPartyId("");
       await load();
     } catch (err) {
       setError(errorMessage(err));
@@ -126,6 +132,18 @@ export default function Users() {
                 />
               )}
             </Field>
+            {roles.includes("lessor") && (
+              <Field label="Which lessor is this login for?">
+                <select value={partyId} onChange={(e) => setPartyId(e.target.value)} required>
+                  <option value="">Choose a lessor</option>
+                  {lessors.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
             <Field label="Depot (optional)">
               <select
                 value={form.depot_id}

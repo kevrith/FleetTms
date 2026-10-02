@@ -135,14 +135,18 @@ async def update_part(part_id: uuid.UUID, body: PartIn, principal: Principal = D
     return part_out(part)
 
 
+def receive_stock(db: AsyncSession, part: Part, quantity: int, unit_cost_cents: int, user_id: uuid.UUID, note: str | None = None) -> None:
+    """Stock arrives. The unit cost becomes the weighted average of what is on the shelf and what came in."""
+    value = part.quantity * part.unit_cost_cents + quantity * unit_cost_cents
+    new_avg = round(value / (part.quantity + quantity))
+    _move(db, part, StockKind.RECEIVED, quantity, user_id, unit_cost_cents=unit_cost_cents, note=note)
+    part.unit_cost_cents = new_avg
+
+
 @router.post("/parts/{part_id}/receive")
 async def receive(part_id: uuid.UUID, body: ReceiveIn, principal: Principal = Depends(require_any(*WRITE)), db: AsyncSession = Depends(get_db)):
-    """Stock arrives. The unit cost becomes the weighted average of what is on the shelf and what came in."""
     part = await _part(db, part_id)
-    value = part.quantity * part.unit_cost_cents + body.quantity * body.unit_cost_cents
-    new_avg = round(value / (part.quantity + body.quantity))
-    _move(db, part, StockKind.RECEIVED, body.quantity, principal.user.id, unit_cost_cents=body.unit_cost_cents, note=body.note)
-    part.unit_cost_cents = new_avg
+    receive_stock(db, part, body.quantity, body.unit_cost_cents, principal.user.id, body.note)
     audit.record(db, actor_user_id=principal.user.id, action="part.received", entity_type="part", entity_id=part.id, after={"quantity": body.quantity, "unit_cost_cents": body.unit_cost_cents})
     await db.commit()
     return part_out(part)

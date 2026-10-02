@@ -88,6 +88,8 @@ export const DEVICE_FLAG: Record<string, string> = {
 export const FUEL_FLAG: Record<string, string> = {
   amount_mismatch: "Litres times price does not match the amount",
   no_receipt: "No receipt photo",
+  statement_amount_differs: "The M-Pesa statement shows a different amount",
+  not_on_statement: "This M-Pesa code is not on the statement",
 };
 
 export const EXPENSE_CATEGORY: Record<string, string> = {
@@ -115,6 +117,8 @@ export const EXPENSE_STATUS: Record<string, string> = {
 export const EXPENSE_FLAG: Record<string, string> = {
   over_limit: "Over the spend limit",
   unusual_for_route: "Unusual for this route",
+  statement_amount_differs: "The M-Pesa statement shows a different amount",
+  not_on_statement: "This M-Pesa code is not on the statement",
   no_receipt: "No receipt or M-Pesa code",
 };
 export const PRIORITY: Record<string, string> = {
@@ -234,3 +238,39 @@ export const INVOICE_STATUS: Record<string, string> = {
   paid: "Paid",
   void: "Void",
 };
+
+export const AGEING: Record<string, string> = {
+  current: "Not yet due",
+  "1_30": "1 to 30 days late",
+  "31_60": "31 to 60 days late",
+  "61_90": "61 to 90 days late",
+  over_90: "Over 90 days late",
+};
+export const MPESA_STATUS: Record<string, string> = {
+  matched: "Matched",
+  partly_matched: "Part matched",
+  unmatched: "Waiting for a match",
+  dismissed: "Set aside",
+};
+export const ETIMS_STATUS: Record<string, string> = {
+  pending: "Waiting to send",
+  submitted: "Sent to KRA",
+  needs_review: "Needs a person",
+  resolved: "Handled by hand",
+};
+export const STATEMENT_STATE: Record<string, string> = {
+  matched: "Matched",
+  amount_differs: "Amount differs",
+  unmatched: "Not matched",
+  ignored: "Looked at, fine",
+};
+/** "3 days before the due date", "1 day after". */
+export function reminderStep(offset: number): string {
+  const n = Math.abs(offset);
+  const days = `${n} day${n === 1 ? "" : "s"}`;
+  return offset < 0
+    ? `${days} before the due date`
+    : offset === 0
+      ? "On the due date"
+      : `${days} after`;
+}

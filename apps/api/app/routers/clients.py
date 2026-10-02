@@ -36,6 +36,7 @@ class ClientIn(BaseModel):
     vat_pct: Decimal = Field(default=Decimal(0), ge=0, le=30, decimal_places=2)
     notes: str | None = Field(default=None, max_length=2000)
     is_active: bool = True
+    reminders_enabled: bool | None = None  # payment reminders; left out means unchanged
 
 
 class RouteIn(BaseModel):
@@ -57,6 +58,8 @@ class RouteIn(BaseModel):
 
 def _clean(body: ClientIn) -> dict:
     data = body.model_dump()
+    if data.get("reminders_enabled") is None:
+        data.pop("reminders_enabled", None)
     data["name"] = body.name.strip()
     if body.phone:
         phone = normalize_phone(body.phone)
@@ -80,7 +83,7 @@ def client_out(c: Client, routes: int = 0, open_jobs: int = 0) -> dict:
     return {
         "id": c.id, "name": c.name, "contact_name": c.contact_name, "phone": c.phone, "email": c.email,
         "kra_pin": c.kra_pin, "billing_method": c.billing_method.value, "rate_cents": c.rate_cents,
-        "payment_terms_days": c.payment_terms_days, "vat_pct": float(c.vat_pct), "notes": c.notes, "is_active": c.is_active,
+        "payment_terms_days": c.payment_terms_days, "vat_pct": float(c.vat_pct), "notes": c.notes, "is_active": c.is_active, "reminders_enabled": c.reminders_enabled,
         "routes": routes, "open_jobs": open_jobs,
     }  # fmt: skip
 

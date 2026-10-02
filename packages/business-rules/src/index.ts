@@ -7,3 +7,5 @@ export * from "./tyres";
 export * from "./quotes";
 export * from "./billing";
 export * from "./load";
+export * from "./debtors";
+export * from "./lease";

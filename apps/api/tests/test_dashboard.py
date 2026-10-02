@@ -46,7 +46,7 @@ async def test_todays_numbers_add_up(client):
     await finish_trip(client, f, trip)
     n = (await dash(client, f.owner))["numbers"]
     assert n["trips_active"] == 0 and n["trips_completed_today"] == 1 and n["distance_today_km"] == 480
-    assert n["income_today_cents"] is None and n["money_owed_cents"] is None  # arrive with billing
+    assert n["income_today_cents"] == 0 and n["money_owed_cents"] == 0  # nothing invoiced yet (billing is Sprint 8 and 9)
     assert n["mode"] == "standard" and n["day"] == nairobi_today().isoformat()
 
 

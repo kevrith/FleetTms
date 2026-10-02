@@ -6,7 +6,10 @@ import { api } from "../api";
 import { BILLING_METHOD, BILLING_RATE_LABEL, kes } from "../labels";
 import { Card, ErrorBanner, errorMessage, Field } from "../ui";
 import { useAuth } from "../auth";
+import { DebtorList, DebtorPage } from "./Debtors";
+import { EtimsQueue } from "./Etims";
 import { InvoiceDetail, InvoiceList } from "./Invoices";
+import { MpesaPayments, StatementPage } from "./Payments";
 
 const toCents = (kesText: string) => Math.round(Number(kesText || 0) * 100);
 
@@ -21,6 +24,7 @@ interface ClientForm {
   payment_terms_days: string;
   vat_pct: string;
   notes: string;
+  reminders_enabled: boolean;
 }
 
 const emptyForm: ClientForm = {
@@ -34,6 +38,7 @@ const emptyForm: ClientForm = {
   payment_terms_days: "30",
   vat_pct: "0",
   notes: "",
+  reminders_enabled: true,
 };
 
 const formFrom = (c: Client): ClientForm => ({
@@ -47,6 +52,7 @@ const formFrom = (c: Client): ClientForm => ({
   payment_terms_days: String(c.payment_terms_days),
   vat_pct: String(c.vat_pct),
   notes: c.notes ?? "",
+  reminders_enabled: c.reminders_enabled,
 });
 
 const payload = (f: ClientForm) => ({
@@ -59,6 +65,7 @@ const payload = (f: ClientForm) => ({
   rate_cents: toCents(f.rate),
   payment_terms_days: Number(f.payment_terms_days || 30),
   vat_pct: f.vat_pct || "0",
+  reminders_enabled: f.reminders_enabled,
   notes: f.notes || null,
 });
 
@@ -115,6 +122,16 @@ function ClientFields({ f, set }: { f: ClientForm; set: (f: ClientForm) => void 
       <Field label="Notes">
         <input value={f.notes} onChange={on("notes")} />
       </Field>
+      <label className="field">
+        <span>
+          <input
+            type="checkbox"
+            checked={f.reminders_enabled}
+            onChange={(e) => set({ ...f, reminders_enabled: e.target.checked })}
+          />{" "}
+          Send this client payment reminders
+        </span>
+      </label>
     </div>
   );
 }
@@ -416,18 +433,27 @@ export default function Clients() {
   const { can } = useAuth();
   return (
     <>
-      <h2>Clients and invoices</h2>
+      <h2>Clients, invoices and payments</h2>
       <nav className="tabs">
         <NavLink to="/clients" end>
           Clients
         </NavLink>
         {can("invoices.manage") && <NavLink to="/clients/invoices">Invoices</NavLink>}
+        {can("invoices.manage") && <NavLink to="/clients/debtors">Who owes you</NavLink>}
+        {can("invoices.manage") && <NavLink to="/clients/payments">M-Pesa payments</NavLink>}
+        {can("invoices.manage") && <NavLink to="/clients/statement">M-Pesa statement</NavLink>}
+        {can("invoices.manage") && <NavLink to="/clients/etims">KRA eTIMS</NavLink>}
       </nav>
       <Routes>
         <Route index element={<ClientList />} />
         <Route path="view/:id" element={<ClientDetail />} />
         {can("invoices.manage") && <Route path="invoices" element={<InvoiceList />} />}
         {can("invoices.manage") && <Route path="invoices/:id" element={<InvoiceDetail />} />}
+        {can("invoices.manage") && <Route path="debtors" element={<DebtorList />} />}
+        {can("invoices.manage") && <Route path="debtors/:id" element={<DebtorPage />} />}
+        {can("invoices.manage") && <Route path="payments" element={<MpesaPayments />} />}
+        {can("invoices.manage") && <Route path="statement" element={<StatementPage />} />}
+        {can("invoices.manage") && <Route path="etims" element={<EtimsQueue />} />}
       </Routes>
     </>
   );

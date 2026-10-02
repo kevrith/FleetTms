@@ -1,0 +1,22 @@
+{
+  "instalments": [
+    { "name": "one million at 12 percent over a year", "principal_cents": 100000000, "annual_rate_pct": 12, "months": 12, "expected": 8884879 },
+    { "name": "no interest is the principal divided evenly", "principal_cents": 120000000, "annual_rate_pct": 0, "months": 12, "expected": 10000000 },
+    { "name": "a single month repays principal and one month's interest in the schedule", "principal_cents": 100000000, "annual_rate_pct": 12, "months": 1, "expected": 101000000 }
+  ],
+  "schedules": [
+    { "name": "one million at 12 percent over a year: first and last rows, and it clears", "principal_cents": 100000000, "annual_rate_pct": 12, "months": 12, "first_due": "2026-11-05", "instalment": null, "rows": 12, "first": { "number": 1, "due_date": "2026-11-05", "amount_cents": 8884879, "interest_cents": 1000000, "principal_cents": 7884879, "balance_cents": 92115121 }, "last": { "number": 12, "due_date": "2027-10-05", "amount_cents": 8884876, "interest_cents": 87969, "principal_cents": 8796907, "balance_cents": 0 } },
+    { "name": "no interest repays in equal parts", "principal_cents": 120000000, "annual_rate_pct": 0, "months": 12, "first_due": "2026-01-31", "instalment": null, "rows": 12, "first": { "number": 1, "due_date": "2026-01-31", "amount_cents": 10000000, "interest_cents": 0, "principal_cents": 10000000, "balance_cents": 110000000 }, "last": { "number": 12, "due_date": "2026-12-31", "amount_cents": 10000000, "interest_cents": 0, "principal_cents": 10000000, "balance_cents": 0 } },
+    { "name": "a due date on the 31st falls on the last day of a short month", "principal_cents": 30000000, "annual_rate_pct": 0, "months": 3, "first_due": "2026-01-31", "instalment": null, "rows": 3, "first": { "number": 1, "due_date": "2026-01-31", "amount_cents": 10000000, "interest_cents": 0, "principal_cents": 10000000, "balance_cents": 20000000 }, "last": { "number": 3, "due_date": "2026-03-31", "amount_cents": 10000000, "interest_cents": 0, "principal_cents": 10000000, "balance_cents": 0 } }
+  ],
+  "ownership": [
+    { "name": "yearly insurance spread over twelve months", "item": { "kind": "insurance", "amount_cents": 24000000, "period": "year", "salvage_cents": 0, "life_months": null, "start": "2026-01-01", "end": null }, "month": "2026-09-01", "expected": 2000000 },
+    { "name": "a part month is pro-rated", "item": { "kind": "insurance", "amount_cents": 24000000, "period": "year", "salvage_cents": 0, "life_months": null, "start": "2026-09-16", "end": null }, "month": "2026-09-01", "expected": 1000000 },
+    { "name": "before it starts", "item": { "kind": "licence", "amount_cents": 24000000, "period": "year", "salvage_cents": 0, "life_months": null, "start": "2026-10-01", "end": null }, "month": "2026-09-01", "expected": 0 },
+    { "name": "after it ends", "item": { "kind": "licence", "amount_cents": 24000000, "period": "year", "salvage_cents": 0, "life_months": null, "start": "2025-01-01", "end": "2026-08-31" }, "month": "2026-09-01", "expected": 0 },
+    { "name": "a monthly cost is as given", "item": { "kind": "other", "amount_cents": 500000, "period": "month", "salvage_cents": 0, "life_months": null, "start": "2026-01-01", "end": null }, "month": "2026-09-01", "expected": 500000 },
+    { "name": "depreciation is cost less salvage over the life", "item": { "kind": "depreciation", "amount_cents": 600000000, "period": "month", "salvage_cents": 120000000, "life_months": 60, "start": "2026-01-01", "end": null }, "month": "2026-09-01", "expected": 8000000 },
+    { "name": "depreciation stops when the life is used up", "item": { "kind": "depreciation", "amount_cents": 600000000, "period": "month", "salvage_cents": 120000000, "life_months": 60, "start": "2021-01-01", "end": null }, "month": "2026-01-01", "expected": 0 },
+    { "name": "depreciation in its last month", "item": { "kind": "depreciation", "amount_cents": 600000000, "period": "month", "salvage_cents": 120000000, "life_months": 60, "start": "2021-01-01", "end": null }, "month": "2025-12-01", "expected": 8000000 }
+  ]
+}

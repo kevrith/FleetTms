@@ -1,9 +1,9 @@
 import type { Invoice } from "@fleettms/types";
-import { Download, Plus, Send } from "lucide-react";
+import { BellRing, Download, Plus, Send } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
-import { INVOICE_STATUS, kes, todayIso } from "../labels";
+import { ETIMS_STATUS, INVOICE_STATUS, kes, todayIso } from "../labels";
 import { Card, ErrorBanner, errorMessage, Field } from "../ui";
 
 const toCents = (kesText: string) => Math.round(Number(kesText || 0) * 100);
@@ -67,6 +67,7 @@ export function InvoiceList() {
                   <th>Total</th>
                   <th>Balance</th>
                   <th>Status</th>
+                  <th>KRA</th>
                 </tr>
               </thead>
               <tbody>
@@ -84,6 +85,7 @@ export function InvoiceList() {
                     <td>
                       <Standing i={r} />
                     </td>
+                    <td>{r.etims ? ETIMS_STATUS[r.etims.status] : ""}</td>
                   </tr>
                 ))}
               </tbody>
@@ -263,6 +265,63 @@ export function InvoiceDetail() {
             </button>
           </div>
           {inv.sent_at && <p className="muted">Last sent by {inv.sent_via}.</p>}
+        </Card>
+      )}
+      {inv.status !== "void" && inv.balance_cents > 0 && (
+        <Card title="Payment reminders">
+          <p className="actions">
+            <button
+              className="btn"
+              onClick={() =>
+                run(async () => {
+                  const done = await api.remindInvoice(inv.id, ["sms", "email"]);
+                  const ok = done.sent
+                    .filter((x) => x.status === "sent")
+                    .map((x) => x.channel.toUpperCase());
+                  setMessage(
+                    ok.length
+                      ? `Reminder sent by ${ok.join(" and ")}.`
+                      : "The reminder could not be sent.",
+                  );
+                })
+              }
+            >
+              <BellRing size={16} /> Remind now
+            </button>
+          </p>
+          {(inv.reminders ?? []).length === 0 && <p className="muted">No reminders sent yet.</p>}
+          <ul className="list">
+            {(inv.reminders ?? []).map((r) => (
+              <li key={r.id}>
+                <span>
+                  {new Date(r.sent_at).toLocaleDateString("en-KE")}, by {r.channel.toUpperCase()},{" "}
+                  {r.automatic ? "automatic" : "by hand"}
+                  {r.error && ` (${r.error})`}
+                </span>
+                <span className={`status ${r.status === "sent" ? "ok" : "bad"}`}>
+                  {r.status === "sent" ? "Sent" : "Failed"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+      {inv.etims && (
+        <Card title="KRA eTIMS">
+          <p>
+            <span
+              className={`status ${inv.etims.status === "submitted" || inv.etims.status === "resolved" ? "ok" : inv.etims.status === "needs_review" ? "bad" : "warn"}`}
+            >
+              {ETIMS_STATUS[inv.etims.status]}
+            </span>
+            {inv.etims.receipt_no && ` Receipt number ${inv.etims.receipt_no}.`}
+            {inv.etims.credit_note_status &&
+              ` Credit note: ${(ETIMS_STATUS[inv.etims.credit_note_status] ?? "").toLowerCase()}.`}
+          </p>
+          {inv.etims.last_error && <p className="muted">{inv.etims.last_error}</p>}
+          <p>
+            <Link to="/clients/etims">Open the eTIMS queue</Link>
+          </p>
         </Card>
       )}
       <Card title="Payments">

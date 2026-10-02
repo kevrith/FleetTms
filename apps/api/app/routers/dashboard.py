@@ -2,7 +2,7 @@
 
 import io
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
@@ -11,13 +11,16 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
+from app.debtor_rules import ageing_bucket
 from app.deps import Principal, error, require, require_any
+from app.finance_view import billed_cents, last_month_profit, lease_alerts, profit_vs_cash
 from app.floatcalc import day_bounds
 from app.models import (
     COUNTED,
     BillingMethod,
     ComplianceDocument,
     Defect,
+    EtimsSubmission,
     Expense,
     ExpenseStatus,
     FloatTransfer,
@@ -28,6 +31,7 @@ from app.models import (
     Invoice,
     Job,
     Membership,
+    MpesaTransaction,
     Part,
     Priority,
     ProofOfDelivery,
@@ -44,6 +48,7 @@ from app.models import (
     WorkOrderPart,
     WorkOrderStatus,
 )
+from app.payment_reminders import balance_of
 from app.reminders import NAIROBI, nairobi_today
 from app.report_files import report_pdf, report_xlsx
 from app.routers.workshop import OPEN, schedule_out
@@ -56,6 +61,36 @@ MAX_REPORT_DAYS = 366
 
 def alert(kind: str, severity: str, title: str, detail: str, link: str) -> dict:
     return {"kind": kind, "severity": severity, "title": title, "detail": detail, "link": link}
+
+
+async def money_alerts(db: AsyncSession, today: date) -> list[dict]:
+    """Late payers, M-Pesa payments nobody has matched, invoices KRA has not accepted, and claims the statement disagrees with."""
+    out: list[dict] = []
+    late = {"1_30": 0, "31_60": 0, "61_90": 0, "over_90": 0}
+    for i in (await db.execute(select(Invoice).where(Invoice.status.in_(("issued", "partially_paid"))))).scalars():
+        bucket = ageing_bucket(i.due_date, today)
+        if bucket != "current":
+            late[bucket] += balance_of(i)
+    serious = late["61_90"] + late["over_90"]
+    if serious:
+        out.append(alert("debt_late", "red", f"KES {serious / 100:,.2f} is more than 60 days late", "Chase these clients before they get older.", "/clients/debtors"))
+    elif sum(late.values()):
+        out.append(alert("debt_late", "amber", f"KES {sum(late.values()) / 100:,.2f} is overdue", "", "/clients/debtors"))
+    waiting = (await db.execute(select(MpesaTransaction).where(MpesaTransaction.status.in_(("unmatched", "partly_matched"))))).scalars().all()
+    if waiting:
+        total = sum(t.amount_cents - t.allocated_cents for t in waiting)
+        out.append(alert("mpesa_unmatched", "amber", f"{len(waiting)} M-Pesa payment{'s' if len(waiting) != 1 else ''} to match (KES {total / 100:,.2f})", "Clients paid, but no invoice was named.", "/clients/payments"))
+    stuck = (await db.execute(select(func.count()).select_from(EtimsSubmission).where(EtimsSubmission.status == "needs_review"))).scalar_one()
+    if stuck:
+        out.append(alert("etims_stuck", "red", f"{stuck} invoice{'s' if stuck != 1 else ''} KRA has not accepted", "Open the eTIMS queue to fix and send again.", "/clients/etims"))
+    since = datetime.combine(today - timedelta(days=30), datetime.min.time(), tzinfo=NAIROBI)
+    odd = 0
+    for model, when in ((FuelEntry, FuelEntry.captured_at), (Expense, Expense.spent_at)):
+        for row in (await db.execute(select(model).where(when >= since))).scalars():
+            odd += bool({"statement_amount_differs", "not_on_statement"} & set(row.flags))
+    if odd:
+        out.append(alert("statement_mismatch", "amber", f"{odd} fuel or expense claim{'s' if odd != 1 else ''} the M-Pesa statement does not back up", "The amount differs, or the code is not on the statement.", "/clients/payments/statement"))
+    return out
 
 
 @router.get("/dashboard")
@@ -94,9 +129,13 @@ async def dashboard(
     if "floats.manage" in perms or "finance.view" in perms:
         sent = (await db.execute(select(func.coalesce(func.sum(FloatTransfer.amount_cents), 0)).where(FloatTransfer.sent_at >= start, FloatTransfer.sent_at < end, FloatTransfer.amount_cents > 0))).scalar_one()
         numbers["floats_sent_today_cents"] = int(sent)
-    # Income, profit and money owed arrive with quotes, jobs and billing.
     numbers["income_today_cents"] = None
     numbers["money_owed_cents"] = None
+    money = None
+    if "invoices.manage" in perms:
+        numbers["income_today_cents"] = await billed_cents(db, today, today)
+        money = await profit_vs_cash(db, today)
+        numbers["money_owed_cents"] = money["owed_cents"]
 
     alerts: list[dict] = []
     if "vehicles.view" in perms:
@@ -154,6 +193,12 @@ async def dashboard(
         ]  # fmt: skip
         if waiting:
             alerts.append(alert("not_invoiced", "amber", f"{len(waiting)} delivered trip{'s' if len(waiting) != 1 else ''} not invoiced yet", "Usually a per-tonne trip with no weighbridge weight.", f"/trips/{waiting[0].id}"))
+    last_month = None
+    if "invoices.manage" in perms:
+        alerts += await money_alerts(db, today)
+    if "finance.view" in perms:
+        last_month = await last_month_profit(db, today)
+        alerts += await lease_alerts(db, today, [v["registration"] for v in last_month["vehicles"] if v["lease_not_paying"]])
     if "sos.respond" in perms:
         names = {m.id: m.user.name for m in (await db.execute(select(Membership))).scalars()}
         for a in (await db.execute(select(SosAlert).where(SosAlert.status != "resolved").order_by(SosAlert.received_at))).scalars():
@@ -182,7 +227,7 @@ async def dashboard(
     order = {"red": 0, "amber": 1}
     alerts.sort(key=lambda a: (order[a["severity"]], a["kind"] != "sos_active"))  # an SOS is always first
     open_defects = int((await db.execute(select(func.count()).select_from(Defect).where(Defect.status != "fixed", Defect.vehicle_id.in_(vids)))).scalar_one()) if "vehicles.view" in perms else None
-    return {"numbers": numbers, "alerts": alerts, "open_defects": open_defects}
+    return {"numbers": numbers, "alerts": alerts, "open_defects": open_defects, "profit_vs_cash": money, "profit_last_month": last_month}
 
 
 async def build_summary(db: AsyncSession, date_from: date, date_to: date) -> dict:

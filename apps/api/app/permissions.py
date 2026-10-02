@@ -43,6 +43,8 @@ ALL = {
     "jobs.manage",
     "invoices.manage",
     "lease.view_own",
+    "leases.manage",
+    "payroll.manage",
 }
 
 ROLE_PERMISSIONS: dict[Role, set[str]] = {
@@ -95,6 +97,8 @@ ROLE_PERMISSIONS: dict[Role, set[str]] = {
         "expenses.manage",
         "clients.manage",
         "invoices.manage",
+        "leases.manage",
+        "payroll.manage",
     },
     Role.DRIVER: {"trips.own", "expenses.own"},
     Role.TURNBOY: {"trips.own", "expenses.own"},

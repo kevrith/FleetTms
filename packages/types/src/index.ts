@@ -107,6 +107,8 @@ export interface InviteInput {
   roles: Role[];
   depot_id?: string | null;
   vehicle_scope?: string[] | null;
+  /** For a lessor: whose leases the login can see. */
+  party_id?: string | null;
 }
 
 export type FuelType = "diesel" | "petrol";
@@ -153,6 +155,7 @@ export interface Party {
   kind: PartyKind;
   name: string;
   phone: string | null;
+  email?: string | null;
   kra_pin: string | null;
   payment_details: string | null;
 }
@@ -689,6 +692,35 @@ export interface Dashboard {
   };
   alerts: DashboardAlert[];
   open_defects: number | null;
+  /** This month so far; only for those who may see invoices. */
+  profit_vs_cash: ProfitVsCash | null;
+  /** Last month after every deduction, for those who may see finances. */
+  profit_last_month: ProfitLastMonth | null;
+}
+
+export interface ProfitLastMonth {
+  month: string;
+  business: ProfitBusiness;
+  vehicles: {
+    vehicle_id: string;
+    registration: string;
+    ownership_type: string;
+    revenue_cents: number;
+    gross_profit_cents: number;
+    lease_payable_cents: number;
+    net_profit_cents: number;
+    lease_not_paying: boolean;
+  }[];
+}
+
+export interface ProfitVsCash {
+  month_start: string;
+  billed_cents: number;
+  costs_cents: number;
+  profit_cents: number;
+  received_cents: number;
+  cash_cents: number;
+  owed_cents: number;
 }
 
 export interface ReportSchedule {
@@ -959,6 +991,7 @@ export interface Client {
   vat_pct: number;
   notes: string | null;
   is_active: boolean;
+  reminders_enabled: boolean;
   routes: number;
   open_jobs: number;
   route_list?: SavedRoute[];
@@ -1135,6 +1168,13 @@ export interface Availability {
 
 export type InvoiceStatus = "issued" | "partially_paid" | "paid" | "void";
 
+export interface InvoiceEtims {
+  status: EtimsStatus;
+  receipt_no: string | null;
+  last_error: string | null;
+  credit_note_status: EtimsStatus | null;
+}
+
 export interface Invoice {
   id: string;
   number: string;
@@ -1158,6 +1198,15 @@ export interface Invoice {
   void_reason: string | null;
   sent_via: string | null;
   sent_at: string | null;
+  etims?: InvoiceEtims | null;
+  reminders?: {
+    id: string;
+    channel: "sms" | "email";
+    status: "sent" | "failed";
+    sent_at: string;
+    error: string | null;
+    automatic: boolean;
+  }[];
   lines?: {
     id: string;
     trip_id: string | null;
@@ -1174,4 +1223,485 @@ export interface Invoice {
     received_on: string;
     note: string | null;
   }[];
+}
+
+// ---- Sprint 9: payments, debtors, eTIMS ----
+
+export type AgeingBucketKey = "current" | "1_30" | "31_60" | "61_90" | "over_90";
+export type AgeingBuckets = Record<AgeingBucketKey, number>;
+
+export type MpesaPaymentStatus = "matched" | "partly_matched" | "unmatched" | "dismissed";
+
+export interface MpesaPayment {
+  id: string;
+  trans_id: string;
+  amount_cents: number;
+  allocated_cents: number;
+  left_cents: number;
+  bill_ref: string | null;
+  payer_name: string | null;
+  paid_at: string;
+  source: "daraja" | "statement" | "simulated";
+  status: MpesaPaymentStatus;
+  reason: string | null;
+  reason_text: string | null;
+  dismissed_reason: string | null;
+  suggestions?: { id: string; number: string; balance_cents: number }[];
+}
+
+export interface PaymentSettings {
+  shortcode: string | null;
+  shortcode_type: "paybill" | "till";
+  urls_registered_at: string | null;
+  daraja_live: boolean;
+  can_simulate: boolean;
+  confirmation_url?: string;
+  validation_url?: string;
+  reminders_enabled: boolean;
+  reminder_offsets: number[];
+  reminder_channels: ("sms" | "email")[];
+  etims_enabled: boolean;
+  etims_live: boolean;
+  etims_branch_id: string;
+  etims_device_serial: string | null;
+  etims_zero_vat_code: "A" | "C" | "D";
+  etims_item_code: string;
+  etims_item_class_code: string;
+  etims_pkg_unit: string;
+  etims_qty_unit: string;
+  etims_connected_at: string | null;
+  kra_pin: string | null;
+}
+
+export interface DebtorClient {
+  client_id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  reminders_enabled: boolean;
+  balance_cents: number;
+  overdue_cents: number;
+  buckets: AgeingBuckets;
+  invoices: number;
+  oldest_due: string;
+  oldest_days_late: number;
+  last_payment_on: string | null;
+}
+
+export interface Debtors {
+  as_of: string;
+  balance_cents: number;
+  overdue_cents: number;
+  buckets: AgeingBuckets;
+  clients: DebtorClient[];
+}
+
+export interface DebtorDetail {
+  client: {
+    id: string;
+    name: string;
+    phone: string | null;
+    email: string | null;
+    payment_terms_days: number;
+    reminders_enabled: boolean;
+  };
+  as_of: string;
+  balance_cents: number;
+  buckets: AgeingBuckets;
+  invoices: {
+    id: string;
+    number: string;
+    issue_date: string;
+    due_date: string;
+    total_cents: number;
+    balance_cents: number;
+    days_late: number;
+    bucket: AgeingBucketKey;
+  }[];
+  payments: {
+    invoice_id: string;
+    invoice_number: string;
+    received_on: string;
+    amount_cents: number;
+    method: string;
+    reference: string | null;
+  }[];
+  reminders: {
+    invoice_number: string;
+    channel: string;
+    status: string;
+    sent_at: string;
+    automatic: boolean;
+  }[];
+}
+
+export type EtimsStatus = "pending" | "submitted" | "needs_review" | "resolved";
+
+export interface EtimsSubmission {
+  id: string;
+  invoice_id: string;
+  invoice_number: string | null;
+  client_name: string | null;
+  total_cents: number | null;
+  kind: "sale" | "credit_note";
+  status: EtimsStatus;
+  status_text: string;
+  invoice_no: number;
+  attempts: number;
+  next_attempt_at: string | null;
+  last_attempt_at: string | null;
+  last_error: string | null;
+  receipt_no: string | null;
+  sdc_id: string | null;
+  submitted_at: string | null;
+  resolved_note: string | null;
+}
+
+export interface EtimsSummary {
+  enabled: boolean;
+  connected_at: string | null;
+  pending: number;
+  submitted: number;
+  needs_review: number;
+  resolved: number;
+}
+
+export interface StatementLine {
+  id: string;
+  receipt: string;
+  completed_at: string;
+  details: string | null;
+  paid_in_cents: number;
+  withdrawn_cents: number;
+  match_kind: "fuel" | "expense" | "float" | "client_payment" | null;
+  match_label: string | null;
+  match_id: string | null;
+  state: "matched" | "amount_differs" | "unmatched" | "ignored";
+  note: string | null;
+}
+
+export interface StatementImport {
+  id: string;
+  filename: string | null;
+  rows: number;
+  new_rows: number;
+  period_start: string | null;
+  period_end: string | null;
+  created_at: string;
+  summary: {
+    skipped: number;
+    already_known: number;
+    matched: number;
+    amount_differs: number;
+    unmatched: number;
+    payments_recovered: number;
+    not_on_statement: { kind: string; id: string; mpesa_code: string; amount_cents: number }[];
+  };
+}
+
+// ---- Sprint 10: leases, loans, ownership costs, profit, payroll, suppliers ----
+
+export type LeaseDirection = "in" | "out";
+export type Responsibility = "lessee" | "lessor";
+
+export interface LeaseAgreement {
+  id: string;
+  direction: LeaseDirection;
+  vehicle_id: string;
+  registration: string | null;
+  party_id: string;
+  party_name: string | null;
+  status: "active" | "ended";
+  start_date: string;
+  end_date: string | null;
+  notice_days: number;
+  deposit_cents: number;
+  fixed_cents: number;
+  fixed_period: "month" | "week" | "day" | null;
+  per_trip_cents: number;
+  per_km_cents: number;
+  revenue_pct: number;
+  profit_pct: number;
+  min_guarantee_cents: number;
+  responsibilities: Record<string, Responsibility>;
+  payment_due_days: number;
+  share_trips: boolean;
+  share_location: boolean;
+  notes: string | null;
+  /** On the list and detail views. */
+  balance_cents?: number;
+  overdue_cents?: number;
+  next_due_date?: string | null;
+}
+
+export interface LeaseEntry {
+  id: string;
+  kind: "charge" | "offset" | "payment" | "adjustment";
+  period_start: string | null;
+  entry_date: string;
+  due_date: string | null;
+  amount_cents: number;
+  description: string;
+  basis: Record<string, unknown> | null;
+  method: string | null;
+  mpesa_code: string | null;
+  reference: string | null;
+  source_kind: string | null;
+}
+
+export interface LeaseDetail extends LeaseAgreement {
+  entries: LeaseEntry[];
+  this_month: {
+    month: string;
+    days_active: number;
+    charge_cents: number;
+    subtotal_cents: number;
+    guarantee_cents: number;
+    guarantee_applied: boolean;
+  } | null;
+}
+
+export interface LeaseStatement {
+  agreement_id: string;
+  direction: LeaseDirection;
+  vehicle: string;
+  party: string;
+  month: string;
+  deposit_cents: number;
+  opening_balance_cents: number;
+  closing_balance_cents: number;
+  lines: LeaseEntry[];
+  usage: Partial<Record<"trips" | "km" | "revenue_cents" | "profit_cents", number>>;
+  trips: { delivered_at: string; route: string; distance_km: number }[];
+  trip_count: number | null;
+  balance_cents: number;
+  overdue_cents: number;
+  next_due_date: string | null;
+  payable_cents: number;
+}
+
+export interface FinanceRow {
+  number: number;
+  due_date: string;
+  amount_cents: number;
+  interest_cents: number;
+  principal_cents: number;
+  paid_cents: number;
+  paid_on: string | null;
+  method: string | null;
+  mpesa_code: string | null;
+  reference: string | null;
+  overdue: boolean;
+}
+
+export interface FinanceAgreement {
+  id: string;
+  vehicle_id: string;
+  registration: string | null;
+  party_id: string;
+  party_name: string | null;
+  principal_cents: number;
+  annual_rate_pct: number;
+  months: number;
+  first_due: string;
+  instalment_cents: number;
+  reference: string | null;
+  status: "active" | "closed";
+  notes: string | null;
+  principal_balance_cents: number;
+  outstanding_cents: number;
+  overdue_cents: number;
+  next_due_date: string | null;
+  total_interest_cents: number;
+  schedule?: FinanceRow[];
+}
+
+export interface OwnershipCost {
+  id: string;
+  vehicle_id: string;
+  registration: string | null;
+  kind: "insurance" | "licence" | "depreciation" | "other";
+  name: string;
+  amount_cents: number;
+  period: "year" | "month";
+  salvage_cents: number;
+  life_months: number | null;
+  start_date: string;
+  end_date: string | null;
+  notes: string | null;
+  monthly_cents: number;
+}
+
+export interface ProfitVehicle {
+  vehicle_id: string;
+  registration: string;
+  ownership_type: string;
+  revenue: number;
+  fuel: number;
+  expenses: number;
+  crew: number;
+  lessor_paid: number;
+  operating: number;
+  gross: number;
+  lease_charges: number;
+  lease_offsets: number;
+  lease_payable: number;
+  lease_income: number;
+  finance: number;
+  ownership: number;
+  net: number;
+  trips: number;
+  km: number;
+  loaded_km: number;
+  empty_km: number;
+  unbilled: number;
+  estimated: number;
+  cost_per_km: number | null;
+  revenue_per_km: number | null;
+  lease_not_paying: boolean;
+  provisional: boolean;
+}
+
+export interface ProfitBusiness {
+  revenue: number;
+  operating: number;
+  gross: number;
+  lease_payable: number;
+  lease_income: number;
+  finance: number;
+  ownership: number;
+  net: number;
+  trips: number;
+  km: number;
+  loaded_km: number;
+  empty_km: number;
+  unbilled: number;
+  estimated: number;
+  lessor_paid: number;
+  overheads: number;
+  overhead_expenses: number;
+  overhead_payroll: number;
+  net_after_overheads: number;
+}
+
+export interface ProfitGroupRow {
+  name: string;
+  trips: number;
+  revenue_cents: number;
+  direct_cost_cents: number;
+  contribution_cents: number;
+  distance_km: number;
+}
+
+export interface ProfitTripRow {
+  trip_id: string;
+  registration: string;
+  route: string;
+  delivered_at: string;
+  client_name: string | null;
+  driver_name: string | null;
+  distance_km: number;
+  revenue_cents: number;
+  direct_cost_cents: number;
+  contribution_cents: number;
+  estimated: boolean;
+  unbilled: boolean;
+}
+
+export interface ProfitReport {
+  from_month: string;
+  to_month: string;
+  months: string[];
+  vehicles: ProfitVehicle[];
+  depots: {
+    name: string;
+    vehicles: number;
+    revenue: number;
+    operating: number;
+    gross: number;
+    lease_payable: number;
+    finance: number;
+    ownership: number;
+    net: number;
+  }[];
+  trips: ProfitTripRow[];
+  clients: ProfitGroupRow[];
+  drivers: ProfitGroupRow[];
+  business: ProfitBusiness;
+}
+
+export interface PayrollRun {
+  id: string;
+  month: string;
+  status: "draft" | "approved" | "paid";
+  approved_at: string | null;
+  paid_on: string | null;
+  people: number;
+  gross_cents: number;
+  deductions_cents: number;
+  net_cents: number;
+  lines?: {
+    id: string;
+    membership_id: string;
+    name: string | null;
+    gross_cents: number;
+    advances_cents: number;
+    fines_cents: number;
+    net_cents: number;
+    deductions: { kind: "advance" | "fine"; id: string; cents: number; note: string | null }[];
+    allocation: { registration: string | null; cents: number }[];
+  }[];
+}
+
+export interface SalaryAdvance {
+  id: string;
+  membership_id: string;
+  name: string | null;
+  amount_cents: number;
+  remaining_cents: number;
+  given_on: string;
+  mpesa_code: string | null;
+  note: string | null;
+}
+
+export interface Supplier {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  category: string | null;
+  notes: string | null;
+  is_active: boolean;
+}
+
+export type OrderStatus = "draft" | "sent" | "confirmed" | "collected" | "paid" | "cancelled";
+
+export interface PartsOrder {
+  id: string;
+  number: string;
+  supplier_id: string;
+  supplier_name: string | null;
+  status: OrderStatus;
+  notes: string | null;
+  expected_on: string | null;
+  total_cents: number;
+  sent_at: string | null;
+  paid_reference: string | null;
+  lines: {
+    id: string;
+    part_id: string | null;
+    description: string;
+    quantity: number;
+    unit_cost_cents: number;
+    received_quantity: number;
+  }[];
+  whatsapp_url?: string;
+  message?: string;
+}
+
+export interface PortalLease extends LeaseAgreement {
+  operator?: string;
+  entries?: LeaseEntry[];
+  service_history?: { done_on: string; odometer_km: number; notes: string | null }[];
+  inspections?: { date: string; status: string }[];
 }

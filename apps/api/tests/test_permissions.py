@@ -24,6 +24,13 @@ CHECKS = {
     "list_jobs": ("GET", "/jobs", None, "trips.view"),
     "dispatch_calendar": ("GET", "/dispatch/calendar", None, "trips.view"),
     "list_invoices": ("GET", "/invoices", None, "invoices.manage"),
+    "list_leases": ("GET", "/leases", None, "finance.view"),
+    "list_loans": ("GET", "/finance", None, "finance.view"),
+    "list_ownership_costs": ("GET", "/ownership-costs", None, "finance.view"),
+    "profit": ("GET", "/profit", None, "finance.view"),
+    "payroll_runs": ("GET", "/payroll/runs", None, "payroll.view"),
+    "list_suppliers": ("GET", "/suppliers", None, "workshop.manage"),
+    "my_leases": ("GET", "/portal/leases", None, "lease.view_own"),
     "list_sos": ("GET", "/sos", None, "sos.respond"),
     "list_report_schedules": ("GET", "/report-schedules", None, "reports.schedule"),
     "list_staff": ("GET", "/staff", None, "staff.view"),
@@ -38,6 +45,16 @@ CHECKS = {
 async def session_for(client, owner, role):
     if role in (Role.DRIVER, Role.TURNBOY):
         return await driver_session(client, owner, "0712345678" if role == Role.DRIVER else "0722345678", role=role.value)
+    if role == Role.LESSOR:
+        party = await client.post("/parties", headers=bearer(owner), json={"kind": "lessor", "name": "Wanjiku Transporters"})
+        assert party.status_code == 201, party.text
+        res = await client.post("/users", headers=bearer(owner), json={"name": "Lessor user", "email": "lessor@example.com", "roles": ["lessor"], "party_id": party.json()["id"]})
+        assert res.status_code == 201, res.text
+        from tests.helpers import PASSWORD, login
+
+        accepted = await client.post("/auth/accept-invite", json={"token": res.json()["invite_token"], "password": PASSWORD})
+        assert accepted.status_code == 204, accepted.text
+        return (await login(client, "lessor@example.com")).json()
     needs_2fa = role in {Role.MANAGER, Role.SUPERVISOR, Role.ACCOUNTANT}
     tokens, _ = await staff_session(client, owner, role.value, f"{role.value}@example.com", with_2fa=needs_2fa)
     return tokens

@@ -34,6 +34,15 @@ class Settings(BaseSettings):
     whatsapp_phone_number_id: str = ""
     whatsapp_report_template: str = ""  # an approved template with a document header, needed to message people first
 
+    # M-Pesa Daraja (client payments). Leave the keys empty in development: a stand-in is used and nothing leaves the machine.
+    daraja_env: str = "sandbox"  # sandbox or production
+    daraja_consumer_key: str = ""
+    daraja_consumer_secret: str = ""
+    public_api_url: str = ""  # the address Safaricom can reach this API on, for payment callbacks
+
+    # KRA eTIMS. Leave the base address empty in development: a stand-in is used. The sandbox address is in .env.example.
+    etims_base_url: str = ""
+
     # Photos live in private storage and are only ever viewed through short-lived signed links.
     media_dir: str = "media_store"
     media_link_seconds: int = 300

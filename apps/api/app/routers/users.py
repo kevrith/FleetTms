@@ -11,7 +11,17 @@ from app.auth_service import now
 from app.config import settings
 from app.db import get_db
 from app.deps import Principal, error, require
-from app.models import AuthSession, Depot, Membership, MembershipStatus, Role, RoleAssignment, User
+from app.models import (
+    AuthSession,
+    Depot,
+    Membership,
+    MembershipStatus,
+    Party,
+    PartyKind,
+    Role,
+    RoleAssignment,
+    User,
+)
 from app.permissions import OTP_ONLY_ROLES
 from app.phone import normalize_phone
 from app.security import new_secret_token, sha256
@@ -26,6 +36,7 @@ class InviteIn(BaseModel):
     roles: list[Role] = Field(min_length=1)
     depot_id: uuid.UUID | None = None
     vehicle_scope: list[str] | None = None
+    party_id: uuid.UUID | None = None  # for a lessor: whose leases they see
 
 
 class RolesIn(BaseModel):
@@ -43,6 +54,7 @@ def _out(m: Membership) -> dict:
         "roles": sorted(r.role.value for r in m.roles),
         "vehicle_scope": next((r.vehicle_scope for r in m.roles if r.role == Role.SUPERVISOR), None),
         "depot_id": m.depot_id,
+        "party_id": m.party_id,
         "status": m.status.value,
         "two_factor_enabled": m.user.totp_enabled or m.user.sms_2fa_enabled,
     }
@@ -86,8 +98,17 @@ async def invite_member(
     roles: set[Role],
     depot_id: uuid.UUID | None = None,
     vehicle_scope: list[str] | None = None,
+    party_id: uuid.UUID | None = None,
 ) -> tuple[Membership, str | None]:
     """Adds a person to the current business and audits it. The caller commits. Returns (membership, invite token)."""
+    if Role.LESSOR in roles:
+        if roles != {Role.LESSOR}:
+            raise error(422, "lessor_only", "A lessor's login is only for viewing their own leases, so it cannot have other roles.")
+        party = (await db.get(Party, party_id)) if party_id else None
+        if party is None or party.kind != PartyKind.LESSOR:
+            raise error(422, "party_required", "Choose which lessor this login is for.")
+    elif party_id is not None:
+        raise error(422, "party_not_allowed", "Only a lessor's login is tied to a lessor.")
     otp_only = roles <= OTP_ONLY_ROLES
     if phone:
         phone = normalize_phone(phone)
@@ -130,7 +151,7 @@ async def invite_member(
             await db.delete(existing)  # re-inviting someone whose access was revoked
             await db.flush()
 
-    membership = Membership(user_id=user.id, depot_id=depot_id)
+    membership = Membership(user_id=user.id, depot_id=depot_id, party_id=party_id)
     db.add(membership)
     await db.flush()
     for role in roles:
@@ -162,6 +183,7 @@ async def invite_user(
         roles=set(body.roles),
         depot_id=body.depot_id,
         vehicle_scope=body.vehicle_scope,
+        party_id=body.party_id,
     )
     await db.commit()
     membership = await _get_membership(db, membership.id)
@@ -177,6 +199,8 @@ async def set_roles(
 ):
     m = await _get_membership(db, membership_id)
     new_roles = set(body.roles)
+    if (Role.LESSOR in new_roles) != (m.party_id is not None):
+        raise error(422, "lessor_login", "A lessor's login is made by inviting them as a lessor. It cannot be turned on or off here.")
     before = {"roles": sorted(r.role.value for r in m.roles)}
     losing_owner = Role.OWNER not in new_roles and any(r.role == Role.OWNER for r in m.roles)
     if losing_owner and await _other_active_owners(db, m.id) == 0:

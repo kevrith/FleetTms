@@ -1,0 +1,39 @@
+{
+  "ageing": [
+    { "name": "not yet due is current", "due": "2026-11-01", "today": "2026-10-10", "expected": "current" },
+    { "name": "due today is current", "due": "2026-10-10", "today": "2026-10-10", "expected": "current" },
+    { "name": "one day late", "due": "2026-10-09", "today": "2026-10-10", "expected": "1_30" },
+    { "name": "thirty days late", "due": "2026-09-10", "today": "2026-10-10", "expected": "1_30" },
+    { "name": "thirty one days late", "due": "2026-09-09", "today": "2026-10-10", "expected": "31_60" },
+    { "name": "sixty days late", "due": "2026-08-11", "today": "2026-10-10", "expected": "31_60" },
+    { "name": "sixty one days late", "due": "2026-08-10", "today": "2026-10-10", "expected": "61_90" },
+    { "name": "ninety days late", "due": "2026-07-12", "today": "2026-10-10", "expected": "61_90" },
+    { "name": "ninety one days late", "due": "2026-07-11", "today": "2026-10-10", "expected": "over_90" },
+    { "name": "a year late", "due": "2025-10-10", "today": "2026-10-10", "expected": "over_90" }
+  ],
+  "references": [
+    { "name": "exact", "text": "INV-0001", "expected": "INV-0001" },
+    { "name": "lower case", "text": "inv-0042", "expected": "INV-0042" },
+    { "name": "no dash", "text": "INV0042", "expected": "INV-0042" },
+    { "name": "a space", "text": "inv 0042", "expected": "INV-0042" },
+    { "name": "no leading zeros", "text": "INV-7", "expected": "INV-0007" },
+    { "name": "padding around it", "text": "  Inv-0123  ", "expected": "INV-0123" },
+    { "name": "past four digits", "text": "INV-12345", "expected": "INV-12345" },
+    { "name": "a hash sign", "text": "INV#0003", "expected": "INV-0003" },
+    { "name": "just a number is not enough", "text": "0001", "expected": null },
+    { "name": "a name", "text": "Bamburi", "expected": null },
+    { "name": "words after it", "text": "INV-0001 truck", "expected": null },
+    { "name": "empty", "text": "", "expected": null },
+    { "name": "missing", "text": null, "expected": null }
+  ],
+  "reminders": [
+    { "name": "too early for the first reminder", "due": "2026-10-20", "today": "2026-10-10", "offsets": [-3, 1, 7, 14, 30], "sent": [], "expected": null },
+    { "name": "three days before the due date", "due": "2026-10-13", "today": "2026-10-10", "offsets": [-3, 1, 7, 14, 30], "sent": [], "expected": -3 },
+    { "name": "already sent the one before the due date", "due": "2026-10-13", "today": "2026-10-10", "offsets": [-3, 1, 7, 14, 30], "sent": [-3], "expected": null },
+    { "name": "due today waits for the day after", "due": "2026-10-10", "today": "2026-10-10", "offsets": [-3, 1, 7, 14, 30], "sent": [-3], "expected": null },
+    { "name": "the day after it is due", "due": "2026-10-09", "today": "2026-10-10", "offsets": [-3, 1, 7, 14, 30], "sent": [-3], "expected": 1 },
+    { "name": "only the latest one is sent after a long gap", "due": "2026-09-20", "today": "2026-10-10", "offsets": [-3, 1, 7, 14, 30], "sent": [], "expected": 14 },
+    { "name": "past the last one", "due": "2026-08-01", "today": "2026-10-10", "offsets": [-3, 1, 7, 14, 30], "sent": [-3, 1, 7, 14, 30], "expected": null },
+    { "name": "no offsets means no reminders", "due": "2026-08-01", "today": "2026-10-10", "offsets": [], "sent": [], "expected": null }
+  ]
+}

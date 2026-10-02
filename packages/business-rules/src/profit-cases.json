@@ -1,0 +1,15 @@
+{
+  "net": [
+    { "name": "the worked example in masterplan 5.23", "input": { "revenue_cents": 60000000, "operating_cents": 34000000, "lease_charges_cents": 18000000, "offsets_cents": 2000000 }, "expected": { "gross_profit_cents": 26000000, "lease_payable_cents": 16000000, "net_profit_cents": 10000000 } },
+    { "name": "a lorry with no lease", "input": { "revenue_cents": 60000000, "operating_cents": 34000000 }, "expected": { "gross_profit_cents": 26000000, "lease_payable_cents": 0, "net_profit_cents": 26000000 } },
+    { "name": "loan repayments and ownership costs come off the net", "input": { "revenue_cents": 60000000, "operating_cents": 34000000, "finance_cents": 8884879, "ownership_cents": 3000000 }, "expected": { "gross_profit_cents": 26000000, "lease_payable_cents": 0, "net_profit_cents": 14115121 } },
+    { "name": "a loss", "input": { "revenue_cents": 10000000, "operating_cents": 34000000, "lease_charges_cents": 5000000 }, "expected": { "gross_profit_cents": -24000000, "lease_payable_cents": 5000000, "net_profit_cents": -29000000 } }
+  ],
+  "not_paying": [
+    { "name": "three months where the owner earned more", "months": [ { "lessor_cents": 100, "operator_net_cents": 50 }, { "lessor_cents": 100, "operator_net_cents": 50 }, { "lessor_cents": 100, "operator_net_cents": 50 } ], "expected": true },
+    { "name": "only two months", "months": [ { "lessor_cents": 100, "operator_net_cents": 50 }, { "lessor_cents": 100, "operator_net_cents": 50 } ], "expected": false },
+    { "name": "a good month in the run breaks it", "months": [ { "lessor_cents": 100, "operator_net_cents": 50 }, { "lessor_cents": 100, "operator_net_cents": 150 }, { "lessor_cents": 100, "operator_net_cents": 50 } ], "expected": false },
+    { "name": "only the last three count", "months": [ { "lessor_cents": 100, "operator_net_cents": 500 }, { "lessor_cents": 100, "operator_net_cents": 50 }, { "lessor_cents": 100, "operator_net_cents": 50 }, { "lessor_cents": 100, "operator_net_cents": -20 } ], "expected": true },
+    { "name": "equal is not worse", "months": [ { "lessor_cents": 100, "operator_net_cents": 100 }, { "lessor_cents": 100, "operator_net_cents": 100 }, { "lessor_cents": 100, "operator_net_cents": 100 } ], "expected": false }
+  ]
+}

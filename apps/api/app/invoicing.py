@@ -13,18 +13,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import audit
 from app.billing_rules import invoice_standing, invoice_totals, trip_amount
 from app.db import get_sessionmaker
+from app.etims_service import queue_sale
+from app.invoice_files import invoice_pdf
 from app.models import (
     Business,
     Client,
+    EtimsSubmission,
     Invoice,
     InvoiceLine,
     Job,
     JobStatus,
+    Photo,
+    ProofOfDelivery,
     SavedRoute,
     Trip,
     TripStatus,
 )
 from app.numbering import create_numbered
+from app.payment_config import get_settings
 from app.quote_rules import BillingMethod
 from app.reminders import NAIROBI, nairobi_today
 from app.tenancy import current_business_id
@@ -91,6 +97,7 @@ async def invoice_for_trip(
         created_by_user_id=user_id, lines=[line], payments=[], **totals,
     )  # fmt: skip
     audit.record(db, actor_user_id=user_id, action="invoice.issued", entity_type="invoice", entity_id=invoice.id, after={"number": invoice.number, "total_cents": invoice.total_cents, "trip_id": str(trip.id)})
+    await queue_sale(db, invoice)
     return invoice, None
 
 
@@ -128,6 +135,7 @@ async def contract_invoices(db: AsyncSession, month: date, user_id: uuid.UUID | 
             created_by_user_id=user_id, lines=lines, payments=[], **totals,
         )  # fmt: skip
         audit.record(db, actor_user_id=user_id, action="invoice.issued", entity_type="invoice", entity_id=invoice.id, after={"number": invoice.number, "total_cents": invoice.total_cents, "period": start.isoformat()})
+        await queue_sale(db, invoice)
         made.append(invoice)
     return made
 
@@ -152,3 +160,29 @@ async def run_contract_invoices(month: date | None = None) -> int:
 
 async def contract_invoices_job(ctx: dict) -> int:
     return await run_contract_invoices()
+
+
+async def render_invoice_pdf(db: AsyncSession, invoice: Invoice) -> bytes:
+    """The invoice as a PDF for the current business: with its proof of delivery, how to pay, and the eTIMS receipt if KRA has one."""
+    client = (await db.execute(select(Client).where(Client.id == invoice.client_id))).scalar_one()
+    business = (await db.execute(select(Business).where(Business.id == current_business_id.get()))).scalar_one()
+    cfg = await get_settings(db)
+    pod = trip = None
+    photos: dict = {}
+    if invoice.trip_id:
+        trip = (await db.execute(select(Trip).where(Trip.id == invoice.trip_id))).scalar_one_or_none()
+        pod = (await db.execute(select(ProofOfDelivery).where(ProofOfDelivery.trip_id == invoice.trip_id))).scalar_one_or_none()
+        if pod:
+            ids = [i for i in [pod.cargo_photo_id, pod.note_photo_id, trip.weighbridge_photo_id if trip else None, *[uuid.UUID(d) for d in pod.damage_photo_ids]] if i]
+            photos = {p.id: p for p in (await db.execute(select(Photo).where(Photo.id.in_(ids)))).scalars()}
+    sale = (await db.execute(select(EtimsSubmission).where(EtimsSubmission.invoice_id == invoice.id, EtimsSubmission.kind == "sale"))).scalar_one_or_none()
+    return invoice_pdf(invoice, client, business.name, pod=pod, photos=photos, trip=trip, pay_info=pay_instructions(cfg, invoice), etims=sale, tin=business.kra_pin, branch_id=cfg.etims_branch_id)
+
+
+def pay_instructions(cfg, invoice: Invoice) -> str | None:
+    """How the client pays by M-Pesa, with the invoice number as the account so the payment finds its invoice."""
+    if not cfg.shortcode:
+        return None
+    if cfg.shortcode_type == "till":
+        return f"Pay by M-Pesa: Buy Goods Till {cfg.shortcode}. Please send the invoice number {invoice.number} to us after paying."
+    return f"Pay by M-Pesa: Paybill {cfg.shortcode}, account number {invoice.number}."

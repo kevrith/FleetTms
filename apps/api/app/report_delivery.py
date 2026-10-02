@@ -20,7 +20,7 @@ class DeliveryError(Exception):
 
 
 class ReportSender(Protocol):
-    async def send(self, recipient: str, subject: str, filename: str, pdf: bytes) -> None: ...
+    async def send(self, recipient: str, subject: str, filename: str, pdf: bytes, body: str | None = None) -> None: ...
 
 
 class FakeSender:
@@ -31,18 +31,18 @@ class FakeSender:
         self.outbox: list[dict] = []
         self.fail_with: str | None = None
 
-    async def send(self, recipient: str, subject: str, filename: str, pdf: bytes) -> None:
+    async def send(self, recipient: str, subject: str, filename: str, pdf: bytes, body: str | None = None) -> None:
         if self.fail_with:
             raise DeliveryError(self.fail_with)
-        self.outbox.append({"recipient": recipient, "subject": subject, "filename": filename, "pdf": pdf})
+        self.outbox.append({"recipient": recipient, "subject": subject, "filename": filename, "pdf": pdf, "body": body})
         log.info("Fake %s report sent to %s", self.channel, mask_phone(recipient) if self.channel == "whatsapp" else recipient)
 
 
 class SmtpSender:
-    async def send(self, recipient: str, subject: str, filename: str, pdf: bytes) -> None:
+    async def send(self, recipient: str, subject: str, filename: str, pdf: bytes, body: str | None = None) -> None:
         message = EmailMessage()
         message["From"], message["To"], message["Subject"] = settings.smtp_from or settings.smtp_user, recipient, subject
-        message.set_content("Your FleetTms report is attached.")
+        message.set_content(body or "Your FleetTms report is attached.")
         message.add_attachment(pdf, maintype="application", subtype="pdf", filename=filename)
 
         def deliver() -> None:
@@ -61,7 +61,7 @@ class SmtpSender:
 class WhatsAppSender:
     """WhatsApp Cloud API: upload the PDF, then send it as a document message."""
 
-    async def send(self, recipient: str, subject: str, filename: str, pdf: bytes) -> None:
+    async def send(self, recipient: str, subject: str, filename: str, pdf: bytes, body: str | None = None) -> None:
         base = f"{GRAPH}/{settings.whatsapp_phone_number_id}"
         headers = {"Authorization": f"Bearer {settings.whatsapp_token}"}
         to = recipient.lstrip("+")
@@ -72,13 +72,13 @@ class WhatsAppSender:
                 media_id = up.json()["id"]
                 document = {"id": media_id, "filename": filename}
                 if settings.whatsapp_report_template:
-                    body = {"type": "template", "template": {
+                    message = {"type": "template", "template": {
                         "name": settings.whatsapp_report_template, "language": {"code": "en"},
                         "components": [{"type": "header", "parameters": [{"type": "document", "document": document}]}],
                     }}  # fmt: skip
                 else:
-                    body = {"type": "document", "document": {**document, "caption": subject}}
-                sent = await http.post(f"{base}/messages", headers=headers, json={"messaging_product": "whatsapp", "to": to, **body})
+                    message = {"type": "document", "document": {**document, "caption": body or subject}}
+                sent = await http.post(f"{base}/messages", headers=headers, json={"messaging_product": "whatsapp", "to": to, **message})
                 sent.raise_for_status()
         except (httpx.HTTPError, KeyError) as e:
             raise DeliveryError(f"WhatsApp was not accepted: {type(e).__name__}") from e

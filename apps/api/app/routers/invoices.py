@@ -16,9 +16,26 @@ from app import audit
 from app.billing_rules import invoice_standing
 from app.db import get_db
 from app.deps import Principal, error, require_any
-from app.invoice_files import invoice_pdf
-from app.invoicing import contract_invoices, invoice_for_trip, month_bounds, refresh_standing
-from app.models import Business, Client, Invoice, InvoicePayment, Photo, ProofOfDelivery, Trip
+from app.etims_service import invoice_voided
+from app.invoicing import (
+    contract_invoices,
+    invoice_for_trip,
+    month_bounds,
+    refresh_standing,
+    render_invoice_pdf,
+)
+from app.models import (
+    Business,
+    Client,
+    EtimsSubmission,
+    Invoice,
+    InvoicePayment,
+    MpesaTransaction,
+    PaymentReminder,
+    Trip,
+)
+from app.payment_config import get_settings
+from app.payment_reminders import remind
 from app.reminders import nairobi_today
 from app.report_delivery import DeliveryError, get_report_sender
 from app.sms import get_sms_sender
@@ -49,6 +66,10 @@ class TripInvoiceIn(BaseModel):
     weight_kg: int | None = Field(default=None, gt=0, le=200_000)  # the office's own weight, when there is no weighbridge ticket
 
 
+class RemindIn(BaseModel):
+    channels: list[Literal["sms", "email"]] = Field(default_factory=lambda: ["sms", "email"], min_length=1)
+
+
 class ContractRunIn(BaseModel):
     month: date  # any day in the month to bill
 
@@ -65,6 +86,29 @@ def invoice_out(i: Invoice, client_name: str | None = None, *, detail: bool = Fa
     if detail:
         out["lines"] = [{"id": ln.id, "trip_id": ln.trip_id, "description": ln.description, "quantity": float(ln.quantity), "unit_cents": ln.unit_cents, "amount_cents": ln.amount_cents} for ln in i.lines]
         out["payments"] = [{"id": p.id, "amount_cents": p.amount_cents, "method": p.method, "reference": p.reference, "received_on": p.received_on, "note": p.note} for p in i.payments]
+    return out
+
+
+def etims_out(rows: list[EtimsSubmission]) -> dict | None:
+    """Where the invoice stands with KRA: the sale, and the credit note if it was voided afterwards."""
+    sale = next((r for r in rows if r.kind == "sale"), None)
+    if sale is None:
+        return None
+    note = next((r for r in rows if r.kind == "credit_note"), None)
+    return {"status": sale.status, "receipt_no": sale.receipt_no, "last_error": sale.last_error, "credit_note_status": note.status if note else None}
+
+
+async def _etims(db: AsyncSession, invoice_ids: list[uuid.UUID]) -> dict[uuid.UUID, dict | None]:
+    rows = (await db.execute(select(EtimsSubmission).where(EtimsSubmission.invoice_id.in_(invoice_ids)))).scalars().all() if invoice_ids else []
+    return {i: etims_out([r for r in rows if r.invoice_id == i]) for i in invoice_ids}
+
+
+async def _full(db: AsyncSession, invoice: Invoice, *, detail: bool = True) -> dict:
+    out = invoice_out(invoice, (await _client(db, invoice.client_id)).name, detail=detail)
+    out["etims"] = (await _etims(db, [invoice.id]))[invoice.id]
+    if detail:
+        rows = (await db.execute(select(PaymentReminder).where(PaymentReminder.invoice_id == invoice.id).order_by(PaymentReminder.sent_at.desc()).limit(20))).scalars().all()
+        out["reminders"] = [{"id": r.id, "channel": r.channel, "status": r.status, "sent_at": r.sent_at, "error": r.error, "automatic": r.offset_days is not None} for r in rows]
     return out
 
 
@@ -90,7 +134,9 @@ async def list_invoices(
     if trip_id:
         query = query.where(Invoice.trip_id == trip_id)
     names = {c.id: c.name for c in (await db.execute(select(Client))).scalars()}
-    rows = [invoice_out(i, names.get(i.client_id)) for i in (await db.execute(query)).scalars()]
+    found = (await db.execute(query)).scalars().all()
+    states = await _etims(db, [i.id for i in found])
+    rows = [{**invoice_out(i, names.get(i.client_id)), "etims": states[i.id]} for i in found]
     if status_filter:
         rows = [r for r in rows if r["status"] == status_filter]
     if unpaid_only:
@@ -100,8 +146,7 @@ async def list_invoices(
 
 @router.get("/invoices/{invoice_id}")
 async def read_invoice(invoice_id: uuid.UUID, principal: Principal = Depends(require_any(*MANAGE)), db: AsyncSession = Depends(get_db)):
-    invoice = await _get(db, invoice_id)
-    return invoice_out(invoice, (await _client(db, invoice.client_id)).name, detail=True)
+    return await _full(db, await _get(db, invoice_id))
 
 
 @router.get("/invoices/{invoice_id}/pdf")
@@ -112,17 +157,7 @@ async def invoice_file(invoice_id: uuid.UUID, principal: Principal = Depends(req
 
 
 async def _pdf(db: AsyncSession, principal: Principal, invoice: Invoice) -> bytes:
-    client = await _client(db, invoice.client_id)
-    business = (await db.execute(select(Business).where(Business.id == principal.business_id))).scalar_one()
-    pod = trip = None
-    photos: dict = {}
-    if invoice.trip_id:
-        trip = (await db.execute(select(Trip).where(Trip.id == invoice.trip_id))).scalar_one_or_none()
-        pod = (await db.execute(select(ProofOfDelivery).where(ProofOfDelivery.trip_id == invoice.trip_id))).scalar_one_or_none()
-        if pod:
-            ids = [i for i in [pod.cargo_photo_id, pod.note_photo_id, trip.weighbridge_photo_id if trip else None, *[uuid.UUID(d) for d in pod.damage_photo_ids]] if i]
-            photos = {p.id: p for p in (await db.execute(select(Photo).where(Photo.id.in_(ids)))).scalars()}
-    return invoice_pdf(invoice, client, business.name, pod=pod, photos=photos, trip=trip)
+    return await render_invoice_pdf(db, invoice)
 
 
 @router.post("/invoices/{invoice_id}/payments", status_code=status.HTTP_201_CREATED)
@@ -134,9 +169,17 @@ async def add_payment(invoice_id: uuid.UUID, body: PaymentIn, principal: Princip
     owed = invoice.total_cents - sum(p.amount_cents for p in invoice.payments)
     if body.amount_cents > owed:
         raise error(422, "overpayment", f"Only KES {owed / 100:,.2f} is still owed on this invoice.")
+    reference = (body.reference or "").strip().upper() if body.method == "mpesa" else (body.reference or "").strip()
+    if body.method == "mpesa" and reference:
+        seen = (await db.execute(select(InvoicePayment.id).where(InvoicePayment.reference == reference))).first()
+        got = (await db.execute(select(MpesaTransaction).where(MpesaTransaction.trans_id == reference))).scalar_one_or_none()
+        if seen is not None or (got is not None and got.status != "unmatched"):
+            raise error(status.HTTP_409_CONFLICT, "already_recorded", f"M-Pesa payment {reference} has already been recorded against an invoice.")
+        if got is not None:
+            raise error(status.HTTP_409_CONFLICT, "in_payments_queue", f"M-Pesa payment {reference} has already arrived. Match it to this invoice from Payments.")
     invoice.payments.append(
         InvoicePayment(
-            amount_cents=body.amount_cents, method=body.method, reference=(body.reference or "").strip() or None,
+            amount_cents=body.amount_cents, method=body.method, reference=reference or None,
             received_on=body.received_on or nairobi_today(), note=body.note, created_by_user_id=principal.user.id,
         )
     )  # fmt: skip
@@ -144,20 +187,21 @@ async def add_payment(invoice_id: uuid.UUID, body: PaymentIn, principal: Princip
     refresh_standing(invoice)
     audit.record(db, actor_user_id=principal.user.id, action="invoice.payment", entity_type="invoice", entity_id=invoice.id, after={"amount_cents": body.amount_cents, "method": body.method, "status": invoice.status})
     await db.commit()
-    return invoice_out(invoice, (await _client(db, invoice.client_id)).name, detail=True)
+    return await _full(db, invoice)
 
 
 @router.post("/invoices/{invoice_id}/void")
 async def void_invoice(invoice_id: uuid.UUID, body: VoidIn, principal: Principal = Depends(require_any(*MANAGE)), db: AsyncSession = Depends(get_db)):
     invoice = await _get(db, invoice_id)
     if invoice.status == "void":
-        return invoice_out(invoice, (await _client(db, invoice.client_id)).name, detail=True)
+        return await _full(db, invoice)
     if invoice.payments:
         raise error(status.HTTP_409_CONFLICT, "has_payments", "An invoice with payments cannot be voided.")
     invoice.status, invoice.void_reason = "void", body.reason
+    await invoice_voided(db, invoice, principal.user.id)
     audit.record(db, actor_user_id=principal.user.id, action="invoice.voided", entity_type="invoice", entity_id=invoice.id, note=body.reason)
     await db.commit()
-    return invoice_out(invoice, (await _client(db, invoice.client_id)).name, detail=True)
+    return await _full(db, invoice)
 
 
 @router.post("/invoices/{invoice_id}/send")
@@ -184,6 +228,21 @@ async def send_invoice(invoice_id: uuid.UUID, body: SendIn, principal: Principal
     return invoice_out(invoice, client.name, detail=True)
 
 
+@router.post("/invoices/{invoice_id}/remind")
+async def remind_now(invoice_id: uuid.UUID, body: RemindIn, principal: Principal = Depends(require_any(*MANAGE)), db: AsyncSession = Depends(get_db)):
+    """Sends the client a payment reminder now, whatever the automatic schedule says."""
+    invoice = await _get(db, invoice_id)
+    if invoice.status not in ("issued", "partially_paid"):
+        raise error(status.HTTP_409_CONFLICT, "not_owed", "Only an invoice that is still owed can be chased.")
+    client = await _client(db, invoice.client_id)
+    business = (await db.execute(select(Business).where(Business.id == principal.business_id))).scalar_one()
+    sent = await remind(db, invoice, client, business, await get_settings(db), channels=body.channels, offset=None, user_id=principal.user.id, today=nairobi_today())
+    if not sent:
+        raise error(422, "no_recipient", "The client has no phone number or email address to send to. Add one on the client.")
+    await db.commit()
+    return {"sent": [{"channel": r.channel, "recipient": r.recipient, "status": r.status, "error": r.error} for r in sent]}
+
+
 @router.post("/trips/{trip_id}/invoice")
 async def invoice_trip(trip_id: uuid.UUID, body: TripInvoiceIn, principal: Principal = Depends(require_any(*MANAGE)), db: AsyncSession = Depends(get_db)):
     """Invoices a delivered trip that could not be invoiced automatically, for example a per-tonne trip with no weighbridge
@@ -206,7 +265,7 @@ async def invoice_trip(trip_id: uuid.UUID, body: TripInvoiceIn, principal: Princ
         trip.loaded_weight_kg = body.weight_kg
         audit.record(db, actor_user_id=principal.user.id, action="trip.weight_entered_by_office", entity_type="trip", entity_id=trip.id, after={"loaded_weight_kg": body.weight_kg})
     await db.commit()
-    return invoice_out(invoice, (await _client(db, invoice.client_id)).name, detail=True)
+    return await _full(db, invoice)
 
 
 @router.post("/invoices/contracts/run")

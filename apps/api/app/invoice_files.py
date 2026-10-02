@@ -5,6 +5,8 @@ import io
 import uuid
 
 from PIL import Image, ImageDraw
+from reportlab.graphics.barcode.qr import QrCodeWidget
+from reportlab.graphics.shapes import Drawing
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
@@ -12,7 +14,8 @@ from reportlab.platypus import Image as PdfImage
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from app import storage
-from app.models import Client, Invoice, Photo, ProofOfDelivery, Trip
+from app.etims_rules import qr_data
+from app.models import Client, EtimsSubmission, Invoice, Photo, ProofOfDelivery, Trip
 from app.reminders import NAIROBI
 
 STYLES = getSampleStyleSheet()
@@ -64,8 +67,17 @@ def _table(rows: list[list], widths: list[int], header: bool = True) -> Table:
     return table
 
 
+def _qr(text: str, size: int = 90) -> Drawing:
+    widget = QrCodeWidget(text)
+    x0, y0, x1, y1 = widget.getBounds()
+    drawing = Drawing(size, size, transform=[size / (x1 - x0), 0, 0, size / (y1 - y0), 0, 0])
+    drawing.add(widget)
+    return drawing
+
+
 def invoice_pdf(
-    invoice: Invoice, client: Client, business: str, *, pod: ProofOfDelivery | None = None, photos: dict | None = None, trip: Trip | None = None
+    invoice: Invoice, client: Client, business: str, *, pod: ProofOfDelivery | None = None, photos: dict | None = None, trip: Trip | None = None,
+    pay_info: str | None = None, etims: EtimsSubmission | None = None, tin: str | None = None, branch_id: str = "00",
 ) -> bytes:
     photos = photos or {}
     out = io.BytesIO()
@@ -88,6 +100,14 @@ def invoice_pdf(
         totals.append([f"VAT {float(invoice.vat_pct):g}%", kes(invoice.vat_cents)])
     totals += [["Total", kes(invoice.total_cents)], ["Paid", kes(invoice.paid_cents)], ["Balance due", kes(max(0, invoice.total_cents - invoice.paid_cents) if invoice.status != "void" else 0)]]
     story.append(_table(totals, [380, 145], header=False))
+    if pay_info and invoice.status != "void":
+        story += [Spacer(1, 8), Paragraph(pay_info, s["Normal"])]
+    if etims is not None and etims.status == "submitted" and etims.receipt_no:
+        facts = [f"KRA eTIMS receipt no. {etims.receipt_no}"] + ([f"Control unit {etims.sdc_id}"] if etims.sdc_id else []) + ([f"Internal data {etims.internal_data}"] if etims.internal_data else [])
+        block = [Paragraph("<br/>".join(facts), s["BodyText"])]
+        if tin and etims.receipt_signature:
+            block.insert(0, _qr(qr_data(tin, branch_id, etims.receipt_signature)))
+        story += [Spacer(1, 8), Table([block], colWidths=[100, 425] if len(block) == 2 else [525])]
     if invoice.payments:
         story += [Spacer(1, 8), Paragraph("Payments received", s["Heading4"])]
         story.append(_table([["Date", "Method", "Reference", "Amount"]] + [[p.received_on.isoformat(), p.method, p.reference or "", kes(p.amount_cents)] for p in invoice.payments], [90, 90, 160, 130]))

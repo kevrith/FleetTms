@@ -60,7 +60,8 @@ export const navItems: NavItem[] = [
   },
   { path: "/leases", label: "Leases & Finance", icon: Building2, permission: "finance.view" },
   { path: "/staff", label: "Staff & Payroll", icon: Users, permission: "staff.view" },
-  { path: "/suppliers", label: "Suppliers", icon: Package, permission: "vehicles.manage" },
+  { path: "/suppliers", label: "Suppliers", icon: Package, permission: "workshop.manage" },
+  { path: "/portal", label: "My leased lorries", icon: Building2, permission: "lease.view_own" },
   { path: "/reports", label: "Reports", icon: BarChart3, permission: "reports.view" },
   { path: "/settings", label: "Settings", icon: Settings },
 ];

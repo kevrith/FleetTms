@@ -9,10 +9,13 @@ from app.routers import (
     auth,
     clients,
     dashboard,
+    debtors,
     depots,
     devices,
     documents,
+    etims,
     expenses,
+    finance,
     floats,
     fuel,
     imports,
@@ -20,14 +23,21 @@ from app.routers import (
     inspections,
     invoices,
     jobs,
+    leases,
     parts,
+    payments,
+    payroll,
     photos,
+    portal,
     privacy,
+    profit,
     quotes,
     reconciliation,
     report_schedules,
     sos,
     staff,
+    statements,
+    suppliers,
     support,
     sync,
     trips,
@@ -46,7 +56,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for module in (auth, users, depots, vehicles, staff, documents, imports, photos, inspections, trips, fuel, floats, devices, sync, expenses, reconciliation, workshop, dashboard, tyres, parts, incidents, sos, clients, quotes, jobs, invoices, report_schedules, audit_log, privacy, support):
+for module in (auth, users, depots, vehicles, staff, documents, imports, photos, inspections, trips, fuel, floats, devices, sync, expenses, reconciliation, workshop, dashboard, tyres, parts, incidents, sos, clients, quotes, jobs, invoices, payments, statements, debtors, etims, leases, finance, payroll, suppliers, profit, portal, report_schedules, audit_log, privacy, support):
     app.include_router(module.router)
 
 

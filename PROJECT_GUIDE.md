@@ -159,6 +159,39 @@ on the dev machine.
   counted in its own transaction, because the failed request rolls back. Odometer readings below the vehicle's last one
   are refused in `_record_reading`. Permission: `invoices.manage` (owner, accountant).
 
+- **Sprint 9 (payments, debtors, reminders, eTIMS).** Client M-Pesa payments: `app/daraja.py` (Safaricom client, with a stand-in
+  when `DARAJA_CONSUMER_KEY` is empty; callback addresses are `/hooks/c2b/{business}/{key}/...` because Safaricom refuses
+  addresses containing "mpesa", and the key is an HMAC of the business id under `JWT_SECRET`, so rotating that secret means
+  registering the addresses again), `app/payments.py` (one `MpesaTransaction` per M-Pesa code, so a repeat changes nothing; a
+  payment is applied only when its account number names an open invoice, via `debtor_rules.invoice_number_from`; the rest waits
+  in the queue; `allocate()` is the one place money goes onto an invoice from M-Pesa, auto or by hand), `routers/payments.py`.
+  Statement import: `app/mpesa_statement.py` + `routers/statements.py` (CSV or Excel; matches fuel, expense and float claims by
+  M-Pesa code, flags `statement_amount_differs` and `not_on_statement` on the claim, and recovers client payments whose
+  notice was missed). Debtors and ageing: `routers/debtors.py`; rules in `app/debtor_rules.py` mirrored by
+  `packages/business-rules/src/debtors.ts`, both tested against `debtor-cases.json`. Reminders: `app/payment_reminders.py`
+  (daily 08:00; each step once per channel, only the latest step after a gap; off until the owner turns it on, off per client
+  with `reminders_enabled`). eTIMS: `app/etims_rules.py` (invoice to KRA body, tax codes, retry gaps), `app/etims.py` (OSCU
+  client and a stand-in when `ETIMS_BASE_URL` is empty; the device key is fetched when needed and never stored),
+  `app/etims_service.py` (queue on issue, worker every 5 minutes, backoff, `needs_review` queue, credit note when a sent
+  invoice is voided), `routers/etims.py`. Settings live in `PaymentSettings` (one row per business, `get_settings()`). eTIMS
+  is written to KRA's OSCU documentation and has not been run against KRA's sandbox: check field names, item and tax codes
+  there first. Permissions: `invoices.manage` for payments, statements, debtors and the eTIMS queue; `business.manage`
+  (owner) to change settings, register with Safaricom and connect the device.
+
+- **Sprint 10 (leases, finance, profit, payroll, suppliers).** Rules in `app/lease_rules.py` (lease charge, lease account standing, loan
+  schedule, ownership monthly, net profit, "not paying off"), mirrored by `packages/business-rules/src/lease.ts` and tested against
+  `lease-cases.json`, `finance-cases.json` and `profit-cases.json`; money in cents, percentages in hundredths so no float touches money.
+  `app/leases.py` is the lease account (`run_month` works a month out and books offsets; one offset per expense or fuel entry through
+  `source_id`; `add_payment`; `statement`), `app/lease_config.py` the responsibility matrix, `app/profit.py` the engine (one pass over a
+  window of whole months, leases use the ledger row when the month has been run and the agreement's own terms when it has not, and a
+  cost the lease makes the owner's is excluded from running costs and shown as `lessor_paid`), `app/payroll_service.py` (salary
+  allocation by days crewed; approved runs are used, else the salary on file), `app/lease_notices.py` (daily SMS, monthly charges job).
+  Routers: `leases`, `finance` (loans and ownership costs), `payroll`, `suppliers`, `profit`, `portal`. Permissions: `finance.view` to look,
+  `leases.manage` and `payroll.manage` (owner, accountant) to change. A lessor is a membership with the `lessor` role and a `party_id`
+  (invite with `party_id`); the portal answers "not found" for anyone else's lease. The M-Pesa code is claimed once across fuel,
+  expenses, lease payments, loan repayments and advances (`app/mpesa.py`). The dashboard builds last month's profit on every load: move
+  it to a cached figure in Sprint 16 if it gets slow.
+
 ## Testing against a real phone/emulator
 
 - API tests use a separate `fleettms_test` database that they create and migrate themselves.
@@ -177,7 +210,10 @@ capture, pre-trip inspection) is built and tested; automatic odometer reading ne
 (offline sync, fuel, floats, device integrity) is built and tested; on a device, a full offline morning including a
 real odometer photo and a real fake-GPS app are still to be tried. Sprint 5 (expenses, reconciliation, services, work orders,
 dashboard, quick sign-in) is built and tested; use it on your own lorries for a full week and log every problem.
-Next after that: Sprint 6 (tyres, parts store, incidents, SOS).
+Sprints 6 to 8 (tyres and parts, clients and jobs, proof of delivery and billing) are built and tested. Sprint 9 (payments,
+debtors, reminders, eTIMS) is built and tested against the stand-ins; it has not been run against the Safaricom or KRA
+sandboxes (needs your keys). Sprint 10 (leases, loans, ownership costs, profit engine, payroll, suppliers, lessor portal) is built and
+tested; compare its profit figures with your own spreadsheet on real lorries. Next: Sprint 11 (phone GPS, live map, client tracking links).
 
 Create the first platform admin with `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_NAME` and `PLATFORM_ADMIN_PASSWORD`
 set in `.env`, then `cd apps/api && .venv/bin/python -m app.cli create-platform-admin`.
