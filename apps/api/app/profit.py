@@ -170,12 +170,15 @@ async def build(db: AsyncSession, first_month: date, last_month: date) -> dict:
 
     # ---- costs ----
     overhead_expenses = 0
+    not_on_a_trip = 0  # vehicle fuel and expenses with no trip: in the business figures, in no client or driver row
     for fu in (await db.execute(select(FuelEntry).where(FuelEntry.captured_at >= start, FuelEntry.captured_at < end))).scalars():
         m = month_of(fu.captured_at)
         lessor = any(matrix_of(a).get("fuel") == "lessor" for a in agreement_in(fu.vehicle_id, m, "in"))
         fig[(fu.vehicle_id, m)]["lessor_paid" if lessor else "fuel"] += fu.amount_cents
         if fu.trip_id and not lessor:
             trip_cost[fu.trip_id] += fu.amount_cents
+        elif not lessor and m in shown:
+            not_on_a_trip += fu.amount_cents
     for ex in (await db.execute(select(Expense).where(Expense.status.in_(COUNTED), Expense.spent_at >= start, Expense.spent_at < end))).scalars():
         m = month_of(ex.spent_at)
         if ex.vehicle_id is None:
@@ -190,6 +193,8 @@ async def build(db: AsyncSession, first_month: date, last_month: date) -> dict:
         fig[(ex.vehicle_id, m)]["lessor_paid" if lessor else "expenses"] += ex.amount_cents
         if ex.trip_id and not lessor:
             trip_cost[ex.trip_id] += ex.amount_cents
+        elif not lessor and m in shown:
+            not_on_a_trip += ex.amount_cents
 
     overhead_payroll = 0
     for m in window:
@@ -286,5 +291,5 @@ async def build(db: AsyncSession, first_month: date, last_month: date) -> dict:
         "from_month": first_month, "to_month": last_month, "months": shown,
         "vehicles": vehicle_rows, "depots": sorted(by_depot.values(), key=lambda d: d["name"]), "trips": sorted(trip_rows, key=lambda r: r["delivered_at"], reverse=True),
         "clients": group("client_id", "client_name"), "drivers": group("driver_membership_id", "driver_name"),
-        "business": {**sums, "overheads": overheads, "overhead_expenses": overhead_expenses, "overhead_payroll": overhead_payroll, "net_after_overheads": sums["net"] - overheads},
+        "business": {**sums, "not_on_a_trip": not_on_a_trip, "overheads": overheads, "overhead_expenses": overhead_expenses, "overhead_payroll": overhead_payroll, "net_after_overheads": sums["net"] - overheads},
     }  # fmt: skip

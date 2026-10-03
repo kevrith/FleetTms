@@ -1,7 +1,7 @@
 import pytest
 
 from tests.helpers import bearer, driver_session, owner_session, staff_session
-from tests.shots import fleet, make_trip, photo_id
+from tests.shots import begin_trip, fleet, make_trip, photo_id
 
 
 def fuel_body(f, **extra):
@@ -78,6 +78,20 @@ async def test_only_the_crew_or_a_manager_can_record_fuel_and_it_is_isolated(cli
     wrong_trip = await make_trip(client, f)
     res = await client.post("/fuel", headers=bearer(f.owner), json={**fuel_body(f, mpesa_code=None), "vehicle_id": v2["id"], "trip_id": wrong_trip["id"]})
     assert res.json()["detail"]["code"] == "wrong_trip"
+
+
+async def test_fuel_goes_on_the_trip_that_was_running_when_it_was_bought(client):
+    f = await fleet(client)
+    before = (await client.post("/fuel", headers=bearer(f.driver), json=fuel_body(f, mpesa_code=None))).json()
+    assert before["trip_id"] is None  # no trip running: the lorry's own cost
+    trip = await begin_trip(client, f)
+    during = await client.post("/fuel", headers=bearer(f.driver), json=fuel_body(f, mpesa_code=None))
+    assert during.status_code == 201 and during.json()["trip_id"] == trip["id"]
+    by_the_office = await client.post("/fuel", headers=bearer(f.owner), json=fuel_body(f, mpesa_code=None))
+    assert by_the_office.json()["trip_id"] == trip["id"]  # whoever types it in
+    other = await make_trip(client, f)
+    named = await client.post("/fuel", headers=bearer(f.owner), json=fuel_body(f, mpesa_code=None, trip_id=other["id"]))
+    assert named.json()["trip_id"] == other["id"]  # a trip that is named is the one used
 
 
 # ---- floats --------------------------------------------------------------------------------------

@@ -167,6 +167,12 @@ export function ProfitPage() {
       {data && (
         <Card title="By client and by driver">
           <p className="muted">Revenue less the fuel and expenses booked to each trip.</p>
+          {data.business.not_on_a_trip > 0 && (
+            <p className="muted">
+              {kes(data.business.not_on_a_trip)} of fuel and expenses is not on any trip. It is in the business and vehicle figures above, but
+              in none of these rows.
+            </p>
+          )}
           <div className="table-wrap">
             <table>
               <thead>

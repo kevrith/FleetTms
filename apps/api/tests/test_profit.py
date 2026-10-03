@@ -61,6 +61,7 @@ async def test_profit_by_vehicle_client_driver_trip_depot_and_business(client):
     assert depots["Mombasa Yard"]["net"] == 12_800_000 and depots["No depot"]["net"] == 3_700_000
     biz = data["business"]
     assert biz["revenue"] == 20_000_000 and biz["net"] == 16_500_000 and biz["overheads"] == 1_000_000 and biz["net_after_overheads"] == 15_500_000 and biz["trips"] == 3
+    assert biz["not_on_a_trip"] == 700_000  # the lorry's repair: in the business figures, in no client or driver row
     assert t2 and not (await report(client, owner))["trips"]  # trips only when asked for
 
 

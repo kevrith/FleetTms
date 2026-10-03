@@ -1599,6 +1599,7 @@ export interface ProfitBusiness {
   unbilled: number;
   estimated: number;
   lessor_paid: number;
+  not_on_a_trip: number;
   overheads: number;
   overhead_expenses: number;
   overhead_payroll: number;

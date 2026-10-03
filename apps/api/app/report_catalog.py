@@ -65,6 +65,8 @@ async def profit(db: AsyncSession, start: date, end: date, principal) -> dict:
     clients = [[c["name"], c["trips"], kes(c["revenue_cents"]), kes(c["direct_cost_cents"]), kes(c["contribution_cents"])] for c in d["clients"]]
     drivers = [[x["name"], x["trips"], x["distance_km"], kes(x["revenue_cents"]), kes(x["direct_cost_cents"]), kes(x["contribution_cents"])] for x in d["drivers"]]
     notes = [f"Profit is worked out in whole months: {first.strftime('%B %Y')} to {last.strftime('%B %Y')}."]
+    if b["not_on_a_trip"]:
+        notes.append(f"{kes(b['not_on_a_trip'])} of fuel and expenses is not on any trip: it is in the business and vehicle figures, but in no client or driver row.")
     return _data("profit", "Profit and loss", start, end, [
         ("The business", ["Measure", "KES"], business),
         ("By vehicle", ["Vehicle", "Trips", "Km", "Revenue", "Running costs", "Gross profit", "Lease payable", "Finance", "Ownership", "Net profit", "Cost per km", "Revenue per km"], vehicles),

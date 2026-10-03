@@ -12,7 +12,7 @@ from app import audit, fraud, mpesa
 from app.clock import capture_time
 from app.db import get_db
 from app.deps import Principal, error, require, require_any
-from app.models import FuelEntry, PhotoKind, Trip
+from app.models import FuelEntry, PhotoKind, Trip, TripStatus
 from app.photos import claim_photo
 from app.routers.inspections import can_act_on_vehicle
 from app.routers.vehicles import get_vehicle
@@ -24,7 +24,7 @@ FIELDS = ["vehicle_id", "trip_id", "litres", "price_per_litre_cents", "amount_ce
 
 class FuelIn(BaseModel):
     vehicle_id: uuid.UUID
-    trip_id: uuid.UUID | None = None
+    trip_id: uuid.UUID | None = None  # the vehicle's trip running at that moment is used when left out
     litres: Decimal = Field(gt=0, le=2000, decimal_places=2)
     price_per_litre_cents: int = Field(gt=0, le=100_000)
     amount_cents: int = Field(gt=0, le=100_000_000)
@@ -55,10 +55,25 @@ async def do_add_fuel(db: AsyncSession, principal: Principal, body: FuelIn) -> t
     vehicle = await get_vehicle(db, principal, body.vehicle_id)
     if not await can_act_on_vehicle(db, principal, vehicle):
         raise error(status.HTTP_403_FORBIDDEN, "not_your_vehicle", "You are not assigned to this vehicle.")
-    if body.trip_id is not None:
-        trip = (await db.execute(select(Trip).where(Trip.id == body.trip_id))).scalar_one_or_none()
+    trip_id = body.trip_id
+    if trip_id is not None:
+        trip = (await db.execute(select(Trip).where(Trip.id == trip_id))).scalar_one_or_none()
         if trip is None or trip.vehicle_id != vehicle.id:
             raise error(422, "wrong_trip", "That trip is not for this vehicle.")
+    else:
+        # Fuel bought while a trip was running belongs to it, whoever types it in and whenever it is entered; otherwise it is the
+        # vehicle's own cost and never reaches the client or driver profit rows.
+        trip_id = (
+            await db.execute(
+                select(Trip.id)
+                .where(
+                    Trip.vehicle_id == vehicle.id, Trip.started_at.is_not(None), Trip.started_at <= at,
+                    Trip.ended_at.is_(None) | (Trip.ended_at >= at),
+                    Trip.status.in_((TripStatus.IN_PROGRESS, TripStatus.DELIVERED, TripStatus.COMPLETED)),
+                )
+                .order_by(Trip.started_at.desc())
+            )
+        ).scalars().first()  # fmt: skip
     try:
         code = mpesa.tidy(body.mpesa_code)
     except ValueError as exc:
@@ -79,7 +94,7 @@ async def do_add_fuel(db: AsyncSession, principal: Principal, body: FuelIn) -> t
     if receipt is None:
         flags.append("no_receipt")
     entry = FuelEntry(
-        vehicle_id=vehicle.id, trip_id=body.trip_id, litres=body.litres, price_per_litre_cents=body.price_per_litre_cents,
+        vehicle_id=vehicle.id, trip_id=trip_id, litres=body.litres, price_per_litre_cents=body.price_per_litre_cents,
         amount_cents=body.amount_cents, station=body.station, mpesa_code=code,
         receipt_photo_id=receipt.id if receipt else None, flags=flags, client_id=body.client_id, captured_at=at,
         recorded_by_user_id=principal.user.id,
