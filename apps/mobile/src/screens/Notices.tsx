@@ -14,9 +14,10 @@ const TITLES: Record<string, string> = {
 
 // Plain-language summary shown to drivers before they can use the app (masterplan Section 11.2).
 const MONITORING_TEXT =
-  "FleetTms records your location while a trip is active, your odometer photos, and the fuel and expenses you enter. " +
-  "This is used only for work. Location tracking stops when you end your trip. Your employer and supervisors can see this data. " +
-  "You can ask your employer to see, correct or delete your data.";
+  "FleetTms records your phone's location (position, speed and direction) while a trip is running, your odometer photos, and the fuel and expenses you enter. " +
+  "Tracking starts when you start a trip and stops when you end it, and a notification shows while it is on. It does not run outside work. " +
+  "Your employer and supervisors can see it, and a client can follow only that delivery's progress on a link the office sends. " +
+  "Location points are deleted after 12 months. You can ask your employer to see, correct or delete your data.";
 
 export default function NoticesScreen({ docs }: { docs: PendingDocument[] }) {
   const { reload } = useAuth();

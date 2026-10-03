@@ -1,5 +1,16 @@
 import type {
   AuditEntry,
+  BehaviourEvent,
+  BehaviourSummary,
+  Geofence,
+  GeofenceEvent,
+  GeofenceInput,
+  ImmobiliserCommand,
+  ImmobiliserState,
+  Replay,
+  TrackerAlert,
+  TrackerDevice,
+  TrackerInput,
   ChecklistItem,
   ComplianceDocument,
   CrewAssignment,
@@ -67,12 +78,14 @@ import type {
   ClaimStatus,
   FinesSummary,
   SosAlert,
+  DeliveryFollow,
   Debtors,
   FinanceAgreement,
   LeaseAgreement,
   LeaseDetail,
   LeaseEntry,
   LeaseStatement,
+  LiveMap,
   OwnershipCost,
   PartsOrder,
   PayrollRun,
@@ -80,6 +93,10 @@ import type {
   ProfitReport,
   SalaryAdvance,
   Supplier,
+  TrackingGapRow,
+  TrackingLinkRow,
+  TrackingStatus,
+  TripTrack,
   DebtorDetail,
   EtimsSubmission,
   EtimsSummary,
@@ -890,6 +907,83 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
         true,
         true,
       ),
+
+    // ---- phone GPS, live map, client tracking links ----
+    liveMap: () => get<LiveMap>("/map/vehicles"),
+    trackingGaps: () => get<TrackingGapRow[]>("/map/gaps"),
+    tripTrack: (tripId: string) => get<TripTrack>(`/trips/${tripId}/track`),
+    sendLocations: (
+      tripId: string,
+      points: {
+        recorded_at: string;
+        lat: number;
+        lng: number;
+        speed_kmh?: number | null;
+        heading?: number | null;
+        accuracy_m?: number | null;
+      }[],
+    ) =>
+      post<{
+        accepted: number;
+        duplicate: number;
+        rejected: Record<string, number>;
+        tracking: boolean;
+      }>(`/trips/${tripId}/locations`, { points }),
+    myTracking: () => get<TrackingStatus>("/me/tracking"),
+    createTrackingLink: (
+      tripId: string,
+      input: { send_sms?: boolean; phone?: string | null } = {},
+    ) => post<TrackingLinkRow>(`/trips/${tripId}/tracking-link`, input),
+    trackingLinks: (tripId: string) => get<TrackingLinkRow[]>(`/trips/${tripId}/tracking-links`),
+    revokeTrackingLink: (id: string) => request<void>("DELETE", `/tracking-links/${id}`),
+    /** What a client sees. No sign-in: the secret in the address is the key. */
+    followDelivery: (token: string) =>
+      request<DeliveryFollow>("GET", `/track/${encodeURIComponent(token)}`, undefined, false),
+
+    // ---- trackers, alerts, behaviour, mapped areas, replay, immobiliser ----
+    trackers: () => get<TrackerDevice[]>("/trackers"),
+    addTracker: (input: TrackerInput) => post<TrackerDevice>("/trackers", input),
+    updateTracker: (id: string, input: TrackerInput) =>
+      request<TrackerDevice>("PUT", `/trackers/${id}`, input),
+    trackerAlerts: (status?: "open") =>
+      get<TrackerAlert[]>(`/tracker/alerts${status ? `?status_filter=${status}` : ""}`),
+    handleTrackerAlert: (
+      id: string,
+      input: { note: string; outcome?: "explained" | "confirmed" },
+    ) => post<TrackerAlert>(`/tracker/alerts/${id}/handle`, input),
+    geofences: () => get<Geofence[]>("/geofences"),
+    addGeofence: (input: GeofenceInput) => post<Geofence>("/geofences", input),
+    updateGeofence: (id: string, input: GeofenceInput) =>
+      request<Geofence>("PUT", `/geofences/${id}`, input),
+    deleteGeofence: (id: string) => request<void>("DELETE", `/geofences/${id}`),
+    geofenceEvents: (params: { vehicle_id?: string; limit?: number } = {}) => {
+      const q = new URLSearchParams();
+      if (params.vehicle_id) q.set("vehicle_id", params.vehicle_id);
+      if (params.limit) q.set("limit", String(params.limit));
+      const qs = q.toString();
+      return get<GeofenceEvent[]>(`/geofences/events${qs ? `?${qs}` : ""}`);
+    },
+    behaviourEvents: (params: { vehicle_id?: string; kind?: string; limit?: number } = {}) => {
+      const q = new URLSearchParams();
+      if (params.vehicle_id) q.set("vehicle_id", params.vehicle_id);
+      if (params.kind) q.set("kind", params.kind);
+      if (params.limit) q.set("limit", String(params.limit));
+      const qs = q.toString();
+      return get<BehaviourEvent[]>(`/behaviour/events${qs ? `?${qs}` : ""}`);
+    },
+    behaviourSummary: () => get<BehaviourSummary>("/behaviour/summary"),
+    tripReplay: (tripId: string) => get<Replay>(`/trips/${tripId}/replay`),
+    vehicleReplay: (vehicleId: string, start: string, end: string) =>
+      get<Replay>(`/vehicles/${vehicleId}/replay?${new URLSearchParams({ start, end })}`),
+    immobiliserState: (vehicleId: string) =>
+      get<ImmobiliserState>(`/vehicles/${vehicleId}/immobiliser`),
+    requestImmobiliser: (
+      vehicleId: string,
+      input: { action: "immobilise" | "release"; reason: string },
+    ) => post<ImmobiliserCommand>(`/vehicles/${vehicleId}/immobiliser`, input),
+    confirmImmobiliser: (id: string, input: { registration: string; password: string }) =>
+      post<ImmobiliserCommand>(`/immobiliser/${id}/confirm`, input),
+    cancelImmobiliser: (id: string) => post<ImmobiliserCommand>(`/immobiliser/${id}/cancel`),
 
     // ---- SOS ----
     myTyrePositions: () => get<MyTyrePositions>("/me/tyre-positions"),

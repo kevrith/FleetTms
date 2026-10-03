@@ -353,6 +353,11 @@ export interface TripJob {
 }
 
 export interface Trip {
+  gps_distance_km?: number | null;
+  distance_check?: "ok" | "mismatch" | "no_gps" | null;
+  tracker_distance_km?: number | null;
+  distance_detail?: DistanceDetail | null;
+  trust?: VehicleTrust | null;
   id: string;
   job?: TripJob | null;
   planned_end?: string | null;
@@ -451,7 +456,13 @@ export interface MyFloat {
 }
 
 export type TrustLevel = "high" | "medium" | "low";
-export type DeviceFlag = "mock_location" | "rooted" | "clock_changed";
+export type DeviceFlag =
+  | "mock_location"
+  | "rooted"
+  | "clock_changed"
+  | "tracker_power_cut"
+  | "tracker_gps_jamming"
+  | "tracker_tamper";
 
 export interface VehicleTrust {
   level: TrustLevel;
@@ -1704,4 +1715,308 @@ export interface PortalLease extends LeaseAgreement {
   entries?: LeaseEntry[];
   service_history?: { done_on: string; odometer_km: number; notes: string | null }[];
   inspections?: { date: string; status: string }[];
+}
+
+// ---- Sprint 11: phone GPS, live map, client tracking links ----
+
+export type VehicleMapState = "moving" | "idle" | "offline" | "parked" | "unknown";
+
+export interface MapPosition {
+  at: string;
+  lat: number;
+  lng: number;
+  speed_kmh: number | null;
+  heading: number | null;
+  accuracy_m: number | null;
+}
+
+export interface MapVehicle {
+  vehicle_id: string;
+  registration: string;
+  state: VehicleMapState;
+  depot: string | null;
+  going_dark: boolean;
+  position: MapPosition | null;
+  age_seconds: number | null;
+  trip: {
+    id: string;
+    origin: string | null;
+    destination: string | null;
+    status: string;
+    started_at: string | null;
+    driver: string | null;
+  } | null;
+  source?: "phone" | "tracker" | null;
+  trust?: VehicleTrust;
+  tracker?: {
+    online: boolean;
+    power_ok: boolean | null;
+    battery_pct: number | null;
+    ignition: boolean | null;
+    immobilised: boolean;
+  } | null;
+}
+
+export interface LiveMap {
+  as_of: string;
+  going_dark_minutes: number;
+  vehicles: MapVehicle[];
+}
+
+export interface TripTrack {
+  trip_id: string;
+  status: string;
+  started_at: string | null;
+  ended_at: string | null;
+  fixes: number;
+  gps_distance_km: number | null;
+  odometer_distance_km: number | null;
+  distance_check: "ok" | "mismatch" | "no_gps" | null;
+  points: MapPosition[];
+}
+
+export interface DistanceDetail {
+  suspect: "odometer" | "phone" | "tracker" | null;
+  sources: Record<string, number>;
+}
+
+// ---- trackers, alerts, behaviour, mapped areas, replay, immobiliser ----
+
+export interface TrackerDevice {
+  id: string;
+  vehicle_id: string;
+  registration: string | null;
+  imei: string;
+  name: string | null;
+  brand: string | null;
+  model: string | null;
+  sim_phone: string | null;
+  supports_immobiliser: boolean;
+  is_active: boolean;
+  online_state: "online" | "offline" | "unknown";
+  last_seen_at: string | null;
+  last_position_at: string | null;
+  quiet_seconds: number | null;
+  battery_pct: number | null;
+  power_v: number | null;
+  power_ok: boolean | null;
+  ignition: boolean | null;
+  gps_ok: boolean | null;
+  immobilised: boolean;
+}
+
+export interface TrackerInput {
+  vehicle_id: string;
+  imei: string;
+  name?: string | null;
+  brand?: string | null;
+  model?: string | null;
+  sim_phone?: string | null;
+  supports_immobiliser?: boolean;
+  is_active?: boolean;
+}
+
+export type TrackerAlertKind =
+  "power_cut" | "gps_jamming" | "tamper" | "low_battery" | "device_offline" | "geofence";
+
+export interface TrackerAlert {
+  id: string;
+  vehicle_id: string;
+  registration: string | null;
+  device_id: string | null;
+  trip_id: string | null;
+  kind: TrackerAlertKind;
+  severity: "red" | "amber" | "info";
+  at: string;
+  details: Record<string, unknown> | null;
+  status: "open" | "explained" | "confirmed" | "resolved";
+  note: string | null;
+  handled_at: string | null;
+  resolved_at: string | null;
+  notified: number;
+}
+
+export type GeofenceKind = "depot" | "client_site" | "fuel_station" | "restricted";
+export type GeofenceShape =
+  | { type: "circle"; lat: number; lng: number; radius_m: number }
+  | { type: "polygon"; points: [number, number][] };
+
+export interface Geofence {
+  id: string;
+  name: string;
+  kind: GeofenceKind;
+  shape: GeofenceShape;
+  alert_on: ("enter" | "exit")[];
+  vehicle_ids: string[] | null;
+  is_active: boolean;
+}
+
+export type GeofenceInput = Omit<Geofence, "id">;
+
+export interface GeofenceEvent {
+  id: string;
+  geofence: string | null;
+  geofence_id: string;
+  vehicle_id: string;
+  registration: string;
+  trip_id: string | null;
+  kind: "enter" | "exit";
+  at: string;
+  lat: number;
+  lng: number;
+}
+
+export type BehaviourKind =
+  | "speeding"
+  | "harsh_braking"
+  | "harsh_acceleration"
+  | "harsh_cornering"
+  | "idling"
+  | "night_driving"
+  | "long_driving";
+
+export interface BehaviourEvent {
+  id: string;
+  vehicle_id: string;
+  registration: string | null;
+  driver_membership_id: string | null;
+  driver: string | null;
+  trip_id: string | null;
+  kind: BehaviourKind;
+  label: string;
+  at: string;
+  ended_at: string | null;
+  value: number | null;
+  limit: number | null;
+  lat: number | null;
+  lng: number | null;
+  source: "phone" | "tracker";
+}
+
+export interface BehaviourSummary {
+  from: string;
+  to: string;
+  vehicles: {
+    vehicle_id: string;
+    registration: string;
+    counts: Record<string, number>;
+    total: number;
+  }[];
+  drivers: {
+    driver_membership_id: string;
+    name: string | null;
+    counts: Record<string, number>;
+    total: number;
+  }[];
+}
+
+export interface ReplayEvent {
+  group: "behaviour" | "geofence" | "alert";
+  kind: string;
+  label: string;
+  at: string;
+  ended_at: string | null;
+  lat: number | null;
+  lng: number | null;
+  value: number | null;
+  severity?: "red" | "amber" | "info";
+}
+
+export interface Replay {
+  source: "phone" | "tracker";
+  from: string;
+  to: string;
+  fixes: number;
+  points: (MapPosition & { ignition?: boolean | null })[];
+  events: ReplayEvent[];
+  vehicle_id: string;
+  trip_id?: string;
+}
+
+export type ImmobiliserStatus =
+  | "awaiting_confirmation"
+  | "sent"
+  | "acknowledged"
+  | "failed"
+  | "refused"
+  | "cancelled"
+  | "expired";
+
+export interface ImmobiliserCommand {
+  id: string;
+  vehicle_id: string;
+  registration: string | null;
+  action: "immobilise" | "release";
+  status: ImmobiliserStatus;
+  reason: string;
+  speed_kmh: number | null;
+  position_age_s: number | null;
+  requested_at: string;
+  expires_at: string;
+  confirmed_at: string | null;
+  sent_at: string | null;
+  result_at: string | null;
+  result_note: string | null;
+}
+
+export interface ImmobiliserState {
+  vehicle_id: string;
+  registration: string;
+  has_tracker: boolean;
+  supported: boolean;
+  immobilised: boolean;
+  can_immobilise: boolean;
+  reason: string | null;
+  message: string | null;
+  speed_kmh?: number | null;
+  position_age_s?: number | null;
+  online?: boolean;
+  history: ImmobiliserCommand[];
+}
+
+export interface TrackingGapRow {
+  id: string;
+  trip_id: string;
+  registration: string;
+  last_seen_at: string | null;
+  detected_at: string;
+  resolved_at: string | null;
+  notified: number;
+}
+
+export interface TrackingLinkRow {
+  id: string;
+  trip_id: string;
+  created_at: string;
+  expires_at: string;
+  state: "active" | "expired" | "revoked";
+  views: number;
+  last_viewed_at: string | null;
+  sent_to: string | null;
+  /** Only when it has just been made: the secret address is never shown again. */
+  url?: string;
+}
+
+/** What a client sees when following a delivery. */
+export interface DeliveryFollow {
+  business: string;
+  status: "scheduled" | "on_the_way";
+  origin: string | null;
+  destination: string | null;
+  cargo: string | null;
+  scheduled_for: string | null;
+  started_at: string | null;
+  expected_arrival: string | null;
+  position: { lat: number; lng: number; updated_at: string; stale: boolean } | null;
+  minutes_remaining: number | null;
+  progress_pct: number | null;
+  as_of: string;
+}
+
+export interface TrackingStatus {
+  tracking: boolean;
+  trip_id: string | null;
+  last_fix_at: string | null;
+  fixes_today: number;
+  retention_days: number;
 }

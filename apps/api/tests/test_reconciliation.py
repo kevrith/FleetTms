@@ -1,6 +1,6 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
-from app.reminders import nairobi_today
+from app.reminders import NAIROBI, nairobi_today
 from tests.fleet import add_vehicle
 from tests.helpers import PASSWORD, bearer, driver_session, enable_2fa, login, staff_session
 from tests.shots import ago, fleet, my_balance, send_float, sync
@@ -118,8 +118,9 @@ async def test_a_rejected_day_goes_back_and_can_be_resubmitted(client):
 async def test_yesterdays_spending_sets_todays_opening_balance(client):
     f = await fleet(client)
     await send_float(client, f, 300000)
-    await spend(client, f.driver, 40000, captured_at=ago(hours=30))
     yesterday = nairobi_today() - timedelta(days=1)
+    noon = datetime(yesterday.year, yesterday.month, yesterday.day, 12, tzinfo=NAIROBI)  # midday yesterday, whatever time the test runs
+    await spend(client, f.driver, 40000, captured_at=noon.isoformat())
     today = await sheet(client, f.driver)
     assert today["expenses_cents"] == 0 and today["floats_cents"] == 300000
     old = await sheet(client, f.driver, yesterday)

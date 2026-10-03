@@ -8,6 +8,7 @@ import { Screen } from "./ui";
 import HomeScreen from "./screens/Home";
 import LoginScreen from "./screens/Login";
 import ExpensesScreen from "./screens/Expenses";
+import FleetScreen from "./screens/Fleet";
 import MoreScreen from "./screens/More";
 import NoticesScreen from "./screens/Notices";
 import TripPanel from "./screens/TripPanel";
@@ -101,7 +102,14 @@ function Gate() {
   const office = can("workshop.manage")
     ? [...OWNER_TABS.slice(0, -1), WORKSHOP_TAB, ...OWNER_TABS.slice(-1)]
     : OWNER_TABS;
-  const tabs = view === "driver" ? DRIVER_TABS : workshopOnly ? WORKSHOP_TABS : office;
+  const withMap = can("livemap.view")
+    ? [
+        ...office.slice(0, -1),
+        { name: "Map", icon: "location-outline" as IconName, component: FleetScreen },
+        ...office.slice(-1),
+      ]
+    : office;
+  const tabs = view === "driver" ? DRIVER_TABS : workshopOnly ? WORKSHOP_TABS : withMap;
   return <Tabs key={view} tabs={tabs} />;
 }
 

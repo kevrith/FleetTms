@@ -192,6 +192,39 @@ on the dev machine.
   expenses, lease payments, loan repayments and advances (`app/mpesa.py`). The dashboard builds last month's profit on every load: move
   it to a cached figure in Sprint 16 if it gets slow.
 
+- **Sprint 11 (phone GPS, live map, tracking links).** Rules in `app/gps_rules.py` mirrored by `packages/business-rules/src/gps.ts`, tested
+  against `gps-cases.json`. `app/tracking.py` ingests a crew's fixes (`POST /trips/{id}/locations`): only the trip's own crew, only between
+  the trip's start (2 minutes' slack) and its end, one row per vehicle and moment (`location_points` is a TimescaleDB hypertable on
+  `recorded_at`; a hypertable row's time cannot be updated across chunks, so tests insert old rows rather than moving them). `finalise()` sets
+  `gps_distance_km` and `distance_check` when a trip ends or late fixes arrive. `app/tracking_jobs.py`: going-dark watcher (every 5
+  minutes, `GOING_DARK_MINUTES`) and the 12-month purge. `routers/livemap.py` is the map and a trip's path (`livemap.view`, supervisor scope
+  applies), `routers/tracking_links.py` the client links (secret shown once, hash stored) and the public `GET /track/{token}`. On the phone,
+  `apps/mobile/src/tracking/tracker.ts` is the tested logic (no trip begun means nothing kept; nothing kept after the trip's end; encrypted
+  file; batches) and `task.ts` the Expo background task; tracking follows the trip's state in `offline/runtime.tsx`. The monitoring notice is
+  `draft-2`; bump `MONITORING_NOTICE_VERSION` whenever what is tracked changes.
+- **Development build for the phone.** Background location does not work in Expo Go on Android. To build one: `cd apps/mobile`, `npx expo
+  prebuild --platform android` (the generated `android/` is git-ignored), then in `android/` use JDK 17 (`JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64`;
+  the JDK 21 here has no `jlink`), an installed NDK in `build.gradle` (`ndkVersion`; 27.1.12297006 worked here, the empty 26.1 folder does not), and
+  `./gradlew assembleDebug -PreactNativeArchitectures=x86_64`. Install the APK, `adb reverse tcp:8081 tcp:8081`, run `expo start`, and
+  grant background location. On the emulator, `adb emu geo fix <lng> <lat>` makes a fix.
+
+- **Sprint 12 (trackers, tamper alerts, behaviour, immobiliser).** Rules are pure and mirrored in TypeScript, tested against shared case
+  files: `behaviour_rules.py` (`step(state, fix)` returns the new state and the events found), `geofence_rules.py`, `immobiliser_rules.py`,
+  and `gps_rules.three_way`. Traccar posts to `POST /hooks/traccar/{TRACCAR_FORWARD_KEY}` (`routers/trackers.py`; empty key means the
+  address answers 403). `app/traccar.py` parses its JSON (speeds are in knots, the device is `device.uniqueId` which is the IMEI, alarms
+  are `position.attributes.alarm`) and sends commands through its REST API (`TRACCAR_URL`, `TRACCAR_TOKEN`; with neither set a fake keeps
+  the commands for tests). Traccar sends each position on its own and again inside the event it raised, so every step is idempotent:
+  `tracker_ingest.handle_position` stores one row per vehicle and moment, and alerts and behaviour events are de-duplicated.
+  Docker: `docker compose --profile tracking up -d traccar` after setting `TRACCAR_FORWARD_KEY`; with this Traccar version the forward
+  settings are `FORWARD_TYPE=json` and `EVENT_FORWARD_TYPE=json` (the `enable` and `json` keys of older versions do nothing).
+  Try it without hardware: `cd apps/api && TRACCAR_FORWARD_KEY=<key from .env> .venv/bin/python -m app.tracker_simulator --imei <imei> --scenario trip` (also
+  `powercut`, `jamming`, `offline`; `--url`, `--delay`). Services: `alerts.py` (raise, de-duplicate, text, resolve), `behaviour.py`,
+  `geofences.py`, `immobiliser.py`; jobs in `tracking_jobs.py` (`watch_devices` every 5 minutes). Permissions: `livemap.view` to see,
+  `vehicles.manage` to fit trackers, `geofences.manage` and `alerts.manage` (owner, manager), `immobiliser.use` (owner only). The
+  immobiliser always checks twice and never sends to a moving vehicle; do not add a way around it. Web: `pages/Tracking.tsx` (alerts,
+  trackers, and the areas and behaviour tabs), `Replay.tsx` and `Immobiliser.tsx` cards on the vehicle and trip pages; `MapView` now draws
+  areas and takes clicks. Mobile has no new screens in this sprint. Unverified: no real tracker; per-model alarm names.
+
 ## Testing against a real phone/emulator
 
 - API tests use a separate `fleettms_test` database that they create and migrate themselves.
@@ -213,7 +246,7 @@ dashboard, quick sign-in) is built and tested; use it on your own lorries for a 
 Sprints 6 to 8 (tyres and parts, clients and jobs, proof of delivery and billing) are built and tested. Sprint 9 (payments,
 debtors, reminders, eTIMS) is built and tested against the stand-ins; it has not been run against the Safaricom or KRA
 sandboxes (needs your keys). Sprint 10 (leases, loans, ownership costs, profit engine, payroll, suppliers, lessor portal) is built and
-tested; compare its profit figures with your own spreadsheet on real lorries. Next: Sprint 11 (phone GPS, live map, client tracking links).
+tested; compare its profit figures with your own spreadsheet on real lorries. Sprint 11 (phone GPS, live map, client tracking links) is built and was checked on the emulator with a development build; try it on a real phone in a moving lorry. Sprint 12 (trackers, tamper alerts, behaviour, immobiliser) is built and tested, and Traccar's post format was checked against a real Traccar server; no real tracker has been tried. Next: Sprint 13 (fraud engine, alerts, scorecards).
 
 Create the first platform admin with `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_NAME` and `PLATFORM_ADMIN_PASSWORD`
 set in `.env`, then `cd apps/api && .venv/bin/python -m app.cli create-platform-admin`.

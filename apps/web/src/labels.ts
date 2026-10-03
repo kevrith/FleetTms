@@ -84,6 +84,9 @@ export const DEVICE_FLAG: Record<string, string> = {
   mock_location: "A fake-GPS app was running",
   rooted: "The phone is rooted",
   clock_changed: "The phone's clock was wrong",
+  tracker_power_cut: "The tracker lost its power supply",
+  tracker_gps_jamming: "The tracker reported GPS jamming",
+  tracker_tamper: "The tracker was tampered with",
 };
 export const FUEL_FLAG: Record<string, string> = {
   amount_mismatch: "Litres times price does not match the amount",
@@ -273,4 +276,62 @@ export function reminderStep(offset: number): string {
     : offset === 0
       ? "On the due date"
       : `${days} after`;
+}
+
+export const ALERT_KIND: Record<string, string> = {
+  power_cut: "Tracker lost power",
+  gps_jamming: "GPS jamming",
+  tamper: "Tracker tampered with",
+  low_battery: "Tracker battery low",
+  device_offline: "Tracker not reporting",
+  geofence: "Mapped area",
+};
+export const ALERT_STATUS: Record<string, string> = {
+  open: "Open",
+  explained: "Explained",
+  confirmed: "Confirmed as real",
+  resolved: "Resolved",
+};
+export const BEHAVIOUR_KIND: Record<string, string> = {
+  speeding: "Speeding",
+  harsh_braking: "Harsh braking",
+  harsh_acceleration: "Harsh acceleration",
+  harsh_cornering: "Sharp cornering",
+  idling: "Idling",
+  night_driving: "Night driving",
+  long_driving: "Long driving without rest",
+};
+export const GEOFENCE_KIND: Record<string, string> = {
+  depot: "Depot",
+  client_site: "Client site",
+  fuel_station: "Fuel station",
+  restricted: "Restricted (must not enter)",
+};
+export const GEOFENCE_COLOUR: Record<string, string> = {
+  depot: "#2563eb",
+  client_site: "#16a34a",
+  fuel_station: "#d97706",
+  restricted: "#dc2626",
+};
+export const IMMOBILISER_STATUS: Record<string, string> = {
+  awaiting_confirmation: "Waiting for confirmation",
+  sent: "Sent to the tracker",
+  acknowledged: "Tracker confirmed",
+  failed: "Could not be sent",
+  refused: "Refused for safety",
+  cancelled: "Cancelled",
+  expired: "Expired",
+};
+export const ONLINE_STATE: Record<string, string> = {
+  online: "Reporting",
+  offline: "Not reporting",
+  unknown: "Never heard from",
+};
+/** How long ago, in plain words, from a number of seconds. */
+export function quietFor(seconds: number | null): string {
+  if (seconds === null) return "never";
+  if (seconds < 90) return "just now";
+  if (seconds < 3600) return `${Math.round(seconds / 60)} min ago`;
+  if (seconds < 86400) return `${Math.round(seconds / 3600)} h ago`;
+  return `${Math.round(seconds / 86400)} days ago`;
 }

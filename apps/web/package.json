@@ -15,6 +15,7 @@
     "@fleettms/business-rules": "workspace:*",
     "@fleettms/design-tokens": "workspace:*",
     "@fleettms/types": "workspace:*",
+    "leaflet": "^1.9.4",
     "lucide-react": "^0.460.0",
     "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
@@ -22,6 +23,7 @@
     "react-router-dom": "^6.28.0"
   },
   "devDependencies": {
+    "@types/leaflet": "^1.9.22",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",

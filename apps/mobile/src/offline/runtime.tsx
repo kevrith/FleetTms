@@ -12,7 +12,6 @@ import * as Crypto from "expo-crypto";
 import * as Device from "expo-device";
 import * as FileSystem from "expo-file-system";
 import * as Location from "expo-location";
-import * as SecureStore from "expo-secure-store";
 import {
   createContext,
   useCallback,
@@ -26,7 +25,7 @@ import {
 import { AppState } from "react-native";
 import { api } from "../api";
 import { useAuth } from "../auth";
-import { fromB64, toB64 } from "./bytes";
+import { fromB64 } from "./bytes";
 import { createSyncEngine, type EngineApi, type RunResult } from "./engine";
 import {
   assertInspectionClears,
@@ -38,42 +37,19 @@ import {
   loadedTrip,
   startedTrip,
 } from "./local";
-import { createStore, type FileAdapter } from "./store";
+import { files, keys } from "./device";
+import { createStore } from "./store";
 import type { DriverCache, LocalPhoto, OfflineState, QueueItem } from "./types";
-import { createVault, type KeyStore } from "./vault";
-
-const KEY_NAME = "fleettms.vaultkey";
-const DIR = `${FileSystem.documentDirectory ?? ""}fleettms/`;
-
-const keys: KeyStore = {
-  get: () => SecureStore.getItemAsync(KEY_NAME),
-  set: (v) => SecureStore.setItemAsync(KEY_NAME, v),
-  clear: () => SecureStore.deleteItemAsync(KEY_NAME),
-};
-
-const files: FileAdapter = {
-  async read(name) {
-    const info = await FileSystem.getInfoAsync(DIR + name);
-    return info.exists
-      ? FileSystem.readAsStringAsync(DIR + name, { encoding: FileSystem.EncodingType.UTF8 })
-      : null;
-  },
-  async write(name, base64) {
-    await FileSystem.makeDirectoryAsync(DIR, { intermediates: true });
-    await FileSystem.writeAsStringAsync(DIR + name, base64, {
-      encoding: FileSystem.EncodingType.UTF8,
-    });
-  },
-  remove: (name) => FileSystem.deleteAsync(DIR + name, { idempotent: true }),
-  removeAll: () => FileSystem.deleteAsync(DIR, { idempotent: true }),
-  async writeTemp(name, bytes) {
-    const uri = `${FileSystem.cacheDirectory}${name}`;
-    await FileSystem.writeAsStringAsync(uri, toB64(bytes), {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-    return { uri, cleanup: () => FileSystem.deleteAsync(uri, { idempotent: true }) };
-  },
-};
+import { createVault } from "./vault";
+import { setTrackingProblem } from "../tracking/status";
+import {
+  clearTracking,
+  flushTracking,
+  resumeTracking,
+  startTracking,
+  stopTracking,
+  tracker,
+} from "../tracking/task";
 
 const store = createStore({
   files,
@@ -264,6 +240,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
   const syncNow = useCallback(async (): Promise<RunResult> => {
     setSyncing(true);
     try {
+      void flushTracking().catch(() => undefined); // location waiting to be sent goes with everything else
       return await engine.run({ refresh: true });
     } finally {
       setSyncing(false);
@@ -271,6 +248,27 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => store.subscribe(() => setState(store.get())), []);
+
+  // Location is tracked while a trip is running and not otherwise (masterplan 11.2): this follows the trip's state on the phone,
+  // whether the driver started it here or the office did.
+  const tripId = state.cache.trip?.id ?? null;
+  const tripStatus = state.cache.trip?.status ?? null;
+  useEffect(() => {
+    if (!active || !ready) return;
+    const running = tripId !== null && (tripStatus === "in_progress" || tripStatus === "delivered");
+    void (async () => {
+      if (running) {
+        if (tracker.isTracking() && tracker.tripId() === tripId) return resumeTracking();
+        const res = await startTracking(tripId);
+        setTrackingProblem(res.ok ? null : res.reason);
+      } else if (tracker.isTracking()) {
+        setTrackingProblem(null);
+        await stopTracking();
+      } else if (tracker.tripId() !== null) {
+        await flushTracking(); // hand in what an ended trip left waiting
+      }
+    })().catch(() => undefined);
+  }, [active, ready, tripId, tripStatus]);
 
   // Load the vault once per signed-in person. Someone else's leftovers are wiped, never shown.
   useEffect(() => {
@@ -594,6 +592,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
       },
       wipe: async () => {
         loadedFor.current = null;
+        await clearTracking();
         await store.clear();
         setReady(false);
       },

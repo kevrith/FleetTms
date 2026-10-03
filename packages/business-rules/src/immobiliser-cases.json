@@ -1,0 +1,112 @@
+[
+ {
+  "name": "standing and fresh",
+  "action": "immobilise",
+  "speed": 0,
+  "age_s": 20,
+  "online": true,
+  "supported": true,
+  "allowed": true,
+  "reason": null
+ },
+ {
+  "name": "crawling at the limit",
+  "action": "immobilise",
+  "speed": 5,
+  "age_s": 20,
+  "online": true,
+  "supported": true,
+  "allowed": true,
+  "reason": null
+ },
+ {
+  "name": "faster than a crawl",
+  "action": "immobilise",
+  "speed": 5.1,
+  "age_s": 20,
+  "online": true,
+  "supported": true,
+  "allowed": false,
+  "reason": "moving"
+ },
+ {
+  "name": "on the highway",
+  "action": "immobilise",
+  "speed": 80,
+  "age_s": 10,
+  "online": true,
+  "supported": true,
+  "allowed": false,
+  "reason": "moving"
+ },
+ {
+  "name": "the speed we have is old",
+  "action": "immobilise",
+  "speed": 0,
+  "age_s": 181,
+  "online": true,
+  "supported": true,
+  "allowed": false,
+  "reason": "stale_position"
+ },
+ {
+  "name": "exactly three minutes old",
+  "action": "immobilise",
+  "speed": 0,
+  "age_s": 180,
+  "online": true,
+  "supported": true,
+  "allowed": true,
+  "reason": null
+ },
+ {
+  "name": "never reported",
+  "action": "immobilise",
+  "speed": null,
+  "age_s": null,
+  "online": true,
+  "supported": true,
+  "allowed": false,
+  "reason": "no_position"
+ },
+ {
+  "name": "tracker offline",
+  "action": "immobilise",
+  "speed": 0,
+  "age_s": 20,
+  "online": false,
+  "supported": true,
+  "allowed": false,
+  "reason": "offline"
+ },
+ {
+  "name": "tracker cannot do it",
+  "action": "immobilise",
+  "speed": 0,
+  "age_s": 20,
+  "online": true,
+  "supported": false,
+  "allowed": false,
+  "reason": "unsupported"
+ },
+ {
+  "name": "releasing is always allowed to be tried",
+  "action": "release",
+  "speed": 90,
+  "age_s": 9999,
+  "online": false,
+  "supported": true,
+  "allowed": true,
+  "reason": null
+ },
+ {
+  "name": "releasing on an unsupported tracker is not",
+  "action": "release",
+  "speed": 0,
+  "age_s": 0,
+  "online": true,
+  "supported": false,
+  "allowed": false,
+  "reason": "unsupported"
+ }
+]

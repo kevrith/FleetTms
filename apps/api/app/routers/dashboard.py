@@ -2,7 +2,7 @@
 
 import io
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
@@ -40,6 +40,8 @@ from app.models import (
     Role,
     ServiceSchedule,
     SosAlert,
+    TrackerAlert,
+    TrackingGap,
     Trip,
     TripStatus,
     TyreSwapAlert,
@@ -193,6 +195,21 @@ async def dashboard(
         ]  # fmt: skip
         if waiting:
             alerts.append(alert("not_invoiced", "amber", f"{len(waiting)} delivered trip{'s' if len(waiting) != 1 else ''} not invoiced yet", "Usually a per-tonne trip with no weighbridge weight.", f"/trips/{waiting[0].id}"))
+    if "livemap.view" in perms:
+        now = datetime.now(UTC)
+        for g in (await db.execute(select(TrackingGap).where(TrackingGap.resolved_at.is_(None)))).scalars():
+            if g.vehicle_id in vehicles:
+                quiet = int((now - (g.last_seen_at or g.detected_at)).total_seconds() // 60)
+                alerts.append(alert("going_dark", "red", f"{vehicles[g.vehicle_id].registration}: no location for {quiet} minutes during a trip", "The phone may be off, out of battery or the app closed.", "/map"))
+    if "livemap.view" in perms:
+        for a in (await db.execute(select(TrackerAlert).where(TrackerAlert.status == "open").order_by(TrackerAlert.at.desc()).limit(20))).scalars():
+            if a.vehicle_id in vehicles:
+                words = {"power_cut": "tracker lost power", "gps_jamming": "GPS jamming", "tamper": "tracker tampering", "sos": "tracker SOS pressed", "low_battery": "tracker battery low", "device_offline": "tracker offline", "geofence": f"{(a.details or {}).get('event', 'moved')} {(a.details or {}).get('geofence', 'an area')}"}
+                alerts.append(alert("tracker_" + a.kind, a.severity, f"{vehicles[a.vehicle_id].registration}: {words.get(a.kind, a.kind.replace('_', ' '))}", "", "/tracking"))
+    if "vehicles.view" in perms:
+        for t in (await db.execute(select(Trip).where(Trip.distance_check == "mismatch", Trip.ended_at >= start - timedelta(days=6)))).scalars():
+            if t.vehicle_id in vehicles:
+                alerts.append(alert("distance_mismatch", "amber", f"{vehicles[t.vehicle_id].registration}: odometer says {t.distance_km} km but the GPS says {round(t.tracker_distance_km or t.gps_distance_km or 0)} km", f"The {(t.distance_detail or {}).get('suspect')} looks wrong." if (t.distance_detail or {}).get("suspect") else "One of them is wrong. Look at the trip.", f"/trips/{t.id}"))
     last_month = None
     if "invoices.manage" in perms:
         alerts += await money_alerts(db, today)

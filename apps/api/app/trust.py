@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import DeviceCheck, TrackingTier, Vehicle
+from app.models import DeviceCheck, TrackerAlert, TrackingTier, Vehicle
 
 WINDOW = timedelta(days=30)
 BASE = {TrackingTier.BASIC: 1, TrackingTier.STANDARD: 2, TrackingTier.PREMIUM: 3}
@@ -33,6 +33,14 @@ async def flag_summary(db: AsyncSession, vehicle_ids: list[uuid.UUID] | None = N
             seen = out[check.vehicle_id].setdefault(flag, {"flag": flag, "count": 0, "last_at": check.reported_at})
             seen["count"] += 1
             seen["last_at"] = max(seen["last_at"], check.reported_at)
+    # Tracker tamper in the same window counts the same way: a cut or jammed tracker is a reason to doubt what a vehicle reports.
+    tamper = select(TrackerAlert).where(TrackerAlert.at >= datetime.now(UTC) - WINDOW, TrackerAlert.kind.in_(("power_cut", "gps_jamming", "tamper")))
+    if vehicle_ids is not None:
+        tamper = tamper.where(TrackerAlert.vehicle_id.in_(vehicle_ids))
+    for a in (await db.execute(tamper)).scalars():
+        seen = out[a.vehicle_id].setdefault(f"tracker_{a.kind}", {"flag": f"tracker_{a.kind}", "count": 0, "last_at": a.at})
+        seen["count"] += 1
+        seen["last_at"] = max(seen["last_at"], a.at)
     return out
 
 

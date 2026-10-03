@@ -17,7 +17,9 @@ import { useAuth } from "../auth";
 import { CREW, DEVICE_FLAG, fmtTime, OWNERSHIP, TIER, TRUST, VEHICLE_DOC_TYPES } from "../labels";
 import { Card, ErrorBanner, errorMessage, Field } from "./../ui";
 import DocumentsPanel from "./DocumentsPanel";
+import { ImmobiliserCard } from "./Immobiliser";
 import InspectionCard from "./InspectionCard";
+import { ReplayCard } from "./Replay";
 import ServiceCard from "./ServiceCard";
 import { VehicleForm } from "./Vehicles";
 
@@ -136,11 +138,11 @@ function Trust({ vehicleId }: { vehicleId: string }) {
         </span>{" "}
         <span className="muted">
           Starts from the tracking tier ({TIER[trust.tier]}) and drops when a phone used on this
-          vehicle is flagged.
+          vehicle is flagged or its tracker is cut, jammed or tampered with.
         </span>
       </p>
       {trust.flags.length === 0 && (
-        <p className="muted">No phone checks have failed in the last 30 days.</p>
+        <p className="muted">No phone or tracker checks have failed in the last 30 days.</p>
       )}
       <ul className="list">
         {trust.flags.map((f) => (
@@ -256,6 +258,8 @@ export default function VehicleDetail() {
       <Crew vehicle={vehicle} canManage={manage} />
       <ServiceCard vehicleId={vehicle.id} />
       <Trust vehicleId={vehicle.id} />
+      <ReplayCard vehicleId={vehicle.id} />
+      <ImmobiliserCard vehicleId={vehicle.id} />
       <Inspections vehicleId={vehicle.id} />
       <DocumentsPanel
         owner={{ vehicleId: vehicle.id }}

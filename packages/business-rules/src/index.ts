@@ -9,3 +9,7 @@ export * from "./billing";
 export * from "./load";
 export * from "./debtors";
 export * from "./lease";
+export * from "./gps";
+export * from "./behaviour";
+export * from "./geofence";
+export * from "./immobiliser";

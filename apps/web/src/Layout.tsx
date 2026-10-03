@@ -18,8 +18,9 @@ const DOC_TITLES: Record<string, string> = {
 
 const DOC_SUMMARY: Record<string, string> = {
   monitoring_notice:
-    "FleetTms records your location during active trips, your odometer photos, fuel and expense entries. " +
-    "This is used for work purposes only, stops when your trip ends, and is visible to your employer.",
+    "FleetTms records your phone's location while a trip is running, your odometer photos, fuel and expense entries. " +
+    "Tracking starts when you start a trip and stops when you end it, the office and (on a link they send) the client's delivery " +
+    "can see the lorry's position, and location points are deleted after 12 months.",
 };
 
 /** Shown on every page to people who respond to SOS alerts, so an alert is seen within seconds. */

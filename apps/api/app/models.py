@@ -577,6 +577,12 @@ class Trip(TenantMixin, Base):
     distance_km: Mapped[int | None] = mapped_column(Integer)  # end odometer minus start odometer
     weighbridge_photo_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("photos.id", ondelete="SET NULL"))
     overload_kg: Mapped[int | None] = mapped_column(Integer)  # how far over the legal limit the loaded lorry was, if it was
+    gps_distance_km: Mapped[float | None] = mapped_column(Float)  # what the phone's GPS says the trip came to
+    gps_points: Mapped[int | None] = mapped_column(Integer)  # how many good fixes that is worked out from
+    distance_check: Mapped[str | None] = mapped_column(String(10))  # ok, mismatch or no_gps: do odometer and GPS agree
+    tracker_distance_km: Mapped[float | None] = mapped_column(Float)  # what the vehicle's tracker says the trip came to
+    tracker_points: Mapped[int | None] = mapped_column(Integer)
+    distance_detail: Mapped[dict | None] = mapped_column(JSONB)  # the three distances and which one disagrees, if one does
     job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), index=True)
     planned_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # when the booking is expected to finish
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
@@ -1636,3 +1642,202 @@ class PartsOrderLine(TenantMixin, Base):
     unit_cost_cents: Mapped[int] = mapped_column(BigInteger, default=0)
     received_quantity: Mapped[int] = mapped_column(Integer, default=0)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+
+# ---- Phone GPS, live map and client tracking links (masterplan 5.3 and 5.26) ---------------------------------------
+
+
+class LocationPoint(TenantMixin, Base):
+    """Where a lorry was, as its crew's phone reported it during a trip. A TimescaleDB hypertable on recorded_at; raw points are
+    kept 12 months, after which the trip totals are all that remain."""
+
+    __tablename__ = "location_points"
+    __table_args__ = (
+        UniqueConstraint("business_id", "vehicle_id", "recorded_at"),
+        Index("ix_location_points_vehicle_time", "vehicle_id", "recorded_at"),
+        Index("ix_location_points_trip_time", "trip_id", "recorded_at"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)  # when the phone took the fix
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"))
+    trip_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("trips.id", ondelete="SET NULL"))
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    lat: Mapped[float] = mapped_column(Float)
+    lng: Mapped[float] = mapped_column(Float)
+    speed_kmh: Mapped[float | None] = mapped_column(Float)
+    heading: Mapped[float | None] = mapped_column(Float)
+    accuracy_m: Mapped[float | None] = mapped_column(Float)
+    ignition: Mapped[bool | None] = mapped_column(Boolean)  # engine on, from a tracker
+    source: Mapped[str] = mapped_column(String(8), default="phone")  # phone or tracker
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class TrackingGap(TenantMixin, Base):
+    """A lorry on a trip stopped reporting its position. Opened by the watcher, closed when the next fix arrives."""
+
+    __tablename__ = "tracking_gaps"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    trip_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("trips.id", ondelete="CASCADE"), index=True)
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # the last fix before it went quiet, if any
+    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    notified: Mapped[int] = mapped_column(Integer, default=0)  # how many people were texted
+
+
+class TrackingLink(TenantMixin, Base):
+    """A secret link a client can open to follow one delivery. Only a hash of the secret is kept."""
+
+    __tablename__ = "tracking_links"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    trip_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("trips.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sent_to: Mapped[str | None] = mapped_column(String(20))
+    views: Mapped[int] = mapped_column(Integer, default=0)
+    last_viewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ---- GPS trackers, mapped areas, tamper alerts, driving behaviour, immobiliser (masterplan 5.3, 5.12, 5.25, 5.28) -------
+
+
+class TrackerDevice(TenantMixin, Base):
+    """A GPS tracker fitted to a vehicle. Its IMEI is how Traccar names it, so an IMEI belongs to one business on the platform."""
+
+    __tablename__ = "tracker_devices"
+    __table_args__ = (UniqueConstraint("imei"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True)
+    imei: Mapped[str] = mapped_column(String(20))
+    name: Mapped[str | None] = mapped_column(String(120))
+    brand: Mapped[str | None] = mapped_column(String(40))
+    model: Mapped[str | None] = mapped_column(String(60))
+    sim_phone: Mapped[str | None] = mapped_column(String(20))
+    supports_immobiliser: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # anything heard from the device
+    last_position_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    battery_pct: Mapped[float | None] = mapped_column(Float)
+    power_v: Mapped[float | None] = mapped_column(Float)  # the vehicle's supply to the tracker
+    power_ok: Mapped[bool | None] = mapped_column(Boolean)
+    ignition: Mapped[bool | None] = mapped_column(Boolean)
+    gps_ok: Mapped[bool | None] = mapped_column(Boolean)
+    online_state: Mapped[str] = mapped_column(String(8), default="unknown")  # online, offline or unknown
+    immobilised: Mapped[bool] = mapped_column(Boolean, default=False)
+    traccar_id: Mapped[int | None] = mapped_column(Integer)  # Traccar's own number for it, found when a command is sent
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Geofence(TenantMixin, Base):
+    """A mapped area: a depot, a client's site, a fuel station or a place lorries must not go."""
+
+    __tablename__ = "geofences"
+    __table_args__ = (UniqueConstraint("business_id", "name"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(120))
+    kind: Mapped[str] = mapped_column(String(14), default="client_site")  # depot, client_site, fuel_station or restricted
+    shape: Mapped[dict] = mapped_column(JSONB)  # {"type": "circle", lat, lng, radius_m} or {"type": "polygon", points: [[lat, lng]]}
+    alert_on: Mapped[list[str]] = mapped_column(JSONB, default=list)  # which of enter and exit raise an alert
+    vehicle_ids: Mapped[list[str] | None] = mapped_column(JSONB)  # only these vehicles; none means every vehicle
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class GeofencePresence(TenantMixin, Base):
+    """Which side of an area a vehicle is on, remembered so an entry or exit is noticed once and not on every fix."""
+
+    __tablename__ = "geofence_presence"
+    __table_args__ = (UniqueConstraint("vehicle_id", "geofence_id"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True)
+    geofence_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("geofences.id", ondelete="CASCADE"), index=True)
+    inside: Mapped[bool | None] = mapped_column(Boolean)
+    pending: Mapped[int] = mapped_column(Integer, default=0)
+    changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class GeofenceEvent(TenantMixin, Base):
+    __tablename__ = "geofence_events"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    geofence_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("geofences.id", ondelete="CASCADE"), index=True)
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True)
+    trip_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("trips.id", ondelete="SET NULL"))
+    kind: Mapped[str] = mapped_column(String(5))  # enter or exit
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    lat: Mapped[float | None] = mapped_column(Float)
+    lng: Mapped[float | None] = mapped_column(Float)
+
+
+class TrackerAlert(TenantMixin, Base):
+    """Something wrong with a tracker or what it reported: power cut, jamming, offline, tamper, and the like."""
+
+    __tablename__ = "tracker_alerts"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True)
+    device_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tracker_devices.id", ondelete="SET NULL"))
+    trip_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("trips.id", ondelete="SET NULL"))
+    kind: Mapped[str] = mapped_column(String(20), index=True)  # power_cut, low_battery, gps_jamming, device_offline, tamper, sos, geofence
+    severity: Mapped[str] = mapped_column(String(5))  # red or amber
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    details: Mapped[dict] = mapped_column(JSONB, default=dict)
+    status: Mapped[str] = mapped_column(String(12), default="open", index=True)  # open, explained, confirmed or resolved
+    note: Mapped[str | None] = mapped_column(String(500))
+    handled_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    handled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    notified: Mapped[int] = mapped_column(Integer, default=0)  # how many people were texted
+
+
+class BehaviourEvent(TenantMixin, Base):
+    """Speeding, harsh braking and the rest, with the driver who was on the trip when it happened."""
+
+    __tablename__ = "behaviour_events"
+    __table_args__ = (UniqueConstraint("business_id", "vehicle_id", "kind", "at"), Index("ix_behaviour_vehicle_time", "vehicle_id", "at"))
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"))
+    driver_membership_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("memberships.id", ondelete="SET NULL"), index=True)
+    trip_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("trips.id", ondelete="SET NULL"), index=True)
+    kind: Mapped[str] = mapped_column(String(20), index=True)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    value: Mapped[float | None] = mapped_column(Float)  # top speed, braking strength, minutes idle, and so on
+    limit_value: Mapped[float | None] = mapped_column(Float)
+    lat: Mapped[float | None] = mapped_column(Float)
+    lng: Mapped[float | None] = mapped_column(Float)
+    source: Mapped[str] = mapped_column(String(8), default="tracker")  # tracker or phone
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class BehaviourState(TenantMixin, Base):
+    """What the behaviour rules remember about a vehicle between batches of fixes."""
+
+    __tablename__ = "behaviour_state"
+    __table_args__ = (UniqueConstraint("vehicle_id"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"))
+    state: Mapped[dict] = mapped_column(JSONB, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ImmobiliserCommand(TenantMixin, Base):
+    """A request to stop (or release) a vehicle's engine. Two steps, owner only, checked for safety at both."""
+
+    __tablename__ = "immobiliser_commands"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True)
+    device_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tracker_devices.id", ondelete="CASCADE"))
+    action: Mapped[str] = mapped_column(String(10))  # immobilise or release
+    status: Mapped[str] = mapped_column(String(22), default="awaiting_confirmation", index=True)  # awaiting_confirmation, sent, acknowledged, failed, refused, expired, cancelled
+    reason: Mapped[str | None] = mapped_column(String(255))  # why the owner did it, or why it was refused
+    speed_kmh: Mapped[float | None] = mapped_column(Float)  # what the vehicle was doing when the request was made
+    position_age_s: Mapped[int | None] = mapped_column(Integer)
+    requested_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    result_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    result_note: Mapped[str | None] = mapped_column(String(255))

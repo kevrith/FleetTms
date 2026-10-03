@@ -21,7 +21,10 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "FleetTms stamps each photo with where it was taken."
+          "locationWhenInUsePermission": "FleetTms stamps each photo with where it was taken, and shows your employer where the lorry is during a trip.",
+          "locationAlwaysAndWhenInUsePermission": "FleetTms shares the lorry's position with your employer while a trip is running, including with the screen off. It stops when you end the trip.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
         }
       ]
     ]

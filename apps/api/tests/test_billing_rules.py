@@ -126,3 +126,102 @@ def test_net_profit(case):
 @pytest.mark.parametrize("case", PROFIT["not_paying"], ids=[c["name"] for c in PROFIT["not_paying"]])
 def test_lease_not_paying(case):
     assert lease_not_paying(case["months"]) == case["expected"]
+
+
+# ---- phone GPS (Sprint 11) ----
+
+from datetime import UTC, datetime, timedelta
+
+from app.gps_rules import (
+    distance_check,
+    eta_minutes,
+    good_fix,
+    haversine_km,
+    path_distance_km,
+    vehicle_state,
+)
+
+GPS = json.loads((RULES / "gps-cases.json").read_text())
+T0 = datetime(2026, 10, 2, 8, 0, tzinfo=UTC)
+
+
+@pytest.mark.parametrize("case", GPS["haversine"], ids=[c["name"] for c in GPS["haversine"]])
+def test_haversine(case):
+    assert abs(haversine_km(*case["from"], *case["to"]) - case["km"]) <= case.get("tolerance", 0.001)
+
+
+@pytest.mark.parametrize("case", GPS["good_fix"], ids=[c["name"] for c in GPS["good_fix"]])
+def test_good_fix(case):
+    assert good_fix(case["lat"], case["lng"], case["accuracy_m"]) is case["expected"]
+
+
+@pytest.mark.parametrize("case", GPS["paths"], ids=[c["name"] for c in GPS["paths"]])
+def test_path_distance(case):
+    points = [{"at": T0 + timedelta(seconds=s), "lat": la, "lng": ln, "accuracy_m": a} for s, la, ln, a in case["points"]]
+    assert path_distance_km(points) == (case["km"], case["used"])
+
+
+@pytest.mark.parametrize("case", GPS["states"], ids=[c["name"] for c in GPS["states"]])
+def test_vehicle_state(case):
+    now = T0 + timedelta(seconds=100000)
+    last = None if case["age_s"] is None else now - timedelta(seconds=case["age_s"])
+    assert vehicle_state(on_trip=case["on_trip"], last_at=last, now=now, speed_kmh=case["speed"]) == case["expected"]
+
+
+@pytest.mark.parametrize("case", GPS["checks"], ids=[c["name"] for c in GPS["checks"]])
+def test_distance_check(case):
+    assert distance_check(case["odometer_km"], case["gps_km"], case["points"]) == case["expected"]
+
+
+@pytest.mark.parametrize("case", GPS["etas"], ids=[c["name"] for c in GPS["etas"]])
+def test_eta(case):
+    assert eta_minutes(case["remaining_km"], case["speeds"]) == case["expected"]
+
+
+# ---- trackers, geofences, behaviour, immobiliser (Sprint 12) ----
+
+from app import behaviour_rules, geofence_rules, immobiliser_rules
+from app.gps_rules import three_way
+
+BEHAVIOUR = json.loads((RULES / "behaviour-cases.json").read_text())
+GEOFENCE = json.loads((RULES / "geofence-cases.json").read_text())
+IMMOBILISER = json.loads((RULES / "immobiliser-cases.json").read_text())
+
+
+@pytest.mark.parametrize("case", BEHAVIOUR, ids=[c["name"] for c in BEHAVIOUR])
+def test_behaviour(case):
+    base = datetime.fromisoformat(case.get("base", "2026-10-02T08:00:00Z"))
+    state, got = behaviour_rules.new_state(), []
+    for sec, speed, heading, ignition in case["points"]:
+        state, events = behaviour_rules.step(state, {"at": base + timedelta(seconds=sec), "speed": speed, "heading": heading, "ignition": ignition, "lat": -1, "lng": 36})
+        for e in events:
+            got.append({"kind": e["kind"], "value": e["value"], "at_s": int((e["at"] - base).total_seconds()), "ended_s": int((e["ended_at"] - base).total_seconds()) if e["ended_at"] else None})
+    assert len(got) == len(case["expected"])
+    for g, want in zip(got, case["expected"], strict=True):
+        assert g["kind"] == want["kind"] and abs(g["value"] - want["value"]) < 0.011 and g["at_s"] == want["at_s"] and g["ended_s"] == want.get("ended_s")
+
+
+@pytest.mark.parametrize("case", GEOFENCE["inside"], ids=[c["name"] for c in GEOFENCE["inside"]])
+def test_inside_a_shape(case):
+    assert geofence_rules.inside(case["shape"], *case["point"]) is case["expected"]
+
+
+@pytest.mark.parametrize("case", GEOFENCE["steps"], ids=[c["name"] for c in GEOFENCE["steps"]])
+def test_geofence_steps(case):
+    state, got = None, []
+    for side in case["sides"]:
+        state, event = geofence_rules.step(state, side)
+        got.append(event)
+    assert got == case["expected"]
+
+
+@pytest.mark.parametrize("case", IMMOBILISER, ids=[c["name"] for c in IMMOBILISER])
+def test_immobiliser_rules(case):
+    got = immobiliser_rules.check(action=case["action"], speed_kmh=case["speed"], position_age_s=case["age_s"], online=case["online"], supported=case["supported"])
+    assert got == (case["allowed"], case["reason"])
+
+
+@pytest.mark.parametrize("case", GPS["three_way"], ids=[c["name"] for c in GPS["three_way"]])
+def test_three_way_distance(case):
+    got = three_way(odometer_km=case["odometer_km"], phone_km=case["phone_km"], phone_points=case["phone_points"], tracker_km=case["tracker_km"], tracker_points=case["tracker_points"])
+    assert got["check"] == case["check"] and got["suspect"] == case["suspect"]

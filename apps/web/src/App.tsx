@@ -19,8 +19,11 @@ import Workshop from "./pages/Workshop";
 import Settings from "./pages/Settings";
 import StaffArea from "./pages/Payroll";
 import Leases from "./pages/Leases";
+import Follow from "./pages/Follow";
+import LiveMap from "./pages/LiveMap";
 import Portal from "./pages/Portal";
 import Suppliers from "./pages/Suppliers";
+import Tracking from "./pages/Tracking";
 import TripDetail from "./pages/TripDetail";
 import Trips from "./pages/Trips";
 import VehicleDetail from "./pages/VehicleDetail";
@@ -91,6 +94,7 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
       <Route path="/accept-invite" element={<AcceptInvite />} />
+      <Route path="/t/:token" element={<Follow />} />
       <Route
         path="/two-factor"
         element={
@@ -121,6 +125,8 @@ export default function App() {
         <Route path="/leases/*" element={<Leases />} />
         <Route path="/suppliers/*" element={<Suppliers />} />
         <Route path="/portal" element={<Portal />} />
+        <Route path="/map" element={<LiveMap />} />
+        <Route path="/tracking/*" element={<Tracking />} />
         <Route path="/settings/*" element={<Settings />} />
         <Route path="*" element={<Placeholder />} />
       </Route>

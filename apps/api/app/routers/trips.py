@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit
+from app import audit, tracking
 from app.clock import capture_time
 from app.db import get_db
 from app.deps import Principal, error, require, require_any
@@ -39,6 +39,7 @@ from app.reminders import NAIROBI
 from app.routers.inspections import OK_FOR_TRIP, latest_inspection_on
 from app.routers.vehicles import get_vehicle
 from app.scheduling import DEFAULT_TRIP_HOURS, ensure_available
+from app.trust import flag_summary, trust_out
 from app.vehicle_scope import scope_vehicles, vehicle_in_scope
 
 router = APIRouter(tags=["trips"])
@@ -172,6 +173,11 @@ async def trip_out(db: AsyncSession, trip: Trip) -> dict:
         "delivered_at": trip.delivered_at,
         "ended_at": trip.ended_at,
         "distance_km": trip.distance_km,
+        "gps_distance_km": trip.gps_distance_km,
+        "tracker_distance_km": trip.tracker_distance_km,
+        "trust": trust_out(vehicle, (await flag_summary(db, [trip.vehicle_id])).get(trip.vehicle_id, {})) if vehicle else None,
+        "distance_detail": trip.distance_detail,
+        "distance_check": trip.distance_check,
         "start_reading": reading(ReadingPhase.START),
         "end_reading": reading(ReadingPhase.END),
         "inspection": inspection,
@@ -467,6 +473,7 @@ async def do_end_trip(db: AsyncSession, principal: Principal, trip_id: uuid.UUID
     trip.distance_km = distance
     vehicle.odometer_km = max(vehicle.odometer_km, body.value)
     await db.flush()
+    await tracking.finalise(db, trip)  # what the GPS saw, and whether the odometer agrees
     audit.record(
         db, actor_user_id=principal.user.id, action="trip.completed", entity_type="trip", entity_id=trip.id,
         after={"odometer_km": body.value, "distance_km": distance, "flags": reading.flags},

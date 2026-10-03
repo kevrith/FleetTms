@@ -1,5 +1,7 @@
 import {
   BarChart3,
+  MapPinned,
+  Radio,
   Briefcase,
   Building2,
   FileText,
@@ -32,6 +34,8 @@ export const navItems: NavItem[] = [
     icon: Briefcase,
     permission: ["trips.view", "jobs.manage"],
   },
+  { path: "/map", label: "Live map", icon: MapPinned, permission: "livemap.view" },
+  { path: "/tracking", label: "Trackers & alerts", icon: Radio, permission: "livemap.view" },
   { path: "/vehicles", label: "Vehicles", icon: Truck, permission: "vehicles.view" },
   { path: "/trips", label: "Trips", icon: FileText, permission: "trips.view" },
   {

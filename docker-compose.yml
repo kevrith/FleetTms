@@ -17,5 +17,29 @@ services:
     image: redis:7-alpine
     ports:
       - "${REDIS_PORT:-6379}:6379"
+  # GPS tracker server (masterplan Section 7). Not started by default: `docker compose --profile tracking up -d traccar`.
+  # Traccar decodes the trackers' own protocols and forwards each position and event to the API as JSON; the API reaches Traccar
+  # at TRACCAR_URL only to send engine commands. Settings are Traccar's own property names, written as environment variables.
+  # TRACCAR_FORWARD_KEY must be set in .env before starting it: with no key the API refuses what Traccar forwards.
+  traccar:
+    image: traccar/traccar:latest
+    profiles: ["tracking"]
+    restart: unless-stopped
+    environment:
+      CONFIG_USE_ENVIRONMENT_VARIABLES: "true"
+      FORWARD_TYPE: "json"
+      FORWARD_URL: "http://host.docker.internal:${API_PORT:-8010}/hooks/traccar/${TRACCAR_FORWARD_KEY:-}"
+      EVENT_FORWARD_TYPE: "json"
+      EVENT_FORWARD_URL: "http://host.docker.internal:${API_PORT:-8010}/hooks/traccar/${TRACCAR_FORWARD_KEY:-}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${TRACCAR_WEB_PORT:-8082}:8082"
+      - "${TRACCAR_TELTONIKA_PORT:-5027}:5027"
+    volumes:
+      - traccardata:/opt/traccar/data
+      - traccarlogs:/opt/traccar/logs
 volumes:
   dbdata:
+  traccardata:
+  traccarlogs:

@@ -43,6 +43,21 @@ class Settings(BaseSettings):
     # KRA eTIMS. Leave the base address empty in development: a stand-in is used. The sandbox address is in .env.example.
     etims_base_url: str = ""
 
+    # Phone GPS and client tracking links (masterplan 5.3, 5.26, 11.3).
+    public_web_url: str = "http://localhost:5180"  # where the web app is, for the links clients are sent
+    going_dark_minutes: int = 15  # a lorry on a trip that has not reported for this long is "going dark"
+    gps_retention_days: int = 365  # raw location points are deleted after this, once the trip totals are kept
+    tracking_link_days: int = 7  # how long a client tracking link lives at most (it also ends when the trip is delivered)
+    max_points_per_batch: int = 500
+
+    # GPS trackers through Traccar (masterplan Section 7). Traccar forwards what devices send to /hooks/traccar/<forward key>; leave the
+    # key empty to switch that address off. The URL and token are for sending commands (the immobiliser) back through Traccar; with
+    # the URL empty a stand-in is used and nothing real is sent.
+    traccar_forward_key: str = ""
+    traccar_url: str = ""
+    traccar_token: str = ""
+    tracker_offline_minutes: int = 30  # a tracker silent this long is offline
+
     # Photos live in private storage and are only ever viewed through short-lived signed links.
     media_dir: str = "media_store"
     media_link_seconds: int = 300
@@ -53,7 +68,7 @@ class Settings(BaseSettings):
     terms_version: str = "draft-1"
     privacy_version: str = "draft-1"
     dpa_version: str = "draft-1"
-    monitoring_notice_version: str = "draft-1"
+    monitoring_notice_version: str = "draft-2"
 
 
 settings = Settings()

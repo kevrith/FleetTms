@@ -1,0 +1,557 @@
+{
+  "haversine": [
+    {
+      "name": "a tenth of a degree of latitude",
+      "from": [
+        0,
+        0
+      ],
+      "to": [
+        0.1,
+        0
+      ],
+      "km": 11.119
+    },
+    {
+      "name": "the same place",
+      "from": [
+        -1.2921,
+        36.8219
+      ],
+      "to": [
+        -1.2921,
+        36.8219
+      ],
+      "km": 0
+    },
+    {
+      "name": "Nairobi to Mombasa is about 440 km as the crow flies",
+      "from": [
+        -1.2921,
+        36.8219
+      ],
+      "to": [
+        -4.0435,
+        39.6682
+      ],
+      "km": 439.5,
+      "tolerance": 1
+    }
+  ],
+  "good_fix": [
+    {
+      "name": "a normal fix",
+      "lat": -1.29,
+      "lng": 36.82,
+      "accuracy_m": 12,
+      "expected": true
+    },
+    {
+      "name": "no accuracy given",
+      "lat": -1.29,
+      "lng": 36.82,
+      "accuracy_m": null,
+      "expected": true
+    },
+    {
+      "name": "exactly the limit",
+      "lat": -1.29,
+      "lng": 36.82,
+      "accuracy_m": 100,
+      "expected": true
+    },
+    {
+      "name": "too vague",
+      "lat": -1.29,
+      "lng": 36.82,
+      "accuracy_m": 101,
+      "expected": false
+    },
+    {
+      "name": "latitude off the globe",
+      "lat": 91,
+      "lng": 36.82,
+      "accuracy_m": 5,
+      "expected": false
+    },
+    {
+      "name": "longitude off the globe",
+      "lat": 0,
+      "lng": 181,
+      "accuracy_m": 5,
+      "expected": false
+    }
+  ],
+  "paths": [
+    {
+      "name": "a steady drive of eleven fixes",
+      "points": [
+        [
+          0,
+          -1.0,
+          36.0,
+          10
+        ],
+        [
+          30,
+          -0.999,
+          36.0,
+          10
+        ],
+        [
+          60,
+          -0.998,
+          36.0,
+          10
+        ],
+        [
+          90,
+          -0.997,
+          36.0,
+          10
+        ],
+        [
+          120,
+          -0.996,
+          36.0,
+          10
+        ],
+        [
+          150,
+          -0.995,
+          36.0,
+          10
+        ],
+        [
+          180,
+          -0.994,
+          36.0,
+          10
+        ],
+        [
+          210,
+          -0.993,
+          36.0,
+          10
+        ],
+        [
+          240,
+          -0.992,
+          36.0,
+          10
+        ],
+        [
+          270,
+          -0.991,
+          36.0,
+          10
+        ],
+        [
+          300,
+          -0.99,
+          36.0,
+          10
+        ]
+      ],
+      "km": 1.112,
+      "used": 11
+    },
+    {
+      "name": "a signal jump of 11 km in a minute is ignored",
+      "points": [
+        [
+          0,
+          0,
+          0,
+          10
+        ],
+        [
+          60,
+          0.1,
+          0,
+          10
+        ],
+        [
+          120,
+          0.2,
+          0,
+          10
+        ]
+      ],
+      "km": 0,
+      "used": 3
+    },
+    {
+      "name": "11 km an hour for two hours",
+      "points": [
+        [
+          0,
+          0,
+          0,
+          10
+        ],
+        [
+          3600,
+          0.1,
+          0,
+          10
+        ],
+        [
+          7200,
+          0.2,
+          0,
+          10
+        ]
+      ],
+      "km": 22.239,
+      "used": 3
+    },
+    {
+      "name": "standing still is jitter, not distance",
+      "points": [
+        [
+          0,
+          0,
+          0,
+          10
+        ],
+        [
+          30,
+          5e-05,
+          0,
+          10
+        ],
+        [
+          60,
+          0.0001,
+          0,
+          10
+        ]
+      ],
+      "km": 0,
+      "used": 3
+    },
+    {
+      "name": "a vague fix is dropped",
+      "points": [
+        [
+          0,
+          0,
+          0,
+          10
+        ],
+        [
+          3600,
+          0.1,
+          0,
+          500
+        ],
+        [
+          7200,
+          0.2,
+          0,
+          10
+        ]
+      ],
+      "km": 22.239,
+      "used": 2
+    },
+    {
+      "name": "points out of order are put in order",
+      "points": [
+        [
+          7200,
+          0.2,
+          0,
+          10
+        ],
+        [
+          0,
+          0,
+          0,
+          10
+        ],
+        [
+          3600,
+          0.1,
+          0,
+          10
+        ]
+      ],
+      "km": 22.239,
+      "used": 3
+    },
+    {
+      "name": "one point is no distance",
+      "points": [
+        [
+          0,
+          0,
+          0,
+          10
+        ]
+      ],
+      "km": 0,
+      "used": 1
+    },
+    {
+      "name": "no points",
+      "points": [],
+      "km": 0,
+      "used": 0
+    }
+  ],
+  "states": [
+    {
+      "name": "on a trip and moving",
+      "on_trip": true,
+      "age_s": 30,
+      "speed": 62,
+      "expected": "moving"
+    },
+    {
+      "name": "on a trip and standing",
+      "on_trip": true,
+      "age_s": 30,
+      "speed": 0,
+      "expected": "idle"
+    },
+    {
+      "name": "on a trip and crawling below 5",
+      "on_trip": true,
+      "age_s": 30,
+      "speed": 4.9,
+      "expected": "idle"
+    },
+    {
+      "name": "on a trip with no speed given",
+      "on_trip": true,
+      "age_s": 30,
+      "speed": null,
+      "expected": "idle"
+    },
+    {
+      "name": "exactly five minutes old is still live",
+      "on_trip": true,
+      "age_s": 300,
+      "speed": 50,
+      "expected": "moving"
+    },
+    {
+      "name": "over five minutes old on a trip is offline",
+      "on_trip": true,
+      "age_s": 301,
+      "speed": 50,
+      "expected": "offline"
+    },
+    {
+      "name": "no trip means parked, however old",
+      "on_trip": false,
+      "age_s": 90000,
+      "speed": 0,
+      "expected": "parked"
+    },
+    {
+      "name": "never seen",
+      "on_trip": false,
+      "age_s": null,
+      "speed": null,
+      "expected": "unknown"
+    }
+  ],
+  "checks": [
+    {
+      "name": "odometer and GPS agree",
+      "odometer_km": 480,
+      "gps_km": 472.4,
+      "points": 900,
+      "expected": "ok"
+    },
+    {
+      "name": "differs by under 15 percent",
+      "odometer_km": 480,
+      "gps_km": 420,
+      "points": 900,
+      "expected": "ok"
+    },
+    {
+      "name": "differs by over 15 percent and 10 km",
+      "odometer_km": 480,
+      "gps_km": 400,
+      "points": 900,
+      "expected": "mismatch"
+    },
+    {
+      "name": "a short trip may differ by 10 km",
+      "odometer_km": 40,
+      "gps_km": 31,
+      "points": 200,
+      "expected": "ok"
+    },
+    {
+      "name": "a short trip differing by more than 10 km",
+      "odometer_km": 40,
+      "gps_km": 25,
+      "points": 200,
+      "expected": "mismatch"
+    },
+    {
+      "name": "the odometer was fiddled down",
+      "odometer_km": 100,
+      "gps_km": 400,
+      "points": 900,
+      "expected": "mismatch"
+    },
+    {
+      "name": "too few fixes to judge",
+      "odometer_km": 480,
+      "gps_km": 5,
+      "points": 2,
+      "expected": "no_gps"
+    },
+    {
+      "name": "no GPS at all",
+      "odometer_km": 480,
+      "gps_km": null,
+      "points": 0,
+      "expected": "no_gps"
+    }
+  ],
+  "etas": [
+    {
+      "name": "at the speed it has been making",
+      "remaining_km": 100,
+      "speeds": [
+        50,
+        50,
+        50
+      ],
+      "expected": 120
+    },
+    {
+      "name": "standing stops are ignored",
+      "remaining_km": 100,
+      "speeds": [
+        50,
+        0,
+        50,
+        3
+      ],
+      "expected": 120
+    },
+    {
+      "name": "no speeds use 40 km/h",
+      "remaining_km": 100,
+      "speeds": [],
+      "expected": 150
+    },
+    {
+      "name": "rounds up to five minutes",
+      "remaining_km": 10,
+      "speeds": [
+        60
+      ],
+      "expected": 10
+    },
+    {
+      "name": "arrived",
+      "remaining_km": 0,
+      "speeds": [
+        60
+      ],
+      "expected": 0
+    }
+  ],
+  "three_way": [
+    {
+      "name": "all three agree",
+      "odometer_km": 480,
+      "phone_km": 475,
+      "phone_points": 600,
+      "tracker_km": 478,
+      "tracker_points": 900,
+      "check": "ok",
+      "suspect": null
+    },
+    {
+      "name": "the odometer was wound back",
+      "odometer_km": 300,
+      "phone_km": 478,
+      "phone_points": 600,
+      "tracker_km": 480,
+      "tracker_points": 900,
+      "check": "mismatch",
+      "suspect": "odometer"
+    },
+    {
+      "name": "the phone was left behind",
+      "odometer_km": 480,
+      "phone_km": 20,
+      "phone_points": 30,
+      "tracker_km": 478,
+      "tracker_points": 900,
+      "check": "mismatch",
+      "suspect": "phone"
+    },
+    {
+      "name": "the tracker is the odd one out",
+      "odometer_km": 480,
+      "phone_km": 478,
+      "phone_points": 600,
+      "tracker_km": 120,
+      "tracker_points": 900,
+      "check": "mismatch",
+      "suspect": "tracker"
+    },
+    {
+      "name": "odometer and tracker only, agreeing",
+      "odometer_km": 480,
+      "phone_km": null,
+      "phone_points": 0,
+      "tracker_km": 470,
+      "tracker_points": 900,
+      "check": "ok",
+      "suspect": null
+    },
+    {
+      "name": "odometer and tracker only, disagreeing: no one can be blamed",
+      "odometer_km": 300,
+      "phone_km": null,
+      "phone_points": 0,
+      "tracker_km": 470,
+      "tracker_points": 900,
+      "check": "mismatch",
+      "suspect": null
+    },
+    {
+      "name": "all three disagree: no one can be blamed",
+      "odometer_km": 200,
+      "phone_km": 400,
+      "phone_points": 600,
+      "tracker_km": 600,
+      "tracker_points": 900,
+      "check": "mismatch",
+      "suspect": null
+    },
+    {
+      "name": "a phone with too few fixes is ignored",
+      "odometer_km": 480,
+      "phone_km": 5,
+      "phone_points": 2,
+      "tracker_km": 478,
+      "tracker_points": 900,
+      "check": "ok",
+      "suspect": null
+    },
+    {
+      "name": "only one source",
+      "odometer_km": 480,
+      "phone_km": null,
+      "phone_points": 0,
+      "tracker_km": null,
+      "tracker_points": 0,
+      "check": "no_gps",
+      "suspect": null
+    }
+  ]
+}

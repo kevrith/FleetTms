@@ -14,6 +14,7 @@ import { Body, Button, ErrorText, errorMessage, Input, useTheme } from "../ui";
 import Delivery from "./Delivery";
 import InspectionFlow from "./InspectionFlow";
 import Loading from "./Loading";
+import { useTrackingStatus } from "../tracking/status";
 
 type Mode =
   | { kind: "idle" }
@@ -165,6 +166,7 @@ export default function TripPanel() {
           : "Completed";
   return (
     <View style={{ gap: 12 }}>
+      {(trip.status === "in_progress" || trip.status === "delivered") && <TrackingNotice />}
       <View style={{ padding: 16, borderRadius: 12, backgroundColor: t.surface, gap: 4 }}>
         <Body muted>Today's trip</Body>
         <Text style={{ color: t.text, fontSize: 20, fontWeight: "600" }}>
@@ -252,6 +254,43 @@ export default function TripPanel() {
       {trip.status === "delivered" && (
         <Button label="End trip" onPress={() => setMode({ kind: "odometer", phase: "end" })} />
       )}
+    </View>
+  );
+}
+
+const PROBLEMS: Record<string, string> = {
+  denied:
+    "Location is switched off for FleetTms, so the office cannot see this trip. Turn it on in the phone's settings.",
+  background_denied:
+    'FleetTms needs location set to "Allow all the time" so tracking keeps working with the screen off. Change it in the phone\'s settings.',
+  failed: "Location tracking could not start. Restart the app.",
+};
+
+/** Tells the driver, plainly, whether their location is being shared right now. */
+function TrackingNotice() {
+  const t = useTheme();
+  const s = useTrackingStatus();
+  const bad = s.problem !== null;
+  return (
+    <View
+      style={{
+        padding: 12,
+        borderRadius: 12,
+        backgroundColor: t.surface,
+        borderLeftWidth: 6,
+        borderLeftColor: bad ? "#dc2626" : s.on ? "#16a34a" : "#94a3b8",
+        gap: 2,
+      }}
+    >
+      <Text style={{ color: t.text, fontWeight: "700" }}>
+        {bad ? "Location is off" : s.on ? "Location is on" : "Location is starting"}
+      </Text>
+      <Body muted>
+        {bad
+          ? PROBLEMS[s.problem!]
+          : "Your phone shares its position with your employer until you end the trip. It stops by itself then."}
+        {s.waiting > 0 && !bad ? ` ${s.waiting} waiting to send.` : ""}
+      </Body>
     </View>
   );
 }

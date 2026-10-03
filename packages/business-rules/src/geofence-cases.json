@@ -1,0 +1,383 @@
+{
+ "inside": [
+  {
+   "name": "inside a circle",
+   "shape": {
+    "type": "circle",
+    "lat": -1.2921,
+    "lng": 36.8219,
+    "radius_m": 500
+   },
+   "point": [
+    -1.2925,
+    36.8223
+   ],
+   "expected": true
+  },
+  {
+   "name": "outside a circle",
+   "shape": {
+    "type": "circle",
+    "lat": -1.2921,
+    "lng": 36.8219,
+    "radius_m": 500
+   },
+   "point": [
+    -1.3,
+    36.83
+   ],
+   "expected": false
+  },
+  {
+   "name": "exactly on the edge of a circle counts as inside",
+   "shape": {
+    "type": "circle",
+    "lat": 0,
+    "lng": 0,
+    "radius_m": 11120
+   },
+   "point": [
+    0.1,
+    0
+   ],
+   "expected": true
+  },
+  {
+   "name": "inside a square",
+   "shape": {
+    "type": "polygon",
+    "points": [
+     [
+      -1.0,
+      36.0
+     ],
+     [
+      -1.0,
+      36.1
+     ],
+     [
+      -1.1,
+      36.1
+     ],
+     [
+      -1.1,
+      36.0
+     ]
+    ]
+   },
+   "point": [
+    -1.05,
+    36.05
+   ],
+   "expected": true
+  },
+  {
+   "name": "outside a square",
+   "shape": {
+    "type": "polygon",
+    "points": [
+     [
+      -1.0,
+      36.0
+     ],
+     [
+      -1.0,
+      36.1
+     ],
+     [
+      -1.1,
+      36.1
+     ],
+     [
+      -1.1,
+      36.0
+     ]
+    ]
+   },
+   "point": [
+    -1.2,
+    36.05
+   ],
+   "expected": false
+  },
+  {
+   "name": "east of a square",
+   "shape": {
+    "type": "polygon",
+    "points": [
+     [
+      -1.0,
+      36.0
+     ],
+     [
+      -1.0,
+      36.1
+     ],
+     [
+      -1.1,
+      36.1
+     ],
+     [
+      -1.1,
+      36.0
+     ]
+    ]
+   },
+   "point": [
+    -1.05,
+    36.2
+   ],
+   "expected": false
+  },
+  {
+   "name": "inside a triangle",
+   "shape": {
+    "type": "polygon",
+    "points": [
+     [
+      0,
+      0
+     ],
+     [
+      0,
+      10
+     ],
+     [
+      10,
+      5
+     ]
+    ]
+   },
+   "point": [
+    2,
+    5
+   ],
+   "expected": true
+  },
+  {
+   "name": "outside a triangle's slanted side",
+   "shape": {
+    "type": "polygon",
+    "points": [
+     [
+      0,
+      0
+     ],
+     [
+      0,
+      10
+     ],
+     [
+      10,
+      5
+     ]
+    ]
+   },
+   "point": [
+    8,
+    1
+   ],
+   "expected": false
+  },
+  {
+   "name": "in the notch of a C shape is outside",
+   "shape": {
+    "type": "polygon",
+    "points": [
+     [
+      0,
+      0
+     ],
+     [
+      0,
+      10
+     ],
+     [
+      10,
+      10
+     ],
+     [
+      10,
+      6
+     ],
+     [
+      4,
+      6
+     ],
+     [
+      4,
+      4
+     ],
+     [
+      10,
+      4
+     ],
+     [
+      10,
+      0
+     ]
+    ]
+   },
+   "point": [
+    7,
+    5
+   ],
+   "expected": false
+  },
+  {
+   "name": "in the arm of a C shape is inside",
+   "shape": {
+    "type": "polygon",
+    "points": [
+     [
+      0,
+      0
+     ],
+     [
+      0,
+      10
+     ],
+     [
+      10,
+      10
+     ],
+     [
+      10,
+      6
+     ],
+     [
+      4,
+      6
+     ],
+     [
+      4,
+      4
+     ],
+     [
+      10,
+      4
+     ],
+     [
+      10,
+      0
+     ]
+    ]
+   },
+   "point": [
+    8,
+    2
+   ],
+   "expected": true
+  }
+ ],
+ "steps": [
+  {
+   "name": "first sighting inside is not an entry",
+   "sides": [
+    true
+   ],
+   "expected": [
+    null
+   ]
+  },
+  {
+   "name": "first sighting outside is not an exit",
+   "sides": [
+    false
+   ],
+   "expected": [
+    null
+   ]
+  },
+  {
+   "name": "staying inside",
+   "sides": [
+    true,
+    true,
+    true
+   ],
+   "expected": [
+    null,
+    null,
+    null
+   ]
+  },
+  {
+   "name": "leaving needs two fixes in a row",
+   "sides": [
+    true,
+    false,
+    false
+   ],
+   "expected": [
+    null,
+    null,
+    "exit"
+   ]
+  },
+  {
+   "name": "one stray fix outside is jitter",
+   "sides": [
+    true,
+    false,
+    true,
+    true
+   ],
+   "expected": [
+    null,
+    null,
+    null,
+    null
+   ]
+  },
+  {
+   "name": "entering needs two fixes in a row",
+   "sides": [
+    false,
+    true,
+    true
+   ],
+   "expected": [
+    null,
+    null,
+    "enter"
+   ]
+  },
+  {
+   "name": "in, out, in again",
+   "sides": [
+    true,
+    false,
+    false,
+    true,
+    true
+   ],
+   "expected": [
+    null,
+    null,
+    "exit",
+    null,
+    "enter"
+   ]
+  },
+  {
+   "name": "flapping at the edge never confirms",
+   "sides": [
+    true,
+    false,
+    true,
+    false,
+    true,
+    false
+   ],
+   "expected": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ]
+  }
+ ]
+}
