@@ -10,7 +10,7 @@ from PIL import ExifTags, Image, UnidentifiedImageError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import storage
+from app import fraud, storage
 from app.clock import MAX_OFFLINE_AGE
 from app.config import settings
 from app.deps import Principal, error
@@ -108,6 +108,8 @@ async def ingest_photo(
 
     digest = hashlib.sha256(data).hexdigest()
     if (await db.execute(select(Photo.id).where(Photo.sha256 == digest))).first() is not None:
+        await fraud.duplicate_photo(db, sha=digest, user_id=principal.user.id)
+        await db.commit()  # the photo is refused, but the owner is told someone tried to use it twice
         raise error(status.HTTP_409_CONFLICT, "duplicate_photo", "That exact photo was already used. Take a new one.")
 
     content_type, ext = ALLOWED[img.format]

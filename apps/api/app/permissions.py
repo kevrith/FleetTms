@@ -48,6 +48,8 @@ ALL = {
     "geofences.manage",
     "alerts.manage",
     "immobiliser.use",
+    "alerts.view",
+    "alerts.settings",
 }
 
 ROLE_PERMISSIONS: dict[Role, set[str]] = {
@@ -80,6 +82,7 @@ ROLE_PERMISSIONS: dict[Role, set[str]] = {
         "jobs.manage",
         "geofences.manage",
         "alerts.manage",
+        "alerts.view",
     },
     # Assigned vehicles only (enforced by vehicle_scope); no company-wide finances or payroll.
     Role.SUPERVISOR: {
@@ -91,6 +94,7 @@ ROLE_PERMISSIONS: dict[Role, set[str]] = {
         "approvals.approve",
         "livemap.view",
         "sos.respond",
+        "alerts.view",
     },
     # Money only: no live map, no editing trips, no user management.
     Role.ACCOUNTANT: {

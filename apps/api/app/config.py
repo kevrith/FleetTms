@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     terms_version: str = "draft-1"
     privacy_version: str = "draft-1"
     dpa_version: str = "draft-1"
+    # Route suggestions and pump prices (masterplan 5.12, 5.28). Empty means the built-in estimate and manual prices.
+    google_maps_api_key: str = ""
+    epra_prices_url: str = ""
+    route_lorry_factor: float = 1.3  # Google's drive times are for cars; a loaded lorry takes this much longer
     monitoring_notice_version: str = "draft-2"
 
 

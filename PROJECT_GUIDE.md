@@ -225,6 +225,26 @@ on the dev machine.
   trackers, and the areas and behaviour tabs), `Replay.tsx` and `Immobiliser.tsx` cards on the vehicle and trip pages; `MapView` now draws
   areas and takes clicks. Mobile has no new screens in this sprint. Unverified: no real tracker; per-model alarm names.
 
+- **Sprint 13 (fraud engine, alerts, scorecards, route suggestions, EPRA prices, beta).** Rules are pure and mirrored in TypeScript, tested
+  against shared case files: `fraud_rules.py` (thresholds, baselines, fuel check, side trip, stops, tamper-then-stop, idling) and
+  `scorecard_rules.py` (rounding is half up on both sides, so a .5 agrees). `app/fraud.py` is the engine: `check_trip` (called from
+  `tracking.finalise` when a trip ends or late GPS arrives; idempotent; skips trips ended over 30 days ago) and `sweep` (every 15 minutes
+  from the worker, and `POST /fraud/scan`). A finding is a `Finding`, raised once by its `dedupe_key` into `fraud_alerts` with evidence and the
+  vehicle's trust level; `upgrade_alert` turns a long stop into a red tamper-then-stop if the tracker was cut. Tamper, going dark, tyre swaps
+  and the like are mirrored from their own tables (`subject_type`/`subject_id`) and answering the mirror answers the source. Duplicate M-Pesa
+  codes and receipt photos are refused as before, and `fraud.duplicate_*` records the attempt before the 409 (the request commits first).
+  Settings: `alert_settings` (thresholds with limits, channels by severity: roles and sms/email), read through `fraud.load_settings` (a
+  business with no row gets the defaults). Notifications: `notify.py` (plain email; fake outbox without SMTP). `routers/fraud.py` (alerts,
+  handle, summary, settings, scan, vehicle baselines), `scorecards.py`, `fuel_prices.py` (EPRA prices, region, feed, `POST /routes/suggest`),
+  `beta.py` (onboarding, feedback, `/platform/feedback`). `app/routing.py`: Google Routes API when `GOOGLE_MAPS_API_KEY` is set, else a town
+  estimate. `app/fuel_prices.py`: prices typed in or from `EPRA_PRICES_URL`; `pump_price` in quotes prefers them. Permissions: `alerts.view`
+  (owner, manager, supervisor within scope), `alerts.manage` (owner, manager), `alerts.settings` (owner). Web: `pages/Alerts.tsx` (list with
+  evidence, answers, summary, settings), `Scorecards.tsx`, `FuelPrices.tsx` (a Settings tab), `Onboarding.tsx` (on the owner's home),
+  `Feedback.tsx` (button in the side bar); the route form has a suggest button and the vehicle page shows baselines. Mobile: feedback card on
+  More. Test seeds are in `tests/fraud_scenarios.py` (a vehicle with history, then a trip that behaves or does one dishonest thing). Tenant
+  filter: `tenancy._mappers_of` now looks at a statement's FROM entities, so `select(func.count()).select_from(Model)` is scoped too.
+  Unverified: Google Routes against Google; the EPRA feed shape (ours); thresholds on real trips; the web screens in a browser.
+
 ## Testing against a real phone/emulator
 
 - API tests use a separate `fleettms_test` database that they create and migrate themselves.
@@ -246,7 +266,7 @@ dashboard, quick sign-in) is built and tested; use it on your own lorries for a 
 Sprints 6 to 8 (tyres and parts, clients and jobs, proof of delivery and billing) are built and tested. Sprint 9 (payments,
 debtors, reminders, eTIMS) is built and tested against the stand-ins; it has not been run against the Safaricom or KRA
 sandboxes (needs your keys). Sprint 10 (leases, loans, ownership costs, profit engine, payroll, suppliers, lessor portal) is built and
-tested; compare its profit figures with your own spreadsheet on real lorries. Sprint 11 (phone GPS, live map, client tracking links) is built and was checked on the emulator with a development build; try it on a real phone in a moving lorry. Sprint 12 (trackers, tamper alerts, behaviour, immobiliser) is built and tested, and Traccar's post format was checked against a real Traccar server; no real tracker has been tried. Next: Sprint 13 (fraud engine, alerts, scorecards).
+tested; compare its profit figures with your own spreadsheet on real lorries. Sprint 11 (phone GPS, live map, client tracking links) is built and was checked on the emulator with a development build; try it on a real phone in a moving lorry. Sprint 12 (trackers, tamper alerts, behaviour, immobiliser) is built and tested, and Traccar's post format was checked against a real Traccar server; no real tracker has been tried. Sprint 13 (fraud engine, alerts, scorecards, route suggestions, EPRA prices, beta feedback) is built and tested, not yet tuned on real trips. Next: Sprint 14.
 
 Create the first platform admin with `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_NAME` and `PLATFORM_ADMIN_PASSWORD`
 set in `.env`, then `cd apps/api && .venv/bin/python -m app.cli create-platform-admin`.

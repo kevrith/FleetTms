@@ -11,13 +11,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit
+from app import audit, fuel_prices
 from app.db import get_db
 from app.deps import Principal, error, require_any
 from app.models import (
     Business,
     Client,
     FuelEntry,
+    FuelType,
     Job,
     Quote,
     QuoteStatus,
@@ -71,8 +72,12 @@ class DeclineIn(BaseModel):
     note: str | None = Field(default=None, max_length=255)
 
 
-async def pump_price(db: AsyncSession) -> int | None:
-    """The current pump price: the average price per litre of the latest fuel entries."""
+async def pump_price(db: AsyncSession, fuel: FuelType = FuelType.DIESEL) -> int | None:
+    """The pump price a quote starts from: EPRA's price for the business's town this month (typed in or fetched) when there is one,
+    otherwise the average price per litre of the latest fuel entries."""
+    epra = await fuel_prices.current(db, fuel)
+    if epra is not None:
+        return epra["cents"]
     prices = (await db.execute(select(FuelEntry.price_per_litre_cents).order_by(FuelEntry.captured_at.desc()).limit(5))).scalars().all()
     return round(sum(prices) / len(prices)) if prices else None
 
@@ -108,7 +113,7 @@ async def resolve(db: AsyncSession, body: QuoteIn, *, strict: bool = True) -> tu
     avg_loaded, avg_empty = await fleet_kmpl(db)
     kmpl_loaded = body.kmpl_loaded or (vehicle.expected_kmpl_loaded if vehicle and vehicle.expected_kmpl_loaded else avg_loaded)
     kmpl_empty = body.kmpl_empty or (vehicle.expected_kmpl_empty if vehicle and vehicle.expected_kmpl_empty else avg_empty)
-    fuel_price = body.fuel_price_cents or await pump_price(db)
+    fuel_price = body.fuel_price_cents or await pump_price(db, vehicle.fuel_type if vehicle else FuelType.DIESEL)
     if fuel_price is None and strict:
         raise error(422, "fuel_price_required", "No fuel has been recorded yet, so enter today's pump price per litre.")
     fields = {

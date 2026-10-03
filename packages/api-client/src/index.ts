@@ -1,5 +1,15 @@
 import type {
   AuditEntry,
+  CurrentFuelPrice,
+  FeedbackRow,
+  FraudAlert,
+  FraudSettings,
+  FraudSummary,
+  FuelPrices,
+  Onboarding,
+  RouteSuggestion,
+  Scorecards,
+  VehicleBaselines,
   BehaviourEvent,
   BehaviourSummary,
   Geofence,
@@ -984,6 +994,63 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
     confirmImmobiliser: (id: string, input: { registration: string; password: string }) =>
       post<ImmobiliserCommand>(`/immobiliser/${id}/confirm`, input),
     cancelImmobiliser: (id: string) => post<ImmobiliserCommand>(`/immobiliser/${id}/cancel`),
+
+    // ---- fraud engine, scorecards, fuel prices, route suggestions, private beta ----
+    fraudAlerts: (
+      params: {
+        status_filter?: FraudAlert["status"];
+        kind?: string;
+        severity?: string;
+        vehicle_id?: string;
+        trip_id?: string;
+        limit?: number;
+      } = {},
+    ) => {
+      const q = new URLSearchParams();
+      for (const [k, v] of Object.entries(params)) if (v !== undefined) q.set(k, String(v));
+      const qs = q.toString();
+      return get<FraudAlert[]>(`/fraud/alerts${qs ? `?${qs}` : ""}`);
+    },
+    handleFraudAlert: (id: string, input: { note: string; outcome: "explained" | "confirmed" }) =>
+      post<FraudAlert>(`/fraud/alerts/${id}/handle`, input),
+    fraudSummary: () => get<FraudSummary>("/fraud/summary"),
+    scanNow: () => post<{ raised: number }>("/fraud/scan"),
+    fraudSettings: () => get<FraudSettings>("/fraud/settings"),
+    saveFraudSettings: (input: {
+      thresholds?: Record<string, number>;
+      channels?: Record<string, { roles: string[]; channels: string[] }>;
+    }) => request<FraudSettings>("PUT", "/fraud/settings", input),
+    vehicleBaselines: (vehicleId: string) =>
+      get<VehicleBaselines>(`/vehicles/${vehicleId}/baselines`),
+    scorecards: (start?: string, end?: string) => {
+      const q = new URLSearchParams();
+      if (start) q.set("start", start);
+      if (end) q.set("end", end);
+      const qs = q.toString();
+      return get<Scorecards>(`/scorecards${qs ? `?${qs}` : ""}`);
+    },
+    fuelPrices: () => get<FuelPrices>("/fuel-prices"),
+    saveFuelPrice: (input: {
+      month: string;
+      region: string;
+      diesel_cents: number;
+      petrol_cents: number;
+    }) => request<{ current: CurrentFuelPrice | null }>("PUT", "/fuel-prices", input),
+    setFuelRegion: (region: string) =>
+      request<{ region: string }>("PUT", "/fuel-prices/region", { region }),
+    fetchFuelPrices: () => post<{ saved: number }>("/fuel-prices/fetch"),
+    suggestRoute: (origin: string, destination: string) =>
+      post<RouteSuggestion>("/routes/suggest", { origin, destination }),
+    onboarding: () => get<Onboarding>("/onboarding"),
+    dismissOnboarding: () => request<void>("POST", "/onboarding/dismiss", {}),
+    restoreOnboarding: () => request<void>("POST", "/onboarding/restore", {}),
+    sendFeedback: (input: {
+      kind: "problem" | "idea" | "praise";
+      message: string;
+      page?: string;
+      app?: "web" | "mobile";
+    }) => post<{ id: string }>("/feedback", input),
+    feedback: () => get<FeedbackRow[]>("/feedback"),
 
     // ---- SOS ----
     myTyrePositions: () => get<MyTyrePositions>("/me/tyre-positions"),

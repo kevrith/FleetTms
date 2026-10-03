@@ -1,0 +1,234 @@
+{
+  "safety": [
+    {
+      "name": "no events",
+      "counts": {},
+      "km": 800,
+      "expected": 100
+    },
+    {
+      "name": "a few events over a long distance",
+      "counts": {
+        "speeding": 5
+      },
+      "km": 500,
+      "expected": 94
+    },
+    {
+      "name": "many events",
+      "counts": {
+        "speeding": 10,
+        "harsh_braking": 10,
+        "harsh_cornering": 5
+      },
+      "km": 500,
+      "expected": 76
+    },
+    {
+      "name": "idling is not a safety event",
+      "counts": {
+        "idling": 50
+      },
+      "km": 500,
+      "expected": 100
+    },
+    {
+      "name": "no distance",
+      "counts": {
+        "speeding": 1
+      },
+      "km": 0,
+      "expected": null
+    },
+    {
+      "name": "a short week is scored as 50 km",
+      "counts": {
+        "speeding": 1
+      },
+      "km": 10,
+      "expected": 88
+    },
+    {
+      "name": "score never goes below zero",
+      "counts": {
+        "speeding": 100
+      },
+      "km": 100,
+      "expected": 0
+    }
+  ],
+  "fuel": [
+    {
+      "name": "no trips",
+      "variances": [],
+      "expected": null
+    },
+    {
+      "name": "on target",
+      "variances": [0, -3, 2],
+      "expected": 97
+    },
+    {
+      "name": "under is not rewarded",
+      "variances": [-20, -10],
+      "expected": 100
+    },
+    {
+      "name": "ten percent over",
+      "variances": [10, 10],
+      "expected": 50
+    },
+    {
+      "name": "twenty percent over scores nothing",
+      "variances": [20, 20],
+      "expected": 0
+    },
+    {
+      "name": "mixed",
+      "variances": [0, 20],
+      "expected": 50
+    }
+  ],
+  "punctuality": [
+    {
+      "name": "none",
+      "on_time": 0,
+      "total": 0,
+      "expected": null
+    },
+    {
+      "name": "all",
+      "on_time": 8,
+      "total": 8,
+      "expected": 100
+    },
+    {
+      "name": "some",
+      "on_time": 6,
+      "total": 8,
+      "expected": 75
+    }
+  ],
+  "inspections": [
+    {
+      "name": "none",
+      "clean": 0,
+      "with_defects": 0,
+      "total": 0,
+      "expected": null
+    },
+    {
+      "name": "all clean",
+      "clean": 5,
+      "with_defects": 0,
+      "total": 5,
+      "expected": 100
+    },
+    {
+      "name": "some with defects",
+      "clean": 3,
+      "with_defects": 2,
+      "total": 6,
+      "expected": 67
+    },
+    {
+      "name": "none clean",
+      "clean": 0,
+      "with_defects": 0,
+      "total": 4,
+      "expected": 0
+    }
+  ],
+  "alerts": [
+    {
+      "name": "none",
+      "confirmed": 0,
+      "open": 0,
+      "expected": 100
+    },
+    {
+      "name": "one open",
+      "confirmed": 0,
+      "open": 1,
+      "expected": 90
+    },
+    {
+      "name": "one confirmed",
+      "confirmed": 1,
+      "open": 0,
+      "expected": 75
+    },
+    {
+      "name": "a lot",
+      "confirmed": 3,
+      "open": 3,
+      "expected": 0
+    }
+  ],
+  "overall": [
+    {
+      "name": "nothing to score",
+      "parts": {},
+      "expected": null
+    },
+    {
+      "name": "only alerts",
+      "parts": {
+        "alerts": 100
+      },
+      "expected": 100
+    },
+    {
+      "name": "everything",
+      "parts": {
+        "safety": 90,
+        "fuel": 80,
+        "punctuality": 100,
+        "inspections": 70,
+        "alerts": 100
+      },
+      "expected": 88
+    },
+    {
+      "name": "some missing are left out of the average",
+      "parts": {
+        "safety": 90,
+        "fuel": null,
+        "punctuality": null,
+        "inspections": 70,
+        "alerts": 100
+      },
+      "expected": 88
+    }
+  ],
+  "band": [
+    {
+      "score": null,
+      "expected": null
+    },
+    {
+      "score": 100,
+      "expected": "good"
+    },
+    {
+      "score": 80,
+      "expected": "good"
+    },
+    {
+      "score": 79,
+      "expected": "watch"
+    },
+    {
+      "score": 60,
+      "expected": "watch"
+    },
+    {
+      "score": 59,
+      "expected": "poor"
+    },
+    {
+      "score": 0,
+      "expected": "poor"
+    }
+  ]
+}

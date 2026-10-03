@@ -2020,3 +2020,179 @@ export interface TrackingStatus {
   fixes_today: number;
   retention_days: number;
 }
+
+// ---- fraud engine, scorecards, fuel prices, route suggestions, private beta (Sprint 13) ----
+
+export type FraudSeverity = "red" | "amber";
+export type FraudStatus = "open" | "explained" | "confirmed";
+
+export interface FraudAlert {
+  id: string;
+  kind: string;
+  label: string;
+  severity: FraudSeverity;
+  title: string;
+  detail: string | null;
+  evidence: Record<string, unknown>;
+  vehicle_id: string | null;
+  registration: string | null;
+  trip_id: string | null;
+  driver_membership_id: string | null;
+  driver: string | null;
+  trust_level: TrustLevel | null;
+  status: FraudStatus;
+  note: string | null;
+  handled_at: string | null;
+  occurred_at: string;
+  created_at: string;
+  notified: number;
+}
+
+export interface FraudSummary {
+  open: { red: number; amber: number; total: number };
+  kinds: {
+    kind: string;
+    label: string;
+    total: number;
+    open: number;
+    explained: number;
+    confirmed: number;
+    confirmed_pct: number | null;
+  }[];
+}
+
+export interface FraudThresholds {
+  fuel_variance_pct: number;
+  idle_litres_per_hour: number;
+  min_baseline_trips: number;
+  min_fuel_km: number;
+  long_stop_minutes: number;
+  stop_radius_m: number;
+  side_trip_pct: number;
+  side_trip_min_km: number;
+  tamper_window_hours: number;
+  excess_idle_pct: number;
+  excess_idle_minutes: number;
+}
+
+export interface FraudChannelPref {
+  roles: string[];
+  channels: string[];
+}
+
+export interface FraudSettings {
+  thresholds: FraudThresholds;
+  defaults: FraudThresholds;
+  limits: Record<keyof FraudThresholds, [number, number]>;
+  channels: Record<FraudSeverity, FraudChannelPref>;
+  roles: string[];
+  channel_names: string[];
+}
+
+export interface FuelBaseline {
+  route: string;
+  load_band: string;
+  l_per_km: number;
+  km_per_litre: number;
+  trips: number;
+  established: boolean;
+}
+
+export interface VehicleBaselines {
+  vehicle_id: string;
+  registration: string;
+  declared_kmpl_loaded: string | null;
+  declared_kmpl_empty: string | null;
+  needed_trips: number;
+  baselines: FuelBaseline[];
+}
+
+export interface DriverScorecard {
+  membership_id: string;
+  name: string;
+  trips: number;
+  km: number;
+  safety: number | null;
+  fuel: number | null;
+  punctuality: number | null;
+  inspections: number | null;
+  alerts: number;
+  overall: number | null;
+  band: "good" | "watch" | "poor" | null;
+  detail: {
+    behaviour: Record<string, number>;
+    trips_with_fuel_checked: number;
+    avg_fuel_variance_pct: number | null;
+    on_time: number;
+    timed_trips: number;
+    clean_inspections: number;
+    inspections_with_defects: number;
+    alerts_confirmed: number;
+    alerts_open: number;
+    alerts_explained: number;
+  };
+}
+
+export interface Scorecards {
+  from: string;
+  to: string;
+  drivers: DriverScorecard[];
+  weights: Record<string, number>;
+}
+
+export interface FuelPriceRow {
+  id: string;
+  month: string;
+  region: string;
+  diesel_cents: number;
+  petrol_cents: number;
+  source: "epra" | "manual";
+}
+
+export interface CurrentFuelPrice {
+  cents: number;
+  month: string;
+  region: string;
+  source: "epra" | "manual";
+}
+
+export interface FuelPrices {
+  region: string;
+  regions: string[];
+  current: CurrentFuelPrice | null;
+  current_petrol: CurrentFuelPrice | null;
+  prices: FuelPriceRow[];
+}
+
+export interface RouteSuggestion {
+  distance_km: number;
+  expected_hours: number;
+  summary: string;
+  provider: "google" | "estimate";
+}
+
+export interface OnboardingItem {
+  key: string;
+  title: string;
+  detail: string;
+  link: string;
+  done: boolean;
+}
+
+export interface Onboarding {
+  dismissed: boolean;
+  done: number;
+  total: number;
+  items: OnboardingItem[];
+}
+
+export interface FeedbackRow {
+  id: string;
+  kind: "problem" | "idea" | "praise";
+  message: string;
+  page: string | null;
+  app: "web" | "mobile" | null;
+  from: string | null;
+  business: string | null;
+  created_at: string;
+}

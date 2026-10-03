@@ -3,6 +3,7 @@ import { odometerProblem, parseOdometer } from "@fleettms/business-rules";
 import { Camera, CheckCircle2, Flag, PackageCheck, Play, Square } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { TripAlertsCard } from "./Alerts";
 import { ReplayCard } from "./Replay";
 import { TrackingLinksCard, TripTrackCard } from "./TripTrack";
 import { api } from "../api";
@@ -409,6 +410,7 @@ export default function TripDetail() {
           </p>
         </Card>
       )}
+      <TripAlertsCard tripId={trip.id} />
       <TripTrackCard trip={trip} />
       {trip.started_at && <ReplayCard tripId={trip.id} />}
       <TrackingLinksCard trip={trip} />

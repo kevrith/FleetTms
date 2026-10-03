@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { api } from "../api";
 import { kes } from "../labels";
 import { Card, ErrorBanner, errorMessage } from "../ui";
+import { OnboardingCard } from "./Onboarding";
 
 function Stat({ label, value, note }: { label: string; value: string; note?: string }) {
   return (
@@ -33,6 +34,7 @@ export default function Dashboard() {
   const n = data.numbers;
   return (
     <>
+      <OnboardingCard />
       {n.mode === "owner_driver" && (
         <p className="muted">
           Owner-driver mode: you are also a driver, so you are not asked to approve your own

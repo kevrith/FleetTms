@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import behaviour, geofences
+from app import behaviour, fraud, geofences
 from app.gps_rules import good_fix, path_distance_km, three_way
 from app.models import LocationPoint, TrackingGap, Trip, TripStatus, Vehicle
 from app.tenancy import current_business_id
@@ -103,6 +103,8 @@ async def finalise(db: AsyncSession, trip: Trip) -> None:
     verdict = three_way(odometer_km=trip.distance_km, phone_km=km if used else None, phone_points=used, tracker_km=t_km if t_used else None, tracker_points=t_used)
     trip.distance_check = verdict["check"]
     trip.distance_detail = {"sources": verdict["sources"], "suspect": verdict["suspect"]}
+    if trip.ended_at is not None:
+        await fraud.check_trip(db, trip)  # the fuel, distance and stop checks that need the finished trip
 
 
 async def last_positions(db: AsyncSession, vehicle_ids: list[uuid.UUID], *, since: datetime | None = None) -> dict[uuid.UUID, LocationPoint]:

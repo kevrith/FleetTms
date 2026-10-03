@@ -225,3 +225,92 @@ def test_immobiliser_rules(case):
 def test_three_way_distance(case):
     got = three_way(odometer_km=case["odometer_km"], phone_km=case["phone_km"], phone_points=case["phone_points"], tracker_km=case["tracker_km"], tracker_points=case["tracker_points"])
     assert got["check"] == case["check"] and got["suspect"] == case["suspect"]
+
+
+# ---- fraud engine rules and driver scorecards (Sprint 13) ----
+
+from app import fraud_rules, scorecard_rules
+
+FRAUD = json.loads((RULES / "fraud-cases.json").read_text())
+SCORECARD = json.loads((RULES / "scorecard-cases.json").read_text())
+FRAUD_BASE = datetime(2026, 10, 2, 8, 0, tzinfo=UTC)
+
+
+def _at(sec):
+    return FRAUD_BASE + timedelta(seconds=sec)
+
+
+def _names(group):
+    return [c.get("name", str(c)) for c in group]
+
+
+@pytest.mark.parametrize("case", FRAUD["thresholds"], ids=_names(FRAUD["thresholds"]))
+def test_fraud_thresholds(case):
+    assert fraud_rules.thresholds_from(case["overrides"]).__dict__ == case["expected"]
+
+
+def test_fraud_load_bands_and_route_keys():
+    for c in FRAUD["load_band"]:
+        assert fraud_rules.load_band(c["kg"]) == c["expected"]
+    for c in FRAUD["route_key"]:
+        assert fraud_rules.route_key(c["origin"], c["destination"]) == c["expected"]
+
+
+@pytest.mark.parametrize("case", FRAUD["baseline"], ids=_names(FRAUD["baseline"]))
+def test_fuel_baseline(case):
+    assert fraud_rules.baseline(case["samples"]) == case["expected"]
+
+
+@pytest.mark.parametrize("case", FRAUD["fuel_check"], ids=_names(FRAUD["fuel_check"]))
+def test_fuel_check(case):
+    assert fraud_rules.fuel_check(litres=case["litres"], km=case["km"], idle_hours=case["idle_hours"], l_per_km=case["l_per_km"]) == case["expected"]
+
+
+@pytest.mark.parametrize("case", FRAUD["side_trip"], ids=_names(FRAUD["side_trip"]))
+def test_side_trip(case):
+    assert fraud_rules.side_trip_check(gps_km=case["gps_km"], expected_km=case["expected_km"]) == case["expected"]
+
+
+@pytest.mark.parametrize("case", FRAUD["find_stops"], ids=_names(FRAUD["find_stops"]))
+def test_find_stops(case):
+    fixes = [{"at": _at(s), "lat": la, "lng": ln, "speed": sp} for s, la, ln, sp in case["points"]]
+    got = [{"start_s": (x["start"] - FRAUD_BASE).total_seconds(), "end_s": (x["end"] - FRAUD_BASE).total_seconds(), "minutes": x["minutes"], "lat": x["lat"], "lng": x["lng"]} for x in fraud_rules.find_stops(fixes)]
+    assert got == case["expected"]
+
+
+@pytest.mark.parametrize("case", FRAUD["explain_stop"], ids=_names(FRAUD["explain_stop"]))
+def test_explain_stop(case):
+    assert fraud_rules.explain_stop(case["stop"], places=case["places"]) == case["expected"]
+
+
+@pytest.mark.parametrize("case", FRAUD["tamper_before"], ids=_names(FRAUD["tamper_before"]))
+def test_tamper_before(case):
+    got = fraud_rules.tamper_before(_at(case["stop_start_s"]), [_at(s) for s in case["tampers_s"]])
+    assert (None if got is None else (got - FRAUD_BASE).total_seconds()) == case["expected"]
+
+
+@pytest.mark.parametrize("case", FRAUD["idle_check"], ids=_names(FRAUD["idle_check"]))
+def test_idle_check(case):
+    assert fraud_rules.idle_check(idle_minutes=case["idle_minutes"], trip_minutes=case["trip_minutes"]) == case["expected"]
+
+
+@pytest.mark.parametrize("case", FRAUD["odometer_finding"], ids=_names(FRAUD["odometer_finding"]))
+def test_odometer_finding(case):
+    assert fraud_rules.odometer_finding(case["check"], case["detail"]) == case["expected"]
+
+
+def test_scorecard_rules():
+    for c in SCORECARD["safety"]:
+        assert scorecard_rules.safety_score(c["counts"], c["km"]) == c["expected"], c["name"]
+    for c in SCORECARD["fuel"]:
+        assert scorecard_rules.fuel_score(c["variances"]) == c["expected"], c["name"]
+    for c in SCORECARD["punctuality"]:
+        assert scorecard_rules.punctuality_score(c["on_time"], c["total"]) == c["expected"], c["name"]
+    for c in SCORECARD["inspections"]:
+        assert scorecard_rules.inspection_score(c["clean"], c["with_defects"], c["total"]) == c["expected"], c["name"]
+    for c in SCORECARD["alerts"]:
+        assert scorecard_rules.alerts_score(c["confirmed"], c["open"]) == c["expected"], c["name"]
+    for c in SCORECARD["overall"]:
+        assert scorecard_rules.overall(c["parts"]) == c["expected"], c["name"]
+    for c in SCORECARD["band"]:
+        assert scorecard_rules.band(c["score"]) == c["expected"]

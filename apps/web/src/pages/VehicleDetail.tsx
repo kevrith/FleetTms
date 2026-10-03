@@ -6,6 +6,7 @@ import type {
   Party,
   StaffProfile,
   Vehicle,
+  VehicleBaselines,
   VehicleInput,
   VehicleTrust,
 } from "@fleettms/types";
@@ -158,6 +159,50 @@ function Trust({ vehicleId }: { vehicleId: string }) {
   );
 }
 
+function Baselines({ vehicleId }: { vehicleId: string }) {
+  const [data, setData] = useState<VehicleBaselines | null>(null);
+  useEffect(() => {
+    api
+      .vehicleBaselines(vehicleId)
+      .then(setData)
+      .catch(() => setData(null));
+  }, [vehicleId]);
+  if (!data) return null;
+  return (
+    <Card title="Normal fuel use">
+      <p className="muted">
+        What this vehicle burns on each route and load, from its own finished trips with idling
+        taken out. A trip well above this raises a fuel alert. It takes {data.needed_trips} similar
+        trips with fuel recorded before the vehicle's own history is used
+        {data.declared_kmpl_loaded || data.declared_kmpl_empty
+          ? `; until then its declared ${data.declared_kmpl_loaded ?? "?"} km a litre loaded and ${data.declared_kmpl_empty ?? "?"} empty are used`
+          : ""}
+        .
+      </p>
+      {data.baselines.length === 0 && <p className="muted">No trips with fuel recorded yet.</p>}
+      <ul className="list">
+        {data.baselines.map((b) => (
+          <li key={`${b.route}-${b.load_band}`}>
+            <span>
+              {b.route}{" "}
+              <span className="muted">
+                ({b.load_band === "empty" ? "empty" : `load ${b.load_band} and up`})
+              </span>
+            </span>
+            <span>
+              {b.km_per_litre} km a litre{" "}
+              <span className="muted">
+                from {b.trips} trip{b.trips === 1 ? "" : "s"}
+                {b.established ? "" : ", not enough yet"}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 function Inspections({ vehicleId }: { vehicleId: string }) {
   const [rows, setRows] = useState<Inspection[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -258,6 +303,7 @@ export default function VehicleDetail() {
       <Crew vehicle={vehicle} canManage={manage} />
       <ServiceCard vehicleId={vehicle.id} />
       <Trust vehicleId={vehicle.id} />
+      <Baselines vehicleId={vehicle.id} />
       <ReplayCard vehicleId={vehicle.id} />
       <ImmobiliserCard vehicleId={vehicle.id} />
       <Inspections vehicleId={vehicle.id} />

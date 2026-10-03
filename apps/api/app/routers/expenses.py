@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit, mpesa
+from app import audit, fraud, mpesa
 from app.clock import capture_time
 from app.db import get_db
 from app.deps import Principal, error, require, require_any
@@ -178,6 +178,8 @@ async def do_add_expense(db: AsyncSession, principal: Principal, body: ExpenseIn
     except ValueError as exc:
         raise error(422, "invalid_mpesa_code", str(exc)) from None
     if code and await mpesa.taken(db, code):
+        await fraud.duplicate_mpesa(db, code=code, user_id=principal.user.id, vehicle_id=vehicle.id if vehicle else None)
+        await db.commit()  # the claim is refused, but the owner is told someone tried
         raise error(status.HTTP_409_CONFLICT, "duplicate_mpesa_code", "That M-Pesa code was already claimed.")
     receipt = await claim_photo(
         db, principal, body.receipt_photo_id, PhotoKind.RECEIPT, required=False,

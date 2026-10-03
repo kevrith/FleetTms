@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import alerts, tracking
+from app import alerts, fraud, fuel_prices, tracking
 from app.config import settings
 from app.db import get_sessionmaker
 from app.models import (
@@ -135,3 +135,39 @@ async def purge_old_points(now: datetime | None = None) -> int:
 
 async def gps_retention_job(ctx: dict) -> int:
     return await purge_old_points()
+
+
+async def run_fraud_sweep() -> int:
+    """Every check the fraud engine makes that is not tied to one event, for every business (masterplan 5.13)."""
+
+    async def one(db: AsyncSession) -> int:
+        raised = await fraud.sweep(db)
+        await db.commit()
+        return raised
+
+    return await _each_business(one)
+
+
+async def fraud_sweep_job(ctx: dict) -> int:
+    return await run_fraud_sweep()
+
+
+async def run_fuel_price_fetch() -> int:
+    """Once a day, fetches this month's EPRA prices for any business that has none yet and has a feed to read."""
+    if not settings.epra_prices_url:
+        return 0
+
+    async def one(db: AsyncSession) -> int:
+        try:
+            saved = await fuel_prices.fetch_prices(db, only_if_missing=True)
+        except fuel_prices.FeedError:
+            log.warning("The EPRA price feed could not be read")
+            return 0
+        await db.commit()
+        return saved
+
+    return await _each_business(one)
+
+
+async def fuel_price_job(ctx: dict) -> int:
+    return await run_fuel_price_fetch()

@@ -335,3 +335,70 @@ export function quietFor(seconds: number | null): string {
   if (seconds < 86400) return `${Math.round(seconds / 3600)} h ago`;
   return `${Math.round(seconds / 86400)} days ago`;
 }
+
+export const FRAUD_KIND: Record<string, string> = {
+  fuel_variance: "Fuel above expected",
+  odometer_mismatch: "Odometer and GPS disagree",
+  side_trip: "Side trip",
+  long_stop: "Long unexplained stop",
+  tamper_then_stop: "Stop after tracker cut",
+  excess_idling: "Excess idling",
+  overload: "Overloaded",
+  power_cut: "Tracker power cut",
+  gps_jamming: "GPS jamming",
+  tamper: "Tracker tampering",
+  went_dark: "Went dark during a trip",
+  fake_gps: "Fake GPS app",
+  rooted_phone: "Rooted phone",
+  clock_changed: "Phone clock changed",
+  tyre_swap: "Possible tyre swap",
+  expense_above_norm: "Expense above the route's norm",
+  fuel_amount_mismatch: "Fuel total does not add up",
+  delivery_off_site: "Delivery away from the site",
+  parts_unfitted: "Parts issued but not fitted",
+  sensitive_change: "Sensitive change by staff",
+  duplicate_mpesa: "M-Pesa code claimed twice",
+  duplicate_receipt: "Receipt photo used twice",
+};
+export const FRAUD_STATUS: Record<string, string> = {
+  open: "Open",
+  explained: "Explained",
+  confirmed: "Confirmed as real",
+};
+export const THRESHOLD_TEXT: Record<string, [string, string, string]> = {
+  fuel_variance_pct: [
+    "Fuel above expected",
+    "%",
+    "Alert when a trip's fuel is more than this above what the distance and idling explain. Twice this is red.",
+  ],
+  idle_litres_per_hour: [
+    "Fuel burned idling",
+    "litres an hour",
+    "What a lorry burns standing with the engine on. Taken out of the fuel check so idling is not blamed on the driver.",
+  ],
+  min_baseline_trips: [
+    "Trips before a vehicle has a normal",
+    "trips",
+    "Until a vehicle has this many similar trips with fuel recorded, its declared consumption is used.",
+  ],
+  min_fuel_km: [
+    "Shortest trip the fuel check judges",
+    "km",
+    "Shorter trips are too small for litres per kilometre to mean anything.",
+  ],
+  long_stop_minutes: [
+    "Long stop",
+    "minutes",
+    "A stop this long away from a depot, a client's site or a fuel station needs an explanation.",
+  ],
+  stop_radius_m: ["Size of a stop", "metres", "Moving less than this is still the same stop."],
+  side_trip_pct: ["Side trip", "%", "Driving this much further than the route is a side trip..."],
+  side_trip_min_km: ["...if it is also at least", "km", "...more than the route."],
+  tamper_window_hours: [
+    "Stop after tracker cut",
+    "hours",
+    "A long stop this soon after the tracker was cut is red.",
+  ],
+  excess_idle_pct: ["Excess idling", "% of the trip", "Idling as a share of the trip's time..."],
+  excess_idle_minutes: ["...and at least", "minutes", "...of idling in all."],
+};

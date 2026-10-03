@@ -22,6 +22,8 @@ import Leases from "./pages/Leases";
 import Follow from "./pages/Follow";
 import LiveMap from "./pages/LiveMap";
 import Portal from "./pages/Portal";
+import Alerts from "./pages/Alerts";
+import Scorecards from "./pages/Scorecards";
 import Suppliers from "./pages/Suppliers";
 import Tracking from "./pages/Tracking";
 import TripDetail from "./pages/TripDetail";
@@ -127,6 +129,8 @@ export default function App() {
         <Route path="/portal" element={<Portal />} />
         <Route path="/map" element={<LiveMap />} />
         <Route path="/tracking/*" element={<Tracking />} />
+        <Route path="/alerts/*" element={<Alerts />} />
+        <Route path="/scorecards" element={<Scorecards />} />
         <Route path="/settings/*" element={<Settings />} />
         <Route path="*" element={<Placeholder />} />
       </Route>

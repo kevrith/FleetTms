@@ -31,13 +31,26 @@ class TenantMixin:
     )
 
 
+def _mappers_of(state: ORMExecuteState) -> list:
+    """The mappers a statement touches, including one that only appears in its FROM clause: `select(func.count()).select_from(Vehicle)`
+    names no column of the model, so state.all_mappers alone would miss it and the count would span every business."""
+    found = list(state.all_mappers)
+    if state.is_select:
+        for source in state.statement.get_final_froms():
+            entity = getattr(source, "_annotations", {}).get("parententity")
+            entity = getattr(entity, "mapper", entity)
+            if entity is not None and hasattr(entity, "class_"):
+                found.append(entity)
+    return found
+
+
 @event.listens_for(Session, "do_orm_execute")
 def _scope_to_tenant(state: ORMExecuteState) -> None:
     if state.execution_options.get("skip_tenant"):
         return
     if not (state.is_select or state.is_update or state.is_delete):
         return
-    if not any(issubclass(m.class_, TenantMixin) for m in state.all_mappers):
+    if not any(issubclass(m.class_, TenantMixin) for m in _mappers_of(state)):
         return
     business_id = current_business_id.get()
     if business_id is None:

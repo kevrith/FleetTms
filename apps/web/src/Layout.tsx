@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { api } from "./api";
 import { useAuth } from "./auth";
+import { FeedbackButton } from "./Feedback";
 import { navItems } from "./nav";
 import { ErrorBanner, errorMessage } from "./ui";
 
@@ -151,6 +152,7 @@ export default function Layout() {
           <br />
           <span className="muted">{me.roles.map((r) => ROLE_LABELS[r]).join(", ")}</span>
         </p>
+        <FeedbackButton />
         <button className="btn" onClick={signOut}>
           <LogOut size={16} /> Sign out
         </button>

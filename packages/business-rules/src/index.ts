@@ -13,3 +13,5 @@ export * from "./gps";
 export * from "./behaviour";
 export * from "./geofence";
 export * from "./immobiliser";
+export * from "./fraud";
+export * from "./scorecard";

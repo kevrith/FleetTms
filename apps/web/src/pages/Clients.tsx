@@ -1,5 +1,5 @@
 import type { BillingMethod, Client, SavedRoute } from "@fleettms/types";
-import { Plus } from "lucide-react";
+import { Compass, Plus } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link, NavLink, Route, Routes, useParams } from "react-router-dom";
 import { api } from "../api";
@@ -255,8 +255,25 @@ const routePayload = (f: RouteForm) => ({
 });
 
 function RouteFields({ f, set }: { f: RouteForm; set: (f: RouteForm) => void }) {
+  const [hint, setHint] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const on = (k: keyof RouteForm) => (e: { target: { value: string } }) =>
     set({ ...f, [k]: e.target.value });
+  async function suggest() {
+    setBusy(true);
+    setHint(null);
+    try {
+      const r = await api.suggestRoute(f.pickup, f.dropoff);
+      set({ ...f, distance_km: String(r.distance_km), expected_hours: String(r.expected_hours) });
+      setHint(
+        `${r.provider === "google" ? "From Google Maps" : "A rough estimate"}: ${r.distance_km} km, about ${r.expected_hours} hours for a loaded lorry. ${r.summary}. Check it against what your drivers say.`,
+      );
+    } catch (e) {
+      setHint(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <div className="form-grid">
       <Field label="Route name">
@@ -268,6 +285,17 @@ function RouteFields({ f, set }: { f: RouteForm; set: (f: RouteForm) => void }) 
       <Field label="Drop-off">
         <input value={f.dropoff} onChange={on("dropoff")} required />
       </Field>
+      <p className="actions">
+        <button
+          className="btn"
+          type="button"
+          disabled={busy || f.pickup.trim().length < 2 || f.dropoff.trim().length < 2}
+          onClick={suggest}
+        >
+          <Compass size={16} /> Suggest the distance and time
+        </button>
+        {hint && <span className="muted">{hint}</span>}
+      </p>
       <Field label="Distance one way (km)">
         <input type="number" min="0" value={f.distance_km} onChange={on("distance_km")} required />
       </Field>

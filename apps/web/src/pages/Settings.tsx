@@ -3,6 +3,7 @@ import { useAuth } from "../auth";
 import Audit from "./Audit";
 import Checklist from "./Checklist";
 import Depots from "./Depots";
+import FuelPricesPage from "./FuelPrices";
 import ImportData from "./ImportData";
 import PaymentSettingsPage from "./PaymentSettings";
 import Security from "./Security";
@@ -18,6 +19,11 @@ export default function Settings() {
       to: "payments",
       label: "Payments and tax",
       show: can("business.manage") || can("invoices.manage"),
+    },
+    {
+      to: "fuel-prices",
+      label: "Fuel prices",
+      show: can("clients.manage") || can("vehicles.view"),
     },
     { to: "import", label: "Import from Excel", show: can("data.import") },
     { to: "audit", label: "Audit trail", show: can("audit.view") },
@@ -41,6 +47,9 @@ export default function Settings() {
         {can("vehicles.manage") && <Route path="checklist" element={<Checklist />} />}
         {(can("business.manage") || can("invoices.manage")) && (
           <Route path="payments" element={<PaymentSettingsPage />} />
+        )}
+        {(can("clients.manage") || can("vehicles.view")) && (
+          <Route path="fuel-prices" element={<FuelPricesPage />} />
         )}
         {can("data.import") && <Route path="import" element={<ImportData />} />}
         {can("audit.view") && <Route path="audit" element={<Audit />} />}

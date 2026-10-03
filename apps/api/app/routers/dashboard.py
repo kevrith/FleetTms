@@ -24,6 +24,7 @@ from app.models import (
     Expense,
     ExpenseStatus,
     FloatTransfer,
+    FraudAlert,
     FuelEntry,
     Incident,
     Inspection,
@@ -59,6 +60,8 @@ from app.vehicle_scope import scope_vehicles
 
 router = APIRouter(tags=["dashboard"])
 MAX_REPORT_DAYS = 366
+# Fraud-engine kinds the dashboard has no line of its own for (tracker tamper, tyre swaps, overloads, parts and the phone checks already have).
+ENGINE_KINDS = ("fuel_variance", "side_trip", "long_stop", "tamper_then_stop", "excess_idling", "sensitive_change", "duplicate_mpesa", "duplicate_receipt")
 
 
 def alert(kind: str, severity: str, title: str, detail: str, link: str) -> dict:
@@ -206,6 +209,11 @@ async def dashboard(
             if a.vehicle_id in vehicles:
                 words = {"power_cut": "tracker lost power", "gps_jamming": "GPS jamming", "tamper": "tracker tampering", "sos": "tracker SOS pressed", "low_battery": "tracker battery low", "device_offline": "tracker offline", "geofence": f"{(a.details or {}).get('event', 'moved')} {(a.details or {}).get('geofence', 'an area')}"}
                 alerts.append(alert("tracker_" + a.kind, a.severity, f"{vehicles[a.vehicle_id].registration}: {words.get(a.kind, a.kind.replace('_', ' '))}", "", "/tracking"))
+    if "alerts.view" in perms:
+        # What the fraud engine found that the lines above do not already show. Each one is open until someone answers it.
+        for a in (await db.execute(select(FraudAlert).where(FraudAlert.status == "open", FraudAlert.kind.in_(ENGINE_KINDS)).order_by(FraudAlert.created_at.desc()).limit(30))).scalars():
+            if principal.vehicle_scope is None or (a.vehicle_id is not None and str(a.vehicle_id) in principal.vehicle_scope):
+                alerts.append(alert("fraud_" + a.kind, a.severity, a.title, a.detail or "", "/alerts"))
     if "vehicles.view" in perms:
         for t in (await db.execute(select(Trip).where(Trip.distance_check == "mismatch", Trip.ended_at >= start - timedelta(days=6)))).scalars():
             if t.vehicle_id in vehicles:

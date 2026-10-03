@@ -214,6 +214,8 @@ class Business(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
     name: Mapped[str] = mapped_column(String(200))
     kra_pin: Mapped[str | None] = mapped_column(String(20))
+    onboarding_dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # the owner hid the getting-started checklist
+    fuel_region: Mapped[str] = mapped_column(String(40), default="Nairobi", server_default=text("'Nairobi'"))  # whose EPRA pump price quotes start from
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -1841,3 +1843,72 @@ class ImmobiliserCommand(TenantMixin, Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     result_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     result_note: Mapped[str | None] = mapped_column(String(255))
+
+
+# ---- Fraud engine, scorecards, fuel prices, beta feedback (masterplan 5.13, 5.25, 5.28) -------------------------------
+
+
+class FraudAlert(TenantMixin, Base):
+    """One thing the fraud engine found, with the numbers behind it. The same finding is never raised twice (dedupe_key)."""
+
+    __tablename__ = "fraud_alerts"
+    __table_args__ = (UniqueConstraint("business_id", "dedupe_key"), Index("ix_fraud_alerts_status_created", "status", "created_at"))
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    kind: Mapped[str] = mapped_column(String(40), index=True)  # fuel_variance, odometer_mismatch, side_trip, long_stop, tamper_then_stop, ...
+    severity: Mapped[str] = mapped_column(String(5))  # red or amber
+    vehicle_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True)
+    trip_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("trips.id", ondelete="SET NULL"), index=True)
+    driver_membership_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("memberships.id", ondelete="SET NULL"), index=True)
+    subject_type: Mapped[str | None] = mapped_column(String(30))  # the record it came from: tracker_alert, tyre_swap_alert, expense, ...
+    subject_id: Mapped[str | None] = mapped_column(String(64))
+    dedupe_key: Mapped[str] = mapped_column(String(160))
+    title: Mapped[str] = mapped_column(String(200))
+    detail: Mapped[str | None] = mapped_column(String(500))
+    evidence: Mapped[dict] = mapped_column(JSONB, default=dict)  # the numbers, times and places behind the finding
+    trust_level: Mapped[str | None] = mapped_column(String(6))  # the vehicle's trust level when it was raised
+    status: Mapped[str] = mapped_column(String(12), default="open", index=True)  # open, explained or confirmed
+    note: Mapped[str | None] = mapped_column(String(500))
+    handled_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    handled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    notified: Mapped[int] = mapped_column(Integer, default=0)  # how many people were told by text or email
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)  # when it happened, not when we noticed
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AlertSettings(TenantMixin, Base):
+    """A business's own alert thresholds and who is told how. Anything not set here uses the built-in default."""
+
+    __tablename__ = "alert_settings"
+    __table_args__ = (UniqueConstraint("business_id"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    thresholds: Mapped[dict] = mapped_column(JSONB, default=dict)
+    channels: Mapped[dict] = mapped_column(JSONB, default=dict)  # {"red": {"roles": [...], "channels": [...]}, "amber": {...}}
+    updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class FuelPrice(TenantMixin, Base):
+    """The monthly pump price (EPRA publishes one per town). Quotes start from the newest one."""
+
+    __tablename__ = "fuel_prices"
+    __table_args__ = (UniqueConstraint("business_id", "month", "region"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    month: Mapped[date] = mapped_column(Date, index=True)  # the first day of the month it applies to
+    region: Mapped[str] = mapped_column(String(40))  # Nairobi, Mombasa, Kisumu, Nakuru, Eldoret
+    diesel_cents: Mapped[int] = mapped_column(Integer)  # per litre
+    petrol_cents: Mapped[int] = mapped_column(Integer)
+    source: Mapped[str] = mapped_column(String(10), default="manual")  # epra (fetched) or manual (typed in)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Feedback(TenantMixin, Base):
+    """What a beta tester typed into the feedback button."""
+
+    __tablename__ = "feedback"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    kind: Mapped[str] = mapped_column(String(10), default="idea")  # problem, idea or praise
+    message: Mapped[str] = mapped_column(String(2000))
+    page: Mapped[str | None] = mapped_column(String(200))  # where in the app they were
+    app: Mapped[str | None] = mapped_column(String(10))  # web or mobile
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

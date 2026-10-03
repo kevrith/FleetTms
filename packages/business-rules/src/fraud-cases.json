@@ -1,0 +1,679 @@
+{
+  "thresholds": [
+    {
+      "name": "no overrides gives the defaults",
+      "overrides": null,
+      "expected": {
+        "fuel_variance_pct": 10,
+        "idle_litres_per_hour": 3.0,
+        "min_baseline_trips": 3,
+        "min_fuel_km": 30,
+        "long_stop_minutes": 45,
+        "stop_radius_m": 100,
+        "side_trip_pct": 25,
+        "side_trip_min_km": 15,
+        "tamper_window_hours": 6,
+        "excess_idle_pct": 20,
+        "excess_idle_minutes": 60
+      }
+    },
+    {
+      "name": "valid overrides are used",
+      "overrides": {
+        "fuel_variance_pct": 15,
+        "long_stop_minutes": 60
+      },
+      "expected": {
+        "fuel_variance_pct": 15.0,
+        "idle_litres_per_hour": 3.0,
+        "min_baseline_trips": 3,
+        "min_fuel_km": 30,
+        "long_stop_minutes": 60,
+        "stop_radius_m": 100,
+        "side_trip_pct": 25,
+        "side_trip_min_km": 15,
+        "tamper_window_hours": 6,
+        "excess_idle_pct": 20,
+        "excess_idle_minutes": 60
+      }
+    },
+    {
+      "name": "values out of range, wrong types and unknown names are ignored",
+      "overrides": {
+        "fuel_variance_pct": 1,
+        "long_stop_minutes": "ten",
+        "idle_litres_per_hour": true,
+        "nonsense": 5,
+        "side_trip_pct": 500
+      },
+      "expected": {
+        "fuel_variance_pct": 10,
+        "idle_litres_per_hour": 3.0,
+        "min_baseline_trips": 3,
+        "min_fuel_km": 30,
+        "long_stop_minutes": 45,
+        "stop_radius_m": 100,
+        "side_trip_pct": 25,
+        "side_trip_min_km": 15,
+        "tamper_window_hours": 6,
+        "excess_idle_pct": 20,
+        "excess_idle_minutes": 60
+      }
+    },
+    {
+      "name": "decimals are kept where they make sense and truncated for whole-number fields",
+      "overrides": {
+        "fuel_variance_pct": 7.5,
+        "long_stop_minutes": 60.9,
+        "idle_litres_per_hour": 2.5
+      },
+      "expected": {
+        "fuel_variance_pct": 7.5,
+        "idle_litres_per_hour": 2.5,
+        "min_baseline_trips": 3,
+        "min_fuel_km": 30,
+        "long_stop_minutes": 60,
+        "stop_radius_m": 100,
+        "side_trip_pct": 25,
+        "side_trip_min_km": 15,
+        "tamper_window_hours": 6,
+        "excess_idle_pct": 20,
+        "excess_idle_minutes": 60
+      }
+    }
+  ],
+  "load_band": [
+    {
+      "kg": null,
+      "expected": "empty"
+    },
+    {
+      "kg": 0,
+      "expected": "empty"
+    },
+    {
+      "kg": 499,
+      "expected": "empty"
+    },
+    {
+      "kg": 500,
+      "expected": "0t"
+    },
+    {
+      "kg": 4999,
+      "expected": "0t"
+    },
+    {
+      "kg": 5000,
+      "expected": "5t"
+    },
+    {
+      "kg": 12000,
+      "expected": "10t"
+    },
+    {
+      "kg": 28500,
+      "expected": "25t"
+    }
+  ],
+  "route_key": [
+    {
+      "origin": "Mombasa",
+      "destination": "Nairobi",
+      "expected": "mombasa|nairobi"
+    },
+    {
+      "origin": "  mombasa ",
+      "destination": "NAIROBI",
+      "expected": "mombasa|nairobi"
+    },
+    {
+      "origin": null,
+      "destination": "Nairobi",
+      "expected": "|nairobi"
+    }
+  ],
+  "baseline": [
+    {
+      "name": "median of litres per km",
+      "samples": [
+        {
+          "litres": 300,
+          "km": 1000,
+          "idle_hours": 0
+        },
+        {
+          "litres": 330,
+          "km": 1000,
+          "idle_hours": 0
+        },
+        {
+          "litres": 360,
+          "km": 1000,
+          "idle_hours": 0
+        }
+      ],
+      "expected": {
+        "l_per_km": 0.33,
+        "trips": 3
+      }
+    },
+    {
+      "name": "idling is taken out before comparing",
+      "samples": [
+        {
+          "litres": 330,
+          "km": 1000,
+          "idle_hours": 10
+        },
+        {
+          "litres": 300,
+          "km": 1000,
+          "idle_hours": 0
+        },
+        {
+          "litres": 315,
+          "km": 1000,
+          "idle_hours": 5
+        }
+      ],
+      "expected": {
+        "l_per_km": 0.3,
+        "trips": 3
+      }
+    },
+    {
+      "name": "too few trips means no baseline",
+      "samples": [
+        {
+          "litres": 300,
+          "km": 1000,
+          "idle_hours": 0
+        },
+        {
+          "litres": 310,
+          "km": 1000,
+          "idle_hours": 0
+        }
+      ],
+      "expected": null
+    },
+    {
+      "name": "trips that are too short do not count",
+      "samples": [
+        {
+          "litres": 20,
+          "km": 20,
+          "idle_hours": 0
+        },
+        {
+          "litres": 20,
+          "km": 20,
+          "idle_hours": 0
+        },
+        {
+          "litres": 20,
+          "km": 20,
+          "idle_hours": 0
+        },
+        {
+          "litres": 20,
+          "km": 20,
+          "idle_hours": 0
+        },
+        {
+          "litres": 20,
+          "km": 20,
+          "idle_hours": 0
+        }
+      ],
+      "expected": null
+    }
+  ],
+  "fuel_check": [
+    {
+      "name": "on target",
+      "litres": 305,
+      "km": 1000,
+      "idle_hours": 0,
+      "l_per_km": 0.3,
+      "expected": {
+        "flagged": false,
+        "expected_litres": 300.0,
+        "variance_pct": 1.7,
+        "severity": null
+      }
+    },
+    {
+      "name": "inflated fuel",
+      "litres": 345,
+      "km": 1000,
+      "idle_hours": 0,
+      "l_per_km": 0.3,
+      "expected": {
+        "flagged": true,
+        "expected_litres": 300.0,
+        "variance_pct": 15.0,
+        "severity": "amber"
+      }
+    },
+    {
+      "name": "far above is red",
+      "litres": 400,
+      "km": 1000,
+      "idle_hours": 0,
+      "l_per_km": 0.3,
+      "expected": {
+        "flagged": true,
+        "expected_litres": 300.0,
+        "variance_pct": 33.3,
+        "severity": "red"
+      }
+    },
+    {
+      "name": "long idling explains extra fuel",
+      "litres": 360,
+      "km": 1000,
+      "idle_hours": 20,
+      "l_per_km": 0.3,
+      "expected": {
+        "flagged": false,
+        "expected_litres": 360.0,
+        "variance_pct": 0.0,
+        "severity": null
+      }
+    },
+    {
+      "name": "the same fuel with no idling is flagged",
+      "litres": 360,
+      "km": 1000,
+      "idle_hours": 0,
+      "l_per_km": 0.3,
+      "expected": {
+        "flagged": true,
+        "expected_litres": 300.0,
+        "variance_pct": 20.0,
+        "severity": "amber"
+      }
+    },
+    {
+      "name": "short trips are not judged",
+      "litres": 90,
+      "km": 20,
+      "idle_hours": 0,
+      "l_per_km": 0.3,
+      "expected": {
+        "flagged": false,
+        "expected_litres": null,
+        "variance_pct": null,
+        "severity": null
+      }
+    },
+    {
+      "name": "exactly at the threshold is not flagged",
+      "litres": 330,
+      "km": 1000,
+      "idle_hours": 0,
+      "l_per_km": 0.3,
+      "expected": {
+        "flagged": false,
+        "expected_litres": 300.0,
+        "variance_pct": 10.0,
+        "severity": null
+      }
+    }
+  ],
+  "side_trip": [
+    {
+      "name": "normal variation",
+      "gps_km": 1040,
+      "expected_km": 1000,
+      "expected": {
+        "flagged": false,
+        "extra_km": 40,
+        "over_pct": 4.0
+      }
+    },
+    {
+      "name": "a side trip",
+      "gps_km": 1300,
+      "expected_km": 1000,
+      "expected": {
+        "flagged": true,
+        "extra_km": 300,
+        "over_pct": 30.0
+      }
+    },
+    {
+      "name": "a big percentage but a small distance",
+      "gps_km": 42,
+      "expected_km": 30,
+      "expected": {
+        "flagged": false,
+        "extra_km": 12,
+        "over_pct": 40.0
+      }
+    },
+    {
+      "name": "no expected distance",
+      "gps_km": 100,
+      "expected_km": 0,
+      "expected": {
+        "flagged": false,
+        "extra_km": 100,
+        "over_pct": null
+      }
+    }
+  ],
+  "find_stops": [
+    {
+      "name": "driving all the way has no stop",
+      "points": [
+        [0, -1.0, 36.0, 60],
+        [60, -0.99, 36.0, 60],
+        [120, -0.98, 36.0, 60],
+        [180, -0.97, 36.0, 60],
+        [240, -0.96, 36.0, 60],
+        [300, -0.95, 36.0, 60],
+        [360, -0.94, 36.0, 60],
+        [420, -0.9299999999999999, 36.0, 60],
+        [480, -0.92, 36.0, 60],
+        [540, -0.91, 36.0, 60]
+      ],
+      "expected": []
+    },
+    {
+      "name": "an hour standing still",
+      "points": [
+        [0, -1.0, 36.0, 60],
+        [60, -1.001, 36.0, 0],
+        [600, -1.001, 36.0, 0],
+        [2400, -1.0011, 36.0, 0],
+        [3900, -1.001, 36.0, 0],
+        [4000, -0.99, 36.0, 60]
+      ],
+      "expected": [
+        {
+          "start_s": 60.0,
+          "end_s": 3900.0,
+          "minutes": 64.0,
+          "lat": -1.001,
+          "lng": 36.0
+        }
+      ]
+    },
+    {
+      "name": "GPS drift of a few metres is still one stop",
+      "points": [
+        [0, -1.0, 36.0, 0],
+        [900, -1.0003, 36.0003, 1],
+        [1800, -1.0002, 35.9998, 0],
+        [2700, -1.0001, 36.0001, 0]
+      ],
+      "expected": [
+        {
+          "start_s": 0.0,
+          "end_s": 2700.0,
+          "minutes": 45.0,
+          "lat": -1.0,
+          "lng": 36.0
+        }
+      ]
+    },
+    {
+      "name": "a single fix is not a stop",
+      "points": [
+        [0, -1.0, 36.0, 0],
+        [60, -0.9, 36.0, 60]
+      ],
+      "expected": []
+    },
+    {
+      "name": "no speed reported, same place",
+      "points": [
+        [0, -1.0, 36.0, null],
+        [1800, -1.0, 36.0, null]
+      ],
+      "expected": [
+        {
+          "start_s": 0.0,
+          "end_s": 1800.0,
+          "minutes": 30.0,
+          "lat": -1.0,
+          "lng": 36.0
+        }
+      ]
+    },
+    {
+      "name": "two stops with driving between",
+      "points": [
+        [0, -1.0, 36.0, 0],
+        [1200, -1.0, 36.0, 0],
+        [1260, -0.95, 36.0, 70],
+        [1500, -0.9, 36.0, 0],
+        [2700, -0.9, 36.0, 0]
+      ],
+      "expected": [
+        {
+          "start_s": 0.0,
+          "end_s": 1200.0,
+          "minutes": 20.0,
+          "lat": -1.0,
+          "lng": 36.0
+        },
+        {
+          "start_s": 1500.0,
+          "end_s": 2700.0,
+          "minutes": 20.0,
+          "lat": -0.9,
+          "lng": 36.0
+        }
+      ]
+    }
+  ],
+  "explain_stop": [
+    {
+      "name": "a short stop needs no explanation",
+      "stop": {
+        "minutes": 20,
+        "lat": -1.5,
+        "lng": 36.5
+      },
+      "places": [],
+      "expected": null
+    },
+    {
+      "name": "a long stop in the middle of nowhere",
+      "stop": {
+        "minutes": 70,
+        "lat": -1.5,
+        "lng": 36.5
+      },
+      "places": [
+        {
+          "type": "circle",
+          "lat": -1.0,
+          "lng": 36.0,
+          "radius_m": 300
+        }
+      ],
+      "expected": "unexplained"
+    },
+    {
+      "name": "a long stop inside a known place",
+      "stop": {
+        "minutes": 120,
+        "lat": -1.0,
+        "lng": 36.0005
+      },
+      "places": [
+        {
+          "type": "circle",
+          "lat": -1.0,
+          "lng": 36.0,
+          "radius_m": 300
+        }
+      ],
+      "expected": null
+    },
+    {
+      "name": "exactly the limit counts",
+      "stop": {
+        "minutes": 45,
+        "lat": -1.5,
+        "lng": 36.5
+      },
+      "places": [],
+      "expected": "unexplained"
+    }
+  ],
+  "tamper_before": [
+    {
+      "name": "a power cut an hour before the stop",
+      "stop_start_s": 7200,
+      "tampers_s": [3600],
+      "expected": 3600.0
+    },
+    {
+      "name": "a power cut the day before is too old",
+      "stop_start_s": 100000,
+      "tampers_s": [3600],
+      "expected": null
+    },
+    {
+      "name": "the latest of several",
+      "stop_start_s": 20000,
+      "tampers_s": [10000, 15000, 5000],
+      "expected": 15000.0
+    },
+    {
+      "name": "a cut shortly after the stop began still counts",
+      "stop_start_s": 3600,
+      "tampers_s": [4500],
+      "expected": 4500.0
+    },
+    {
+      "name": "no tampering",
+      "stop_start_s": 3600,
+      "tampers_s": [],
+      "expected": null
+    }
+  ],
+  "idle_check": [
+    {
+      "name": "a normal amount",
+      "idle_minutes": 30,
+      "trip_minutes": 600,
+      "expected": {
+        "flagged": false,
+        "share_pct": 5.0
+      }
+    },
+    {
+      "name": "a long time and a big share",
+      "idle_minutes": 180,
+      "trip_minutes": 600,
+      "expected": {
+        "flagged": true,
+        "share_pct": 30.0
+      }
+    },
+    {
+      "name": "a big share of a short trip is not enough",
+      "idle_minutes": 40,
+      "trip_minutes": 100,
+      "expected": {
+        "flagged": false,
+        "share_pct": 40.0
+      }
+    },
+    {
+      "name": "a long time but a small share",
+      "idle_minutes": 90,
+      "trip_minutes": 1200,
+      "expected": {
+        "flagged": false,
+        "share_pct": 7.5
+      }
+    },
+    {
+      "name": "no trip time",
+      "idle_minutes": 90,
+      "trip_minutes": 0,
+      "expected": {
+        "flagged": false,
+        "share_pct": 0
+      }
+    }
+  ],
+  "odometer_finding": [
+    {
+      "name": "all agree",
+      "check": "ok",
+      "detail": {
+        "suspect": null
+      },
+      "expected": {
+        "flagged": false,
+        "severity": null,
+        "suspect": null
+      }
+    },
+    {
+      "name": "no way to check",
+      "check": "no_gps",
+      "detail": null,
+      "expected": {
+        "flagged": false,
+        "severity": null,
+        "suspect": null
+      }
+    },
+    {
+      "name": "the odometer is the odd one out",
+      "check": "mismatch",
+      "detail": {
+        "suspect": "odometer"
+      },
+      "expected": {
+        "flagged": true,
+        "severity": "red",
+        "suspect": "odometer"
+      }
+    },
+    {
+      "name": "the phone is the odd one out",
+      "check": "mismatch",
+      "detail": {
+        "suspect": "phone"
+      },
+      "expected": {
+        "flagged": true,
+        "severity": "amber",
+        "suspect": "phone"
+      }
+    },
+    {
+      "name": "two sources disagree",
+      "check": "mismatch",
+      "detail": {
+        "suspect": null
+      },
+      "expected": {
+        "flagged": true,
+        "severity": "amber",
+        "suspect": null
+      }
+    },
+    {
+      "name": "no check at all",
+      "check": null,
+      "detail": null,
+      "expected": {
+        "flagged": false,
+        "severity": null,
+        "suspect": null
+      }
+    }
+  ]
+}

@@ -124,3 +124,24 @@ async def test_cannot_switch_to_a_company_you_do_not_belong_to(client):
     bravo_id = (await client.get("/auth/me", headers=bearer(b))).json()["business"]["id"]
     res = await client.post("/auth/switch-company", headers=bearer(a), json={"business_id": bravo_id})
     assert res.status_code == 403
+
+
+async def test_a_count_that_names_only_the_table_is_still_scoped_to_the_business(client):
+    """`select(func.count()).select_from(Depot)` mentions no column of the model, which once let it count every business's rows."""
+    from sqlalchemy import func
+
+    a, b = await two_businesses(client)
+    await client.post("/depots", headers=bearer(a), json={"name": "Alpha Yard"})
+    await client.post("/depots", headers=bearer(b), json={"name": "Bravo Yard"})
+    await client.post("/depots", headers=bearer(b), json={"name": "Bravo Yard Two"})
+    ids = {}
+    async with get_sessionmaker()() as db:
+        for business in (await db.execute(select(Business))).scalars():
+            ids[business.name] = business.id
+    for name, expected in (("Alpha Haulage", 1), ("Bravo Transporters", 2)):
+        async with get_sessionmaker()() as db:
+            current_business_id.set(ids[name])
+            try:
+                assert (await db.execute(select(func.count()).select_from(Depot))).scalar_one() == expected
+            finally:
+                current_business_id.set(None)
