@@ -15,6 +15,8 @@ import {
 } from "./fraud";
 import type { Shape } from "./geofence";
 import fraud from "./fraud-cases.json";
+import { findFuelEvents, matchRefills } from "./fuelsensor";
+import sensor from "./fuelsensor-cases.json";
 import {
   alertsScore,
   fuelScore,
@@ -126,4 +128,37 @@ describe("scorecard rules", () => {
   it("band", () => {
     for (const c of scorecard.band) expect(scoreBand(c.score)).toBe(c.expected);
   });
+});
+
+describe("fuel sensor rules", () => {
+  const BASE_T = Date.parse("2026-10-02T22:00:00Z");
+  const iso = (sec: number) => new Date(BASE_T + sec * 1000).toISOString();
+  for (const c of sensor.events) {
+    it(`events: ${c.name}`, () => {
+      const got = findFuelEvents(
+        c.points.map(([sec, litres, speed]) => ({
+          at: iso(sec as number),
+          litres: litres as number,
+          speed: speed as number | null,
+        })),
+      ).map((e) => ({
+        kind: e.kind,
+        litres: e.litres,
+        before: e.before,
+        after: e.after,
+        start_s: (Date.parse(e.start) - BASE_T) / 1000,
+        end_s: (Date.parse(e.end) - BASE_T) / 1000,
+      }));
+      expect(got).toEqual(c.expected);
+    });
+  }
+  for (const c of sensor.match) {
+    it(`refills against purchases: ${c.name}`, () => {
+      const got = matchRefills(
+        c.refills.map(([sec, litres]) => ({ at: iso(sec as number), litres: litres as number })),
+        c.purchases.map(([sec, litres]) => ({ at: iso(sec as number), litres: litres as number })),
+      );
+      expect(got).toEqual(c.expected);
+    });
+  }
 });

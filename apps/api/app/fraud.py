@@ -12,7 +12,7 @@ from statistics import median
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit, fraud_rules
+from app import audit, fraud_rules, fuel_sensor_rules
 from app.fraud_rules import Thresholds
 from app.models import (
     AlertSettings,
@@ -32,6 +32,7 @@ from app.models import (
     Role,
     SavedRoute,
     TrackerAlert,
+    TrackerDevice,
     TrackingGap,
     Trip,
     TripStatus,
@@ -288,12 +289,30 @@ async def check_trip(db: AsyncSession, trip: Trip, now: datetime | None = None) 
         if km and fuel:
             baseline = await baseline_for(db, trip, vehicle, t)
             idle = (await _idle_hours(db, [trip.id])).get(trip.id, 0.0)
+            rule_flagged = False
             if baseline:
                 v = fraud_rules.fuel_check(litres=fuel, km=km, idle_hours=idle, l_per_km=baseline["l_per_km"], t=t)
+                rule_flagged = v["flagged"]
                 if v["flagged"]:
                     await put(Finding("fuel_variance", v["severity"], f"fuel:{trip.id}", f"{reg}: {fuel:g} litres of fuel for {km:g} km, {v['variance_pct']:g}% more than expected", f"About {v['expected_litres']:g} litres were expected, going by {baseline['source']}.",
                                       {"litres": fuel, "km": km, "expected_litres": v["expected_litres"], "variance_pct": v["variance_pct"], "idle_hours": round(idle, 1), "baseline_l_per_km": baseline["l_per_km"], "baseline_source": baseline["source"], "baseline_trips": baseline["trips"], "threshold_pct": t.fuel_variance_pct},
                                       occurred_at=trip.ended_at, **base))  # fmt: skip
+            # the learned model for this vehicle, alongside the rules: it catches what the plain average lets through, and is not asked
+            # again about a trip the rule has already flagged
+            if not rule_flagged:
+                from app import (  # imported here because learned itself uses this module
+                    learned,
+                    learned_rules,
+                )
+
+                model = await learned.train(db, vehicle, t, exclude_trip=trip.id)
+                if model and model["reliable"] and km >= t.min_fuel_km:
+                    a = learned_rules.anomaly(model, litres=fuel, km=km, tonne_km=(trip.loaded_weight_kg or 0) / 1000 * km, idle_hours=idle, z_limit=t.model_z)
+                    if a["flagged"]:
+                        await put(Finding("fuel_model_anomaly", "amber", f"model:{trip.id}", f"{reg}: {fuel:g} litres of fuel for {km:g} km, {a['extra_litres']:g} more than this vehicle usually needs",
+                                          f"This vehicle's own trips say about {a['predicted']:g} litres, give or take {a['sigma']:g}. This trip is {a['z']:g} times that margin over.",
+                                          {"litres": fuel, "km": km, "predicted_litres": a["predicted"], "extra_litres": a["extra_litres"], "usual_miss_litres": a["sigma"], "z": a["z"], "model_trips": model["n"], "model_r2": model["r2"], "model_coefficients": model["coefs"], "z_limit": t.model_z},
+                                          occurred_at=trip.ended_at, **base))  # fmt: skip
 
         gps = trip.tracker_distance_km if trip.tracker_distance_km is not None else trip.gps_distance_km
         expected = await _expected_km(db, trip, t) if gps else None
@@ -348,7 +367,7 @@ async def sweep(db: AsyncSession, now: datetime | None = None) -> int:
     trip is checked. Returns how many new alerts were raised."""
     now = now or datetime.now(UTC)
     since = now - LOOKBACK
-    _, channels = await load_settings(db)
+    t, channels = await load_settings(db)
     vehicles = {v.id: v for v in (await db.execute(select(Vehicle))).scalars()}
     raised = 0
 
@@ -408,9 +427,73 @@ async def sweep(db: AsyncSession, now: datetime | None = None) -> int:
         who = names.get(log_row.actor_user_id, "Someone")
         await put(Finding("sensitive_change", "amber", f"audit:{log_row.id}", f"{who}: {SENSITIVE_ACTIONS[log_row.action]}", "Changes like this can cover tracks. Make sure it was meant.", {"action": log_row.action, "by": who, "entity": log_row.entity_type, "note": log_row.note}, occurred_at=log_row.created_at))  # fmt: skip
 
+    for finding in await fuel_sensor_findings(db, now, t, vehicles):
+        await put(finding)
+
     for trip in (await db.execute(select(Trip).where(Trip.started_at.is_not(None), Trip.started_at >= since - timedelta(days=1)))).scalars().all():
         raised += await check_trip(db, trip, now)
     return raised
+
+
+# ---- fuel level sensors ------------------------------------------------------------------------------------------------
+
+
+async def fuel_readings(db: AsyncSession, vehicle_id: uuid.UUID, start: datetime, end: datetime) -> list[dict]:
+    """A vehicle's tank level over time, as its tracker's sensor reported it."""
+    rows = (await db.execute(select(LocationPoint).where(LocationPoint.vehicle_id == vehicle_id, LocationPoint.source == "tracker", LocationPoint.fuel_litres.is_not(None), LocationPoint.recorded_at >= start, LocationPoint.recorded_at <= end).order_by(LocationPoint.recorded_at))).scalars()
+    return [{"at": r.recorded_at, "litres": r.fuel_litres, "speed": r.speed_kmh, "lat": r.lat, "lng": r.lng} for r in rows]
+
+
+async def fuel_purchases(db: AsyncSession, vehicle_id: uuid.UUID, start: datetime, end: datetime) -> list[FuelEntry]:
+    return list((await db.execute(select(FuelEntry).where(FuelEntry.vehicle_id == vehicle_id, FuelEntry.captured_at >= start, FuelEntry.captured_at <= end).order_by(FuelEntry.captured_at))).scalars())
+
+
+async def fuel_sensor_findings(db: AsyncSession, now: datetime, t: Thresholds, vehicles: dict[uuid.UUID, Vehicle]) -> list[Finding]:
+    """Siphoning (the tank falls while the lorry is parked), fuel paid for that never reached the tank, and a refill nobody paid for.
+    Only vehicles with a working fuel sensor are looked at, over the last three days."""
+    out: list[Finding] = []
+    window = timedelta(minutes=fuel_sensor_rules.MATCH_WINDOW_MIN)
+    since = now - timedelta(days=3)
+    vehicle_ids = {d.vehicle_id for d in (await db.execute(select(TrackerDevice).where(TrackerDevice.is_active.is_(True), TrackerDevice.has_fuel_sensor.is_(True)))).scalars()}
+    for vid in vehicle_ids:
+        vehicle = vehicles.get(vid)
+        readings = await fuel_readings(db, vid, since, now)
+        if vehicle is None or len(readings) < 2:
+            continue
+        reg = vehicle.registration
+        events = fuel_sensor_rules.find_fuel_events(readings, t)
+        trips = (await db.execute(select(Trip).where(Trip.vehicle_id == vid, Trip.started_at.is_not(None), Trip.started_at <= now))).scalars().all()
+
+        def trip_at(moment: datetime, rows: list[Trip] = trips) -> Trip | None:
+            return next((x for x in rows if x.started_at <= moment <= (x.ended_at or now)), None)
+
+        for e in events:
+            if e["kind"] != "drop":
+                continue
+            trip = trip_at(e["start"])
+            out.append(Finding("fuel_siphoning", "red", f"siphon:{vid}:{e['start'].strftime('%Y%m%d%H%M')}", f"{reg}: {e['litres']:g} litres left the tank while the lorry was parked",
+                               f"The level fell from {e['before']:g} to {e['after']:g} litres between {_hhmm(e['start'])} and {_hhmm(e['end'])}, and the lorry did not move.",
+                               {"litres": e["litres"], "before_litres": e["before"], "after_litres": e["after"], "from": e["start"].isoformat(), "to": e["end"].isoformat(), "lat": e["lat"], "lng": e["lng"], "parked": True, "tank_litres": vehicle.tank_litres},
+                               vehicle_id=vid, trip_id=trip.id if trip else None, driver_membership_id=trip.driver_membership_id if trip else None, occurred_at=e["start"]))  # fmt: skip
+        refills = [e for e in events if e["kind"] == "refill"]
+        purchases = await fuel_purchases(db, vid, readings[0]["at"] - window, now)
+        matched = fuel_sensor_rules.match_refills([{"at": e["start"], "litres": e["litres"]} for e in refills], [{"at": p.captured_at, "litres": float(p.litres)} for p in purchases], t)
+        for i in matched["unmatched_refills"]:
+            e = refills[i]
+            trip = trip_at(e["start"])
+            out.append(Finding("unrecorded_refill", "amber", f"refill:{vid}:{e['start'].strftime('%Y%m%d%H%M')}", f"{reg}: {e['litres']:g} litres went into the tank with no fuel purchase recorded", "Fuel from somewhere that was not recorded: a private fill, or a receipt nobody entered.",
+                               {"litres": e["litres"], "before_litres": e["before"], "after_litres": e["after"], "from": e["start"].isoformat(), "to": e["end"].isoformat(), "lat": e["lat"], "lng": e["lng"]},
+                               vehicle_id=vid, trip_id=trip.id if trip else None, driver_membership_id=trip.driver_membership_id if trip else None, occurred_at=e["start"]))  # fmt: skip
+        for row in matched["purchases"]:
+            p = purchases[row["index"]]
+            watched = [r for r in readings if p.captured_at - timedelta(minutes=30) <= r["at"] <= p.captured_at + window]
+            if not row["flagged"] or p.captured_at + window > now or len(watched) < 3:
+                continue  # fine, or too recent to say, or the sensor was not reporting then
+            out.append(Finding("fuel_not_in_tank", row["severity"], f"paid:{p.id}", f"{reg}: paid for {float(p.litres):g} litres but only {row['refilled']:g} reached the tank",
+                               f"KES {p.amount_cents / 100:,.2f} was paid{f' at {p.station}' if p.station else ''}. The sensor saw {row['refilled']:g} litres go in, {row['gap_litres']:g} fewer than paid for.",
+                               {"paid_litres": float(p.litres), "refilled_litres": row["refilled"], "gap_litres": row["gap_litres"], "amount_cents": p.amount_cents, "station": p.station, "bought_at": p.captured_at.isoformat()},
+                               vehicle_id=vid, trip_id=p.trip_id, driver_membership_id=await _membership_for_user(db, p.recorded_by_user_id), subject_type="fuel_entry", subject_id=str(p.id), occurred_at=p.captured_at))  # fmt: skip
+    return out
 
 
 # ---- raised on the spot ------------------------------------------------------------------------------------------------

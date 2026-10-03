@@ -23,13 +23,18 @@ class Thresholds:
     tamper_window_hours: float = 6  # a stop this soon after a tracker was cut is worse
     excess_idle_pct: float = 20  # idling as a share of the trip's time ...
     excess_idle_minutes: int = 60  # ... and at least this long
+    fuel_drop_litres: int = 15  # a tank falling this much while the lorry is parked is siphoning ...
+    fuel_refill_litres: int = 20  # ... and a tank rising this much is a refill
+    refill_paid_gap_pct: int = 10  # fuel paid for that never reached the tank, in percent of what was paid (and at least 10 litres)
+    model_min_trips: int = 12  # trips a vehicle needs before its learned fuel model is used alongside the rules
+    model_z: float = 3.0  # how many usual misses above the model's prediction a trip's fuel must be to be flagged
 
 
 DEFAULT = Thresholds()
 LIMITS: dict[str, tuple[float, float]] = {  # what a business may set each threshold to
     "fuel_variance_pct": (3, 50), "idle_litres_per_hour": (0, 10), "min_baseline_trips": (1, 20), "min_fuel_km": (5, 500), "long_stop_minutes": (10, 480),
     "stop_radius_m": (30, 500), "side_trip_pct": (5, 200), "side_trip_min_km": (1, 500), "tamper_window_hours": (1, 48), "excess_idle_pct": (5, 90),
-    "excess_idle_minutes": (10, 600),
+    "excess_idle_minutes": (10, 600), "fuel_drop_litres": (5, 300), "fuel_refill_litres": (5, 500), "refill_paid_gap_pct": (3, 100), "model_min_trips": (6, 100), "model_z": (2, 6),
 }  # fmt: skip
 MOVING_KMH = 5  # a fix this fast is not part of a stop
 

@@ -61,7 +61,7 @@ from app.vehicle_scope import scope_vehicles
 router = APIRouter(tags=["dashboard"])
 MAX_REPORT_DAYS = 366
 # Fraud-engine kinds the dashboard has no line of its own for (tracker tamper, tyre swaps, overloads, parts and the phone checks already have).
-ENGINE_KINDS = ("fuel_variance", "side_trip", "long_stop", "tamper_then_stop", "excess_idling", "sensitive_change", "duplicate_mpesa", "duplicate_receipt")
+ENGINE_KINDS = ("fuel_variance", "side_trip", "long_stop", "tamper_then_stop", "excess_idling", "sensitive_change", "duplicate_mpesa", "duplicate_receipt", "fuel_siphoning", "fuel_not_in_tank", "unrecorded_refill", "fuel_model_anomaly")
 
 
 def alert(kind: str, severity: str, title: str, detail: str, link: str) -> dict:

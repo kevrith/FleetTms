@@ -40,6 +40,16 @@ async def _came_back(db: AsyncSession, device: TrackerDevice, vehicle: Vehicle, 
     device.online_state = "online"
 
 
+def fuel_litres(device: TrackerDevice, vehicle: Vehicle, level: float | None) -> float | None:
+    """The tank level in litres, from what the device's fuel sensor reported. A sensor that reports percent needs the tank's size; one
+    nobody said was fitted is ignored, because without knowing the unit the number cannot be read."""
+    if level is None or not device.has_fuel_sensor or level < 0:
+        return None
+    if device.fuel_unit == "percent":
+        return round(level / 100 * vehicle.tank_litres, 1) if vehicle.tank_litres and level <= 100 else None
+    return round(level, 1)
+
+
 async def handle_position(db: AsyncSession, device: TrackerDevice, p: dict, *, now: datetime | None = None) -> dict:
     """One position from a tracker. Returns {stored, alarms} for the caller's response and tests."""
     now = now or datetime.now(UTC)
@@ -64,7 +74,7 @@ async def handle_position(db: AsyncSession, device: TrackerDevice, p: dict, *, n
             await db.execute(
                 pg_insert(LocationPoint).values(
                     id=uuid.uuid4(), business_id=current_business_id.get(), recorded_at=at, vehicle_id=vehicle.id, trip_id=trip.id if trip else None, user_id=None, lat=p["lat"], lng=p["lng"],
-                    speed_kmh=p["speed_kmh"], heading=p["heading"], accuracy_m=p["accuracy_m"], ignition=p["ignition"], source="tracker", received_at=now,
+                    speed_kmh=p["speed_kmh"], heading=p["heading"], accuracy_m=p["accuracy_m"], ignition=p["ignition"], fuel_litres=fuel_litres(device, vehicle, p.get("fuel")), source="tracker", received_at=now,
                 ).on_conflict_do_nothing(index_elements=["business_id", "vehicle_id", "recorded_at"]).returning(LocationPoint.recorded_at)
             )
         ).all()  # fmt: skip

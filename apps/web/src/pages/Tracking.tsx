@@ -127,6 +127,8 @@ const BLANK = {
   model: "",
   sim_phone: "",
   supports_immobiliser: false,
+  has_fuel_sensor: false,
+  fuel_unit: "litres" as "litres" | "percent",
 };
 
 function Trackers() {
@@ -157,6 +159,8 @@ function Trackers() {
         model: form.model || null,
         sim_phone: form.sim_phone || null,
         supports_immobiliser: form.supports_immobiliser,
+        has_fuel_sensor: form.has_fuel_sensor,
+        fuel_unit: form.fuel_unit,
       });
       setForm(BLANK);
       await load();
@@ -175,6 +179,8 @@ function Trackers() {
         model: t.model,
         sim_phone: t.sim_phone,
         supports_immobiliser: t.supports_immobiliser,
+        has_fuel_sensor: t.has_fuel_sensor,
+        fuel_unit: t.fuel_unit,
         is_active: !t.is_active,
       });
       await load();
@@ -215,6 +221,7 @@ function Trackers() {
                     </span>
                     {!t.is_active && <span className="muted"> switched off</span>}
                     {t.immobilised && <span className="status bad"> engine stopped</span>}
+                    {t.has_fuel_sensor && <span className="muted"> fuel sensor</span>}
                   </td>
                   <td>
                     {t.power_ok === false ? (
@@ -299,6 +306,29 @@ function Trackers() {
               />
               <span>This tracker is wired to stop the engine</span>
             </label>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={form.has_fuel_sensor}
+                onChange={(e) => setForm({ ...form, has_fuel_sensor: e.target.checked })}
+              />
+              <span>A fuel level sensor is fitted (Premium)</span>
+            </label>
+            {form.has_fuel_sensor && (
+              <Field label="The sensor reports">
+                <select
+                  value={form.fuel_unit}
+                  onChange={(e) =>
+                    setForm({ ...form, fuel_unit: e.target.value as "litres" | "percent" })
+                  }
+                >
+                  <option value="litres">Litres</option>
+                  <option value="percent">
+                    Percent of the tank (needs the tank size on the vehicle)
+                  </option>
+                </select>
+              </Field>
+            )}
             <button className="btn primary" type="submit">
               <Plus size={16} /> Fit tracker
             </button>

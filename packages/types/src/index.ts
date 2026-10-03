@@ -243,7 +243,8 @@ export type PhotoKind =
   | "pod_cargo"
   | "delivery_note"
   | "damage"
-  | "weighbridge";
+  | "weighbridge"
+  | "document";
 
 export interface PhotoRef {
   id: string;
@@ -1058,6 +1059,13 @@ export interface Quote {
   total_cost_cents: number;
   expected_profit_cents: number;
   margin_pct: number | null;
+  /** Where the fuel estimate came from, and how it was worked out. */
+  fuel_source: "learned" | "history" | "declared" | "fleet average" | "typed in" | null;
+  fuel_detail: string[] | null;
+  /** What the lease on a lorry hired in charges for this job, and the profit left after it. */
+  lease_charge_cents: number;
+  net_profit_cents: number | null;
+  lease_detail: LeaseDetail | null;
   status: QuoteStatus;
   expired: boolean;
   valid_until: string | null;
@@ -1782,6 +1790,30 @@ export interface DistanceDetail {
 
 // ---- trackers, alerts, behaviour, mapped areas, replay, immobiliser ----
 
+export interface LeaseDetail {
+  total_cents: number;
+  days: number;
+  lines: { label: string; cents: number }[];
+  note: string;
+}
+
+export interface QuotePreview {
+  price_cents: number;
+  total_cost_cents: number;
+  expected_profit_cents: number;
+  margin_pct: number | null;
+  fuel_litres: number | null;
+  kmpl_loaded: number;
+  kmpl_empty: number;
+  fuel_price_cents: number;
+  fuel_source: Quote["fuel_source"];
+  fuel_detail: string[];
+  lease_charge_cents: number;
+  net_profit_cents: number | null;
+  lease_note: string | null;
+  lines: { label: string; cents: number; total?: boolean }[];
+}
+
 export interface TrackerDevice {
   id: string;
   vehicle_id: string;
@@ -1792,6 +1824,8 @@ export interface TrackerDevice {
   model: string | null;
   sim_phone: string | null;
   supports_immobiliser: boolean;
+  has_fuel_sensor: boolean;
+  fuel_unit: "litres" | "percent";
   is_active: boolean;
   online_state: "online" | "offline" | "unknown";
   last_seen_at: string | null;
@@ -1813,6 +1847,8 @@ export interface TrackerInput {
   model?: string | null;
   sim_phone?: string | null;
   supports_immobiliser?: boolean;
+  has_fuel_sensor?: boolean;
+  fuel_unit?: "litres" | "percent";
   is_active?: boolean;
 }
 
@@ -2073,6 +2109,11 @@ export interface FraudThresholds {
   tamper_window_hours: number;
   excess_idle_pct: number;
   excess_idle_minutes: number;
+  fuel_drop_litres: number;
+  fuel_refill_litres: number;
+  refill_paid_gap_pct: number;
+  model_min_trips: number;
+  model_z: number;
 }
 
 export interface FraudChannelPref {
@@ -2195,4 +2236,108 @@ export interface FeedbackRow {
   from: string | null;
   business: string | null;
   created_at: string;
+}
+
+// ---- Premium: fuel sensors, predictions, learned models, document reading (Sprint 14) ----
+
+export interface FuelLevel {
+  vehicle_id: string;
+  registration: string;
+  has_sensor: boolean;
+  unit: "litres" | "percent" | null;
+  tank_litres: number | null;
+  from: string;
+  to: string;
+  readings: number;
+  points: { at: string; litres: number }[];
+  events: {
+    kind: "refill" | "drop";
+    litres: number;
+    before: number;
+    after: number;
+    start: string;
+    end: string;
+    lat: number | null;
+    lng: number | null;
+  }[];
+  purchases: { at: string; litres: number; station: string | null; amount_cents: number }[];
+}
+
+export interface ExpectedFuel {
+  vehicle_id: string;
+  registration: string;
+  source: "learned" | "history" | "declared" | null;
+  litres: number | null;
+  litres_loaded?: number;
+  litres_return?: number;
+  steps: string[];
+}
+
+export interface VehicleModelInfo {
+  vehicle_id: string;
+  registration: string;
+  trained: boolean;
+  needed_trips: number;
+  message: string;
+  trips?: number;
+  r2?: number;
+  sigma_litres?: number;
+  reliable?: boolean;
+  litres_per_km?: number;
+  litres_per_tonne_km?: number;
+  litres_per_idle_hour?: number;
+  usual_idle_hours?: number;
+}
+
+export interface ForecastPart {
+  gross_to_date_cents: number;
+  net_to_date_cents: number;
+  gross_per_day_cents: number | null;
+  remaining_days: number;
+  projected_gross_cents: number | null;
+  fixed_charges_cents: number;
+  projected_net_cents: number | null;
+}
+
+export interface MonthForecast {
+  month: string;
+  today: string;
+  days_elapsed: number;
+  days_in_month: number;
+  history_months: string[];
+  business: ForecastPart;
+  vehicles: (ForecastPart & { vehicle_id: string; registration: string })[];
+  steps: string[];
+  booked_work: { jobs: number; expected_profit_cents: number };
+}
+
+export type ReadableDocument =
+  "fuel_receipt" | "weighbridge_ticket" | "delivery_note" | "insurance_certificate" | "logbook";
+
+export interface DocumentReading {
+  id: string;
+  photo_id: string;
+  kind: ReadableDocument;
+  vehicle_id: string | null;
+  fields: Record<string, string | number | null>;
+  read_fields: Record<string, string | number | null>;
+  warnings: string[];
+  missing: string[];
+  confidence: number | null;
+  provider: string;
+  status: "pending" | "confirmed" | "rejected";
+  corrections: number;
+  created_at: string;
+  confirmed_at: string | null;
+}
+
+export interface DocumentReadingSummary {
+  kind: ReadableDocument;
+  read: number;
+  confirmed: number;
+  rejected: number;
+  pending: number;
+  exact: number;
+  fields_corrected: number;
+  exact_pct: number | null;
 }

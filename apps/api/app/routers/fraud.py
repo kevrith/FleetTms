@@ -32,7 +32,8 @@ LABELS = {
     "excess_idling": "Excess idling", "overload": "Overloaded", "power_cut": "Tracker power cut", "gps_jamming": "GPS jamming", "tamper": "Tracker tampering", "went_dark": "Went dark during a trip",
     "fake_gps": "Fake GPS app", "rooted_phone": "Rooted phone", "clock_changed": "Phone clock changed", "tyre_swap": "Possible tyre swap", "expense_above_norm": "Expense above the route's norm",
     "fuel_amount_mismatch": "Fuel total does not add up", "delivery_off_site": "Delivery away from the site", "parts_unfitted": "Parts issued but not fitted", "sensitive_change": "Sensitive change by staff",
-    "duplicate_mpesa": "M-Pesa code claimed twice", "duplicate_receipt": "Receipt photo used twice",
+    "duplicate_mpesa": "M-Pesa code claimed twice", "duplicate_receipt": "Receipt photo used twice", "fuel_siphoning": "Fuel siphoned while parked", "fuel_not_in_tank": "Fuel paid for never reached the tank",
+    "unrecorded_refill": "Refill with no fuel purchase recorded", "fuel_model_anomaly": "Fuel above what this vehicle's own model expects",
 }  # fmt: skip
 
 

@@ -66,12 +66,18 @@ class Settings(BaseSettings):
 
     # Current versions of the legal documents users must accept (masterplan Section 11).
     terms_version: str = "draft-1"
-    privacy_version: str = "draft-1"
+    privacy_version: str = "draft-2"
     dpa_version: str = "draft-1"
     # Route suggestions and pump prices (masterplan 5.12, 5.28). Empty means the built-in estimate and manual prices.
     google_maps_api_key: str = ""
     epra_prices_url: str = ""
-    route_lorry_factor: float = 1.3  # Google's drive times are for cars; a loaded lorry takes this much longer
+    route_lorry_factor: float = 1.3
+    # Document reading (masterplan 5.28): photos of receipts and tickets are read by a cloud vision model. "fake" is for tests and local
+    # development; empty with no key means reading is switched off. The photo leaves our servers, so the provider is a disclosed sub-processor.
+    document_reader: str = ""
+    anthropic_api_key: str = ""
+    document_reader_model: str = "claude-haiku-4-5-20251001"
+    document_reads_per_day: int = 200  # per person, so a stuck screen cannot run up the bill  # Google's drive times are for cars; a loaded lorry takes this much longer
     monitoring_notice_version: str = "draft-2"
 
 

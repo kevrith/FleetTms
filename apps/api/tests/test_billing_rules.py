@@ -314,3 +314,28 @@ def test_scorecard_rules():
         assert scorecard_rules.overall(c["parts"]) == c["expected"], c["name"]
     for c in SCORECARD["band"]:
         assert scorecard_rules.band(c["score"]) == c["expected"]
+
+
+# ---- fuel level sensors (Sprint 14) ----
+
+from app import fuel_sensor_rules
+
+SENSOR = json.loads((RULES / "fuelsensor-cases.json").read_text())
+SENSOR_BASE = datetime(2026, 10, 2, 22, 0, tzinfo=UTC)
+
+
+@pytest.mark.parametrize("case", SENSOR["events"], ids=_names(SENSOR["events"]))
+def test_fuel_events(case):
+    readings = [{"at": SENSOR_BASE + timedelta(seconds=s), "litres": litres, "speed": speed, "lat": -1.29, "lng": 36.82} for s, litres, speed in case["points"]]
+    got = [
+        {"kind": e["kind"], "litres": e["litres"], "before": e["before"], "after": e["after"], "start_s": (e["start"] - SENSOR_BASE).total_seconds(), "end_s": (e["end"] - SENSOR_BASE).total_seconds()}
+        for e in fuel_sensor_rules.find_fuel_events(readings)
+    ]
+    assert got == case["expected"]
+
+
+@pytest.mark.parametrize("case", SENSOR["match"], ids=_names(SENSOR["match"]))
+def test_refills_against_purchases(case):
+    refills = [{"at": SENSOR_BASE + timedelta(seconds=s), "litres": litres} for s, litres in case["refills"]]
+    purchases = [{"at": SENSOR_BASE + timedelta(seconds=s), "litres": litres} for s, litres in case["purchases"]]
+    assert fuel_sensor_rules.match_refills(refills, purchases) == case["expected"]

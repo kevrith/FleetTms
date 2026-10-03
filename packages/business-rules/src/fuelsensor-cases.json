@@ -1,0 +1,384 @@
+{
+  "events": [
+    {
+      "name": "steady driving burns fuel slowly: nothing",
+      "points": [
+        [0, 300.0, 60],
+        [600, 298.0, 60],
+        [1200, 296.0, 60],
+        [1800, 294.0, 60],
+        [2400, 292.0, 60],
+        [3000, 290.0, 60],
+        [3600, 288.0, 60],
+        [4200, 286.0, 60],
+        [4800, 284.0, 60],
+        [5400, 282.0, 60],
+        [6000, 280.0, 60],
+        [6600, 278.0, 60]
+      ],
+      "expected": []
+    },
+    {
+      "name": "overnight siphoning: 50 litres leave a parked lorry in eight minutes",
+      "points": [
+        [0, 280, 0],
+        [600, 280, 0],
+        [1200, 280, 0],
+        [1260, 270, 0],
+        [1320, 260, 0],
+        [1380, 250, 0],
+        [1440, 240, 0],
+        [1500, 230, 0],
+        [2100, 230, 0],
+        [2700, 230, 0]
+      ],
+      "expected": [
+        {
+          "kind": "drop",
+          "litres": 50,
+          "before": 280,
+          "after": 230,
+          "start_s": 1200.0,
+          "end_s": 1500.0
+        }
+      ]
+    },
+    {
+      "name": "a big drop while the lorry is moving is sloshing, not theft",
+      "points": [
+        [0, 280, 60],
+        [60, 270, 60],
+        [120, 255, 60],
+        [180, 240, 60],
+        [240, 238, 60]
+      ],
+      "expected": []
+    },
+    {
+      "name": "a refill of 100 litres while parked",
+      "points": [
+        [0, 100, 0],
+        [60, 100, 0],
+        [120, 130, 0],
+        [180, 160, 0],
+        [240, 190, 0],
+        [300, 200, 0],
+        [900, 200, 0]
+      ],
+      "expected": [
+        {
+          "kind": "refill",
+          "litres": 100,
+          "before": 100,
+          "after": 200,
+          "start_s": 60.0,
+          "end_s": 300.0
+        }
+      ]
+    },
+    {
+      "name": "a single wild reading is ignored",
+      "points": [
+        [0, 200, 0],
+        [60, 200, 0],
+        [120, 120, 0],
+        [180, 200, 0],
+        [240, 200, 0]
+      ],
+      "expected": []
+    },
+    {
+      "name": "a drop under the threshold is ignored",
+      "points": [
+        [0, 200, 0],
+        [60, 200, 0],
+        [120, 190, 0],
+        [180, 190, 0],
+        [240, 190, 0]
+      ],
+      "expected": []
+    },
+    {
+      "name": "a drop exactly at the threshold counts",
+      "points": [
+        [0, 200, 0],
+        [60, 200, 0],
+        [120, 185, 0],
+        [180, 185, 0],
+        [240, 185, 0]
+      ],
+      "expected": [
+        {
+          "kind": "drop",
+          "litres": 15,
+          "before": 200,
+          "after": 185,
+          "start_s": 60.0,
+          "end_s": 120.0
+        }
+      ]
+    },
+    {
+      "name": "idling burns about three litres an hour: nothing",
+      "points": [
+        [0, 200.0, 0],
+        [600, 199.5, 0],
+        [1200, 199.0, 0],
+        [1800, 198.5, 0],
+        [2400, 198.0, 0],
+        [3000, 197.5, 0],
+        [3600, 197.0, 0],
+        [4200, 196.5, 0],
+        [4800, 196.0, 0],
+        [5400, 195.5, 0]
+      ],
+      "expected": []
+    },
+    {
+      "name": "a very slow drain over hours is burning or evaporation, not siphoning",
+      "points": [
+        [0, 200.0, 0],
+        [600, 197.5, 0],
+        [1200, 195.0, 0],
+        [1800, 192.5, 0],
+        [2400, 190.0, 0],
+        [3000, 187.5, 0],
+        [3600, 185.0, 0],
+        [4200, 182.5, 0],
+        [4800, 180.0, 0],
+        [5400, 177.5, 0]
+      ],
+      "expected": []
+    },
+    {
+      "name": "a drop and then a refill are two events",
+      "points": [
+        [0, 250, 0],
+        [60, 250, 0],
+        [120, 230, 0],
+        [180, 210, 0],
+        [240, 210, 0],
+        [1500, 210, 0],
+        [1560, 260, 0],
+        [1620, 310, 0],
+        [1680, 310, 0],
+        [1740, 310, 0]
+      ],
+      "expected": [
+        {
+          "kind": "drop",
+          "litres": 40,
+          "before": 250,
+          "after": 210,
+          "start_s": 60.0,
+          "end_s": 180.0
+        },
+        {
+          "kind": "refill",
+          "litres": 100,
+          "before": 210,
+          "after": 310,
+          "start_s": 1500.0,
+          "end_s": 1620.0
+        }
+      ]
+    },
+    {
+      "name": "no speed reported counts as parked",
+      "points": [
+        [0, 250, null],
+        [60, 250, null],
+        [120, 215, null],
+        [180, 215, null],
+        [240, 215, null]
+      ],
+      "expected": [
+        {
+          "kind": "drop",
+          "litres": 35,
+          "before": 250,
+          "after": 215,
+          "start_s": 60.0,
+          "end_s": 120.0
+        }
+      ]
+    },
+    {
+      "name": "too few readings",
+      "points": [[0, 250, 0]],
+      "expected": []
+    }
+  ],
+  "match": [
+    {
+      "name": "the fuel paid for reached the tank",
+      "refills": [[600, 98]],
+      "purchases": [[0, 100]],
+      "expected": {
+        "purchases": [
+          {
+            "index": 0,
+            "paid": 100,
+            "refilled": 98.0,
+            "flagged": false,
+            "gap_litres": 2.0,
+            "severity": null
+          }
+        ],
+        "unmatched_refills": []
+      }
+    },
+    {
+      "name": "only some of it reached the tank",
+      "refills": [[600, 60]],
+      "purchases": [[0, 100]],
+      "expected": {
+        "purchases": [
+          {
+            "index": 0,
+            "paid": 100,
+            "refilled": 60.0,
+            "flagged": true,
+            "gap_litres": 40.0,
+            "severity": "amber"
+          }
+        ],
+        "unmatched_refills": []
+      }
+    },
+    {
+      "name": "less than half reached the tank",
+      "refills": [[600, 30]],
+      "purchases": [[0, 100]],
+      "expected": {
+        "purchases": [
+          {
+            "index": 0,
+            "paid": 100,
+            "refilled": 30.0,
+            "flagged": true,
+            "gap_litres": 70.0,
+            "severity": "red"
+          }
+        ],
+        "unmatched_refills": []
+      }
+    },
+    {
+      "name": "none of it reached the tank",
+      "refills": [],
+      "purchases": [[0, 100]],
+      "expected": {
+        "purchases": [
+          {
+            "index": 0,
+            "paid": 100,
+            "refilled": 0.0,
+            "flagged": true,
+            "gap_litres": 100.0,
+            "severity": "red"
+          }
+        ],
+        "unmatched_refills": []
+      }
+    },
+    {
+      "name": "a refill nobody paid for",
+      "refills": [[600, 80]],
+      "purchases": [],
+      "expected": {
+        "purchases": [],
+        "unmatched_refills": [0]
+      }
+    },
+    {
+      "name": "each refill goes to the nearest purchase",
+      "refills": [
+        [600, 100],
+        [20000, 150]
+      ],
+      "purchases": [
+        [0, 100],
+        [19800, 150]
+      ],
+      "expected": {
+        "purchases": [
+          {
+            "index": 0,
+            "paid": 100,
+            "refilled": 100.0,
+            "flagged": false,
+            "gap_litres": 0.0,
+            "severity": null
+          },
+          {
+            "index": 1,
+            "paid": 150,
+            "refilled": 150.0,
+            "flagged": false,
+            "gap_litres": 0.0,
+            "severity": null
+          }
+        ],
+        "unmatched_refills": []
+      }
+    },
+    {
+      "name": "a refill too long after the purchase is not matched with it",
+      "refills": [[20000, 100]],
+      "purchases": [[0, 100]],
+      "expected": {
+        "purchases": [
+          {
+            "index": 0,
+            "paid": 100,
+            "refilled": 0.0,
+            "flagged": true,
+            "gap_litres": 100.0,
+            "severity": "red"
+          }
+        ],
+        "unmatched_refills": [0]
+      }
+    },
+    {
+      "name": "two refills for one purchase add up",
+      "refills": [
+        [600, 40],
+        [2400, 55]
+      ],
+      "purchases": [[0, 100]],
+      "expected": {
+        "purchases": [
+          {
+            "index": 0,
+            "paid": 100,
+            "refilled": 95.0,
+            "flagged": false,
+            "gap_litres": 5.0,
+            "severity": null
+          }
+        ],
+        "unmatched_refills": []
+      }
+    },
+    {
+      "name": "a small shortfall is within tolerance",
+      "refills": [[600, 92]],
+      "purchases": [[0, 100]],
+      "expected": {
+        "purchases": [
+          {
+            "index": 0,
+            "paid": 100,
+            "refilled": 92.0,
+            "flagged": false,
+            "gap_litres": 8.0,
+            "severity": null
+          }
+        ],
+        "unmatched_refills": []
+      }
+    }
+  ]
+}

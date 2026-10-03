@@ -1,5 +1,13 @@
 import type {
   AuditEntry,
+  DocumentReading,
+  DocumentReadingSummary,
+  ExpectedFuel,
+  FuelLevel,
+  MonthForecast,
+  QuotePreview,
+  ReadableDocument,
+  VehicleModelInfo,
   CurrentFuelPrice,
   FeedbackRow,
   FraudAlert,
@@ -1051,6 +1059,43 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
       app?: "web" | "mobile";
     }) => post<{ id: string }>("/feedback", input),
     feedback: () => get<FeedbackRow[]>("/feedback"),
+
+    // ---- Premium: fuel sensors, predictions, learned models, document reading ----
+    fuelLevel: (vehicleId: string, start?: string, end?: string) => {
+      const q = new URLSearchParams();
+      if (start) q.set("start", start);
+      if (end) q.set("end", end);
+      const qs = q.toString();
+      return get<FuelLevel>(`/vehicles/${vehicleId}/fuel-level${qs ? `?${qs}` : ""}`);
+    },
+    previewQuote: (input: Record<string, unknown>) => post<QuotePreview>("/quotes/preview", input),
+    expectedFuel: (params: {
+      vehicle_id: string;
+      distance_km: number;
+      weight_tonnes?: number;
+      origin?: string;
+      destination?: string;
+      return_empty?: boolean;
+    }) => {
+      const q = new URLSearchParams();
+      for (const [k, v] of Object.entries(params)) if (v !== undefined) q.set(k, String(v));
+      return get<ExpectedFuel>(`/predictions/fuel?${q.toString()}`);
+    },
+    monthForecast: () => get<MonthForecast>("/predictions/forecast"),
+    vehicleModel: (vehicleId: string) => get<VehicleModelInfo>(`/vehicles/${vehicleId}/model`),
+    readDocument: (input: {
+      photo_id: string;
+      kind: ReadableDocument;
+      vehicle_id?: string | null;
+    }) => post<DocumentReading>("/document-readings", input),
+    confirmReading: (id: string, fields: Record<string, string | number | null>) =>
+      post<DocumentReading>(`/document-readings/${id}/confirm`, { fields }),
+    rejectReading: (id: string) => request<void>("POST", `/document-readings/${id}/reject`, {}),
+    applyReading: (id: string) =>
+      post<{ document_id: string; vehicle_id: string; expires_on: string }>(
+        `/document-readings/${id}/apply`,
+      ),
+    readingSummary: () => get<DocumentReadingSummary[]>("/document-readings/summary"),
 
     // ---- SOS ----
     myTyrePositions: () => get<MyTyrePositions>("/me/tyre-positions"),

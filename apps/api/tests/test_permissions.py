@@ -42,6 +42,8 @@ CHECKS = {
     "set_fuel_price": ("PUT", "/fuel-prices/region", {"region": "Nairobi"}, "clients.manage"),
     "onboarding": ("GET", "/onboarding", None, "business.manage"),
     "my_feedback": ("GET", "/feedback", None, "business.manage"),
+    "month_forecast": ("GET", "/predictions/forecast", None, "finance.view"),
+    "reading_summary": ("GET", "/document-readings/summary", None, "vehicles.manage"),
     "list_leases": ("GET", "/leases", None, "finance.view"),
     "list_loans": ("GET", "/finance", None, "finance.view"),
     "list_ownership_costs": ("GET", "/ownership-costs", None, "finance.view"),

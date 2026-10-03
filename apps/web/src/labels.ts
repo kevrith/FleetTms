@@ -359,6 +359,10 @@ export const FRAUD_KIND: Record<string, string> = {
   sensitive_change: "Sensitive change by staff",
   duplicate_mpesa: "M-Pesa code claimed twice",
   duplicate_receipt: "Receipt photo used twice",
+  fuel_siphoning: "Fuel siphoned while parked",
+  fuel_not_in_tank: "Fuel paid for never reached the tank",
+  unrecorded_refill: "Refill with no fuel purchase recorded",
+  fuel_model_anomaly: "Fuel above what this vehicle's own model expects",
 };
 export const FRAUD_STATUS: Record<string, string> = {
   open: "Open",
@@ -401,4 +405,29 @@ export const THRESHOLD_TEXT: Record<string, [string, string, string]> = {
   ],
   excess_idle_pct: ["Excess idling", "% of the trip", "Idling as a share of the trip's time..."],
   excess_idle_minutes: ["...and at least", "minutes", "...of idling in all."],
+  fuel_drop_litres: [
+    "Fuel siphoned",
+    "litres",
+    "Fuel leaving the tank of a parked lorry (with a fuel sensor) by at least this much, in under an hour.",
+  ],
+  fuel_refill_litres: [
+    "A refill",
+    "litres",
+    "A rise in the tank of at least this much while parked is a refill, to be matched with the fuel bought.",
+  ],
+  refill_paid_gap_pct: [
+    "Fuel paid for but not in the tank",
+    "% of what was paid",
+    "Alert when the tank gained this much less than was paid for (and at least 10 litres less).",
+  ],
+  model_min_trips: [
+    "Trips before the learned model is used",
+    "trips",
+    "A vehicle's learned fuel model only raises alerts once it has this many finished trips to learn from.",
+  ],
+  model_z: [
+    "How far above the model counts",
+    "usual misses",
+    "Alert when a trip's fuel is this many times the model's usual miss above what it expects.",
+  ],
 };

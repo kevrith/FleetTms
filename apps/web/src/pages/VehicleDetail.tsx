@@ -18,8 +18,10 @@ import { useAuth } from "../auth";
 import { CREW, DEVICE_FLAG, fmtTime, OWNERSHIP, TIER, TRUST, VEHICLE_DOC_TYPES } from "../labels";
 import { Card, ErrorBanner, errorMessage, Field } from "./../ui";
 import DocumentsPanel from "./DocumentsPanel";
+import { FuelLevelCard, ModelCard } from "./FuelLevel";
 import { ImmobiliserCard } from "./Immobiliser";
 import InspectionCard from "./InspectionCard";
+import { ReadDocumentCard } from "./ReadDocument";
 import { ReplayCard } from "./Replay";
 import ServiceCard from "./ServiceCard";
 import { VehicleForm } from "./Vehicles";
@@ -231,6 +233,7 @@ function Inspections({ vehicleId }: { vehicleId: string }) {
 export default function VehicleDetail() {
   const { id = "" } = useParams();
   const { can } = useAuth();
+  const [docsKey, setDocsKey] = useState(0);
   const manage = can("vehicles.manage");
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [depots, setDepots] = useState<Depot[]>([]);
@@ -304,10 +307,14 @@ export default function VehicleDetail() {
       <ServiceCard vehicleId={vehicle.id} />
       <Trust vehicleId={vehicle.id} />
       <Baselines vehicleId={vehicle.id} />
+      <ModelCard vehicleId={vehicle.id} />
+      <FuelLevelCard vehicleId={vehicle.id} />
       <ReplayCard vehicleId={vehicle.id} />
       <ImmobiliserCard vehicleId={vehicle.id} />
       <Inspections vehicleId={vehicle.id} />
+      <ReadDocumentCard vehicleId={vehicle.id} onSaved={() => setDocsKey((k) => k + 1)} />
       <DocumentsPanel
+        key={docsKey}
         owner={{ vehicleId: vehicle.id }}
         types={VEHICLE_DOC_TYPES}
         canManage={manage}

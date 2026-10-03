@@ -48,11 +48,12 @@ def parse_position(pos: dict) -> dict | None:
     attrs = pos.get("attributes") or {}
     knots = pos.get("speed")
     power = attrs.get("power")
+    fuel = next((float(attrs[k]) for k in ("fuel", "fuel1", "fuelLevel") if isinstance(attrs.get(k), int | float) and not isinstance(attrs.get(k), bool)), None)
     return {
         "at": at, "lat": float(lat), "lng": float(lng), "valid": bool(pos.get("valid", True)), "speed_kmh": round(float(knots) * KNOTS_TO_KMH, 1) if knots is not None else None,
         "heading": float(pos["course"]) if pos.get("course") is not None else None, "accuracy_m": float(pos["accuracy"]) if pos.get("accuracy") else None,
         "ignition": attrs.get("ignition"), "alarm": attrs.get("alarm"), "battery_pct": attrs.get("batteryLevel"), "power_v": float(power) if power is not None else None,
-        "gsm": attrs.get("rssi"), "satellites": attrs.get("sat"),
+        "gsm": attrs.get("rssi"), "satellites": attrs.get("sat"), "fuel": fuel,
     }  # fmt: skip
 
 

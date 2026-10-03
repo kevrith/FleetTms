@@ -2,6 +2,7 @@ import { formatKes, kesToCents, litresFromTotal } from "@fleettms/business-rules
 import type { ExpenseCategory } from "@fleettms/types";
 import { useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
+import { api } from "../api";
 import { CaptureScreen } from "../capture";
 import type { LocalPhoto } from "../offline/types";
 import { useOffline } from "../offline/runtime";
@@ -47,6 +48,8 @@ export default function ExpensesScreen() {
   });
   const [litresTyped, setLitresTyped] = useState(false); // once the driver types litres, stop working them out
   const [fuelReceipt, setFuelReceipt] = useState<LocalPhoto | null>(null);
+  const [reading, setReading] = useState<{ id: string; warnings: string[] } | null>(null);
+  const [readingBusy, setReadingBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -105,6 +108,30 @@ export default function ExpensesScreen() {
     if (!litresTyped) next.litres = litresFromTotal(Number(next.total), Number(next.price));
     setFuelForm(next);
   }
+  /** Fills the fuel form from the receipt photo. The driver still checks and corrects it: saving is the confirmation. */
+  async function readReceipt() {
+    if (!vehicle || !fuelReceipt) return;
+    setReadingBusy(true);
+    setError(null);
+    try {
+      const r = await offline.readReceipt(fuelReceipt, vehicle.vehicle.id);
+      const f = r.fields;
+      const num = (v: unknown) => (typeof v === "number" ? String(v) : "");
+      setFuelForm({
+        litres: num(f.litres),
+        price: num(f.price_per_litre),
+        total: num(f.amount),
+        station: typeof f.station === "string" ? f.station : "",
+        code: typeof f.mpesa_code === "string" ? f.mpesa_code : "",
+      });
+      setLitresTyped(typeof f.litres === "number");
+      setReading({ id: r.id, warnings: r.warnings });
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setReadingBusy(false);
+    }
+  }
   async function saveFuel() {
     if (!vehicle) return;
     setBusy(true);
@@ -120,6 +147,19 @@ export default function ExpensesScreen() {
         mpesaCode: fuelForm.code,
         receipt: fuelReceipt,
       });
+      if (reading) {
+        // Tell the office what was finally entered, so it can see how good the reading is. Best effort: it is fine if there is no network.
+        void api
+          .confirmReading(reading.id, {
+            litres: litres,
+            price_per_litre: price,
+            amount: total,
+            station: fuelForm.station || null,
+            mpesa_code: fuelForm.code || null,
+          })
+          .catch(() => undefined);
+        setReading(null);
+      }
       setFuelForm({ litres: "", price: "", total: "", station: "", code: "" });
       setLitresTyped(false);
       setFuelReceipt(null);
@@ -302,6 +342,21 @@ export default function ExpensesScreen() {
             kind="secondary"
             onPress={() => setCapturing("fuel-receipt")}
           />
+          {fuelReceipt && (
+            <Button
+              label="Read the receipt (needs a connection)"
+              kind="secondary"
+              onPress={readReceipt}
+              busy={readingBusy}
+            />
+          )}
+          {reading &&
+            reading.warnings.map((w) => <ErrorText key={w} message={`Check this: ${w}`} />)}
+          {reading && (
+            <Body muted>
+              Filled in from the photo. Check each number against the receipt before you save.
+            </Body>
+          )}
           <Button
             label="Save fuel entry"
             onPress={saveFuel}

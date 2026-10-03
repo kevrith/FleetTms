@@ -3,6 +3,7 @@
 import hmac
 import uuid
 from datetime import UTC, datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Request, status
 from pydantic import BaseModel, Field
@@ -29,6 +30,8 @@ class TrackerIn(BaseModel):
     model: str | None = Field(default=None, max_length=60)
     sim_phone: str | None = Field(default=None, max_length=20)
     supports_immobiliser: bool = False
+    has_fuel_sensor: bool = False
+    fuel_unit: Literal["litres", "percent"] = "litres"
     is_active: bool = True
 
 
@@ -42,7 +45,7 @@ def device_out(d: TrackerDevice, registration: str | None = None, now: datetime 
     quiet = (now - d.last_seen_at).total_seconds() if d.last_seen_at else None
     return {
         "id": d.id, "vehicle_id": d.vehicle_id, "registration": registration, "imei": d.imei, "name": d.name, "brand": d.brand, "model": d.model, "sim_phone": d.sim_phone,
-        "supports_immobiliser": d.supports_immobiliser, "is_active": d.is_active, "online_state": d.online_state, "last_seen_at": d.last_seen_at, "last_position_at": d.last_position_at,
+        "supports_immobiliser": d.supports_immobiliser, "has_fuel_sensor": d.has_fuel_sensor, "fuel_unit": d.fuel_unit, "is_active": d.is_active, "online_state": d.online_state, "last_seen_at": d.last_seen_at, "last_position_at": d.last_position_at,
         "quiet_seconds": int(quiet) if quiet is not None else None, "battery_pct": d.battery_pct, "power_v": d.power_v, "power_ok": d.power_ok, "ignition": d.ignition, "gps_ok": d.gps_ok,
         "immobilised": d.immobilised,
     }  # fmt: skip
@@ -64,6 +67,15 @@ async def list_trackers(principal: Principal = Depends(require("livemap.view")),
     return [device_out(d, vehicles[d.vehicle_id]) for d in (await db.execute(select(TrackerDevice).order_by(TrackerDevice.created_at))).scalars() if d.vehicle_id in vehicles]
 
 
+async def _set_tier(db: AsyncSession, vehicle: Vehicle) -> None:
+    """A vehicle with a working fuel sensor is Premium; one whose sensor was taken off goes back to Standard (it still has a tracker)."""
+    sensors = (await db.execute(select(TrackerDevice.id).where(TrackerDevice.vehicle_id == vehicle.id, TrackerDevice.is_active.is_(True), TrackerDevice.has_fuel_sensor.is_(True)).limit(1))).first()
+    if sensors is not None:
+        vehicle.tracking_tier = TrackingTier.PREMIUM
+    elif vehicle.tracking_tier == TrackingTier.PREMIUM:
+        vehicle.tracking_tier = TrackingTier.STANDARD
+
+
 @router.post("/trackers", status_code=status.HTTP_201_CREATED)
 async def add_tracker(body: TrackerIn, principal: Principal = Depends(require("vehicles.manage")), db: AsyncSession = Depends(get_db)):
     """Links a tracker (by the IMEI Traccar knows it by) to a vehicle. The vehicle moves up to the tracker tier."""
@@ -78,6 +90,7 @@ async def add_tracker(body: TrackerIn, principal: Principal = Depends(require("v
         raise error(status.HTTP_409_CONFLICT, "duplicate_imei", "A tracker with that IMEI is already registered.") from None
     if vehicle.tracking_tier == TrackingTier.BASIC:
         vehicle.tracking_tier = TrackingTier.STANDARD
+    await _set_tier(db, vehicle)
     audit.record(db, actor_user_id=principal.user.id, action="tracker.added", entity_type="vehicle", entity_id=vehicle.id, after={"imei": d.imei, "supports_immobiliser": d.supports_immobiliser})
     await db.commit()
     return device_out(d, vehicle.registration)
@@ -97,6 +110,7 @@ async def update_tracker(tracker_id: uuid.UUID, body: TrackerIn, principal: Prin
         await db.flush()
     except IntegrityError:
         raise error(status.HTTP_409_CONFLICT, "duplicate_imei", "A tracker with that IMEI is already registered.") from None
+    await _set_tier(db, vehicle)
     audit.record(db, actor_user_id=principal.user.id, action="tracker.updated", entity_type="vehicle", entity_id=vehicle.id, after={"imei": d.imei, "is_active": d.is_active})
     await db.commit()
     return device_out(d, vehicle.registration)

@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit, fuel_prices
+from app import audit, fraud, fuel_prices, predictions
 from app.db import get_db
 from app.deps import Principal, error, require_any
 from app.models import (
@@ -113,6 +113,19 @@ async def resolve(db: AsyncSession, body: QuoteIn, *, strict: bool = True) -> tu
     avg_loaded, avg_empty = await fleet_kmpl(db)
     kmpl_loaded = body.kmpl_loaded or (vehicle.expected_kmpl_loaded if vehicle and vehicle.expected_kmpl_loaded else avg_loaded)
     kmpl_empty = body.kmpl_empty or (vehicle.expected_kmpl_empty if vehicle and vehicle.expected_kmpl_empty else avg_empty)
+    fuel_source, fuel_detail = ("typed in" if body.kmpl_loaded or body.kmpl_empty else ("declared" if vehicle and (vehicle.expected_kmpl_loaded or vehicle.expected_kmpl_empty) else "fleet average")), []
+    if vehicle is not None and distance is not None and (body.kmpl_loaded is None or body.kmpl_empty is None):
+        thresholds, _ = await fraud.load_settings(db)
+        known = await predictions.consumption(db, vehicle, distance_km=distance, weight_kg=float(body.weight_tonnes) * 1000, origin=route.pickup if route else None, destination=route.dropoff if route else None, t=thresholds)
+        if known is not None:
+            if body.kmpl_loaded is None and known["kmpl_loaded"]:
+                kmpl_loaded = Decimal(str(known["kmpl_loaded"]))
+            if body.kmpl_empty is None and known["kmpl_empty"]:
+                kmpl_empty = Decimal(str(known["kmpl_empty"]))
+            fuel_source, fuel_detail = known["source"], known["steps"]
+    if not fuel_detail:
+        fuel_detail = {"typed in": ["The fuel economy was typed into the quote."], "declared": [f"The consumption entered for the vehicle: {kmpl_loaded} km a litre loaded and {kmpl_empty} empty. Its own trip history is not enough to use yet."],
+                       "fleet average": [f"No consumption is set for the vehicle, so the fleet's average is used: {float(kmpl_loaded):g} km a litre loaded and {float(kmpl_empty):g} empty."]}[fuel_source]
     fuel_price = body.fuel_price_cents or await pump_price(db, vehicle.fuel_type if vehicle else FuelType.DIESEL)
     if fuel_price is None and strict:
         raise error(422, "fuel_price_required", "No fuel has been recorded yet, so enter today's pump price per litre.")
@@ -133,6 +146,12 @@ async def resolve(db: AsyncSession, body: QuoteIn, *, strict: bool = True) -> tu
     fields["total_cost_cents"] = result["total_cost_cents"] if result else 0
     fields["expected_profit_cents"] = result["profit_cents"] if result else 0
     fields["margin_pct"] = result["margin_pct"] if result else None
+    fields["fuel_source"], fields["fuel_detail"] = fuel_source, fuel_detail
+    fields["lease_charge_cents"], fields["net_profit_cents"], fields["lease_detail"] = 0, None, None
+    if vehicle is not None and result is not None:
+        lease = await predictions.lease_for_job(db, vehicle.id, price_cents=result["price_cents"], gross_profit_cents=result["profit_cents"], trips=body.trips, distance_km=distance or 0, return_empty=body.return_empty, expected_hours=route.expected_hours if route else None, today=nairobi_today())
+        if lease is not None:
+            fields["lease_charge_cents"], fields["net_profit_cents"], fields["lease_detail"] = lease["total_cents"], result["profit_cents"] - lease["total_cents"], lease
     return fields, result
 
 
@@ -166,7 +185,8 @@ def quote_out(q: Quote, client: Client | None = None, route: SavedRoute | None =
         "fuel_price_cents": q.fuel_price_cents, "tolls_cents": q.tolls_cents, "crew_cents": q.crew_cents, "other_cents": q.other_cents,
         "price_cents": q.price_cents, "fuel_litres": calc["fuel_litres"], "fuel_cents": calc["fuel_cents"],
         "cost_per_trip_cents": calc["cost_per_trip_cents"], "total_cost_cents": q.total_cost_cents,
-        "expected_profit_cents": q.expected_profit_cents, "margin_pct": q.margin_pct,
+        "expected_profit_cents": q.expected_profit_cents, "margin_pct": q.margin_pct, "fuel_source": q.fuel_source, "fuel_detail": q.fuel_detail,
+        "lease_charge_cents": q.lease_charge_cents, "net_profit_cents": q.net_profit_cents, "lease_detail": q.lease_detail,
         "status": q.status.value, "expired": expired, "valid_until": q.valid_until, "pickup_at": q.pickup_at,
         "deliver_by": q.deliver_by, "instructions": q.instructions, "sent_via": q.sent_via, "sent_to": q.sent_to,
         "sent_at": q.sent_at, "decided_at": q.decided_at, "decision_note": q.decision_note, "created_at": q.created_at,
@@ -197,6 +217,30 @@ async def defaults(
     fields, _ = await resolve(db, QuoteIn(client_id=client_id, route_id=route_id, vehicle_id=vehicle_id), strict=False)
     return {k: (float(v) if isinstance(v, Decimal) else (v.value if hasattr(v, "value") else v)) for k, v in fields.items() if k in (
         "billing_method", "rate_cents", "distance_km", "kmpl_loaded", "kmpl_empty", "fuel_price_cents", "tolls_cents", "crew_cents", "other_cents")}  # fmt: skip
+
+
+@router.post("/quotes/preview")
+async def preview_quote(body: QuoteIn, principal: Principal = Depends(require_any(*MANAGE)), db: AsyncSession = Depends(get_db)):
+    """The numbers a quote would have, with how they were worked out: where the fuel estimate came from, and for a lorry hired in what
+    its lease charges for the job and the profit left after that. Nothing is saved."""
+    fields, calc = await resolve(db, body, strict=False)
+    lines = []
+    if calc is not None:
+        lines = [
+            {"label": "Price to the client", "cents": calc["price_cents"]},
+            {"label": f"Fuel: {calc['fuel_litres']:g} litres a trip at {kes(fields['fuel_price_cents'])} a litre, {body.trips} trip{'s' if body.trips != 1 else ''}", "cents": -calc["fuel_cents"] * body.trips},
+            {"label": "Tolls, crew and other costs", "cents": -(fields["tolls_cents"] + fields["crew_cents"] + fields["other_cents"]) * body.trips},
+            {"label": "Expected profit", "cents": calc["profit_cents"], "total": True},
+        ]
+        if fields["lease_detail"]:
+            lines += [{"label": f"Lease: {x['label']}", "cents": -x["cents"]} for x in fields["lease_detail"]["lines"]]
+            lines.append({"label": "Expected profit after the lease", "cents": fields["net_profit_cents"], "total": True})
+    return {
+        "price_cents": fields["price_cents"], "total_cost_cents": fields["total_cost_cents"], "expected_profit_cents": fields["expected_profit_cents"], "margin_pct": fields["margin_pct"],
+        "fuel_litres": calc["fuel_litres"] if calc else None, "kmpl_loaded": float(fields["kmpl_loaded"]), "kmpl_empty": float(fields["kmpl_empty"]), "fuel_price_cents": fields["fuel_price_cents"],
+        "fuel_source": fields["fuel_source"], "fuel_detail": fields["fuel_detail"], "lease_charge_cents": fields["lease_charge_cents"], "net_profit_cents": fields["net_profit_cents"],
+        "lease_note": fields["lease_detail"]["note"] if fields["lease_detail"] else None, "lines": lines,
+    }  # fmt: skip
 
 
 @router.get("/quotes")

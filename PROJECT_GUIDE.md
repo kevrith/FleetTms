@@ -245,6 +245,25 @@ on the dev machine.
   filter: `tenancy._mappers_of` now looks at a statement's FROM entities, so `select(func.count()).select_from(Model)` is scoped too.
   Unverified: Google Routes against Google; the EPRA feed shape (ours); thresholds on real trips; the web screens in a browser.
 
+- **Sprint 14 (fuel sensors, predictions, learned models, document reading).** Fuel level: `location_points.fuel_litres` (a hypertable column) is
+  filled in `tracker_ingest.fuel_litres` only for a device marked `has_fuel_sensor` (percent is turned to litres with `vehicles.tank_litres`).
+  `fuel_sensor_rules.py` (mirrored in `fuelsensor.ts`, `fuelsensor-cases.json`) finds refills and parked drops and matches refills with fuel bought;
+  `fraud.fuel_sensor_findings` raises `fuel_siphoning`, `fuel_not_in_tank` and `unrecorded_refill` from the 15 minute sweep; `routers/fuel_sensor.py`
+  serves the chart. Thresholds in `fraud_rules.Thresholds` grew (`fuel_drop_litres`, `fuel_refill_litres`, `refill_paid_gap_pct`, `model_min_trips`,
+  `model_z`): `fraud.ts` and `fraud-cases.json` follow, and fields annotated `int` are truncated on both sides. Predictions: `predictions.py`
+  (`consumption`: learned model, then history baseline, else the caller's declared figures; `lease_for_job`; `forecast`) with `prediction_rules.py`
+  (job days, the lease charge for one job, the month projection). `quotes.resolve` uses them and stores `fuel_source`, `fuel_detail`, `lease_charge_cents`,
+  `net_profit_cents`, `lease_detail` on the quote; `POST /quotes/preview` returns the working. Learned models: `learned_rules.py` (least squares in
+  plain Python, non-negative, no TypeScript mirror: nothing on a client needs it) and `learned.py` (trains from finished trips, keeps a `vehicle_models`
+  row); `fraud.check_trip` raises `fuel_model_anomaly` only when the plain rule did not already flag the trip. Document reading:
+  `document_reader.py` (Claude Messages API with a forced `record_document` tool; `DOCUMENT_READER=fake` for tests; `ANTHROPIC_API_KEY` empty means
+  off), `document_rules.py` (tidying and checks, Python only), `routers/document_readings.py` (read, confirm, reject, apply an insurance certificate,
+  summary of how often readings needed correcting). `PhotoKind.DOCUMENT` papers skip the freshness rules and re-uploading the same one returns the stored
+  photo. Web: `FuelLevel.tsx` (chart, model card), `Forecast.tsx` (owner's home), `ReadDocument.tsx` (vehicle page), quote working in `Quotes.tsx`. Mobile:
+  the fuel form can read its receipt photo (`offline.readReceipt` uploads it early under its own client id). Simulator: `--scenario siphon` and `refuel`.
+  Test databases: `fleettms_test` is migrated once and then reused, so when an unreleased migration changes, `DROP DATABASE fleettms_test` and it is rebuilt.
+  Unverified: real sensors, the real reading service, the web screens in a browser, the phone's receipt reading on a phone.
+
 ## Testing against a real phone/emulator
 
 - API tests use a separate `fleettms_test` database that they create and migrate themselves.
@@ -266,7 +285,7 @@ dashboard, quick sign-in) is built and tested; use it on your own lorries for a 
 Sprints 6 to 8 (tyres and parts, clients and jobs, proof of delivery and billing) are built and tested. Sprint 9 (payments,
 debtors, reminders, eTIMS) is built and tested against the stand-ins; it has not been run against the Safaricom or KRA
 sandboxes (needs your keys). Sprint 10 (leases, loans, ownership costs, profit engine, payroll, suppliers, lessor portal) is built and
-tested; compare its profit figures with your own spreadsheet on real lorries. Sprint 11 (phone GPS, live map, client tracking links) is built and was checked on the emulator with a development build; try it on a real phone in a moving lorry. Sprint 12 (trackers, tamper alerts, behaviour, immobiliser) is built and tested, and Traccar's post format was checked against a real Traccar server; no real tracker has been tried. Sprint 13 (fraud engine, alerts, scorecards, route suggestions, EPRA prices, beta feedback) is built and tested, not yet tuned on real trips. Next: Sprint 14.
+tested; compare its profit figures with your own spreadsheet on real lorries. Sprint 11 (phone GPS, live map, client tracking links) is built and was checked on the emulator with a development build; try it on a real phone in a moving lorry. Sprint 12 (trackers, tamper alerts, behaviour, immobiliser) is built and tested, and Traccar's post format was checked against a real Traccar server; no real tracker has been tried. Sprint 13 (fraud engine, alerts, scorecards, route suggestions, EPRA prices, beta feedback) is built and tested, not yet tuned on real trips. Sprint 14 (fuel sensors, predictions, learned models, document reading) is built and tested, not yet tried on a real sensor or the real reading service. Next: Sprint 15.
 
 Create the first platform admin with `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_NAME` and `PLATFORM_ADMIN_PASSWORD`
 set in `.env`, then `cd apps/api && .venv/bin/python -m app.cli create-platform-admin`.

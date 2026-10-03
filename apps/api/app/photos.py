@@ -93,23 +93,34 @@ async def ingest_photo(
         raise error(422, "invalid_location", "That location is not valid.")
 
     now = datetime.now(UTC)
-    if source == PhotoSource.WEB:
-        # The browser tells us nothing we can trust, so the picture's own metadata decides.
-        taken = _exif_taken_at(img)
-        if taken is None:
-            raise error(422, "photo_not_fresh", "That photo has no capture time. Take it with your phone camera and upload it straight away.")  # fmt: skip
-        captured_at = taken
-    elif captured_at is None:
-        raise error(422, "captured_at_required", "The photo needs its capture time.")
-    elif captured_at.tzinfo is None:
-        captured_at = captured_at.replace(tzinfo=UTC)
-    check_fresh(captured_at, now, offline=offline and source == PhotoSource.CAMERA)
-    late = captured_at < now - timedelta(minutes=settings.photo_fresh_minutes)
+    if kind == PhotoKind.DOCUMENT:
+        captured_at = captured_at or now  # a paper read for its contents, not evidence of when something happened
+        if captured_at.tzinfo is None:
+            captured_at = captured_at.replace(tzinfo=UTC)
+        late = False
+    else:
+        if source == PhotoSource.WEB:
+            # The browser tells us nothing we can trust, so the picture's own metadata decides.
+            taken = _exif_taken_at(img)
+            if taken is None:
+                raise error(422, "photo_not_fresh", "That photo has no capture time. Take it with your phone camera and upload it straight away.")  # fmt: skip
+            captured_at = taken
+        elif captured_at is None:
+            raise error(422, "captured_at_required", "The photo needs its capture time.")
+        elif captured_at.tzinfo is None:
+            captured_at = captured_at.replace(tzinfo=UTC)
+        check_fresh(captured_at, now, offline=offline and source == PhotoSource.CAMERA)
+        late = captured_at < now - timedelta(minutes=settings.photo_fresh_minutes)
 
     digest = hashlib.sha256(data).hexdigest()
+    if kind == PhotoKind.DOCUMENT:
+        again = (await db.execute(select(Photo).where(Photo.sha256 == digest, Photo.kind == PhotoKind.DOCUMENT))).scalars().first()
+        if again is not None:
+            return again  # reading the same certificate twice is not a claim: hand back the photo already stored
     if (await db.execute(select(Photo.id).where(Photo.sha256 == digest))).first() is not None:
-        await fraud.duplicate_photo(db, sha=digest, user_id=principal.user.id)
-        await db.commit()  # the photo is refused, but the owner is told someone tried to use it twice
+        if kind != PhotoKind.DOCUMENT:  # a paper read for its contents is not a claim, so it is not reported as one
+            await fraud.duplicate_photo(db, sha=digest, user_id=principal.user.id)
+            await db.commit()  # the photo is refused, but the owner is told someone tried to use it twice
         raise error(status.HTTP_409_CONFLICT, "duplicate_photo", "That exact photo was already used. Take a new one.")
 
     content_type, ext = ALLOWED[img.format]

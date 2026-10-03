@@ -5,7 +5,7 @@ import {
   normalizeMpesaCode,
   overloadKg,
 } from "@fleettms/business-rules";
-import type { DeviceReport, ExpenseCategory, IncidentType } from "@fleettms/types";
+import type { DeviceReport, DocumentReading, ExpenseCategory, IncidentType } from "@fleettms/types";
 import NetInfo from "@react-native-community/netinfo";
 import Constants from "expo-constants";
 import * as Crypto from "expo-crypto";
@@ -212,6 +212,8 @@ interface Offline {
   markDelivered: () => Promise<void>;
   endTrip: (photo: LocalPhoto, value: number) => Promise<void>;
   addFuel: (input: FuelFormInput) => Promise<void>;
+  /** Reads a fuel receipt photo (needs a connection): suggests litres, price, total, station and M-Pesa code to check and correct. */
+  readReceipt: (photo: LocalPhoto, vehicleId: string) => Promise<DocumentReading>;
   addExpense: (input: ExpenseFormInput) => Promise<void>;
   submitReconciliation: () => Promise<void>;
   /** The float balance with expenses still waiting to be sent already taken off. */
@@ -489,6 +491,33 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
           payload: { trip_id: trip.id, photo_client_id: photo.clientId, value },
         });
         await setCache({ trip, vehicle: withOdometer(cache().vehicle, value) });
+      },
+
+      async readReceipt(photo, vehicleId) {
+        const temp = await store.materialize(photo.clientId);
+        if (!temp) throw new Error("That photo is no longer on the phone. Take it again.");
+        try {
+          // Uploaded now under the id the phone gave it, so when the fuel entry is sent the server hands back this same photo.
+          const ref = await api.uploadPhoto(
+            { uri: temp.uri, name: "photo.jpg", type: "image/jpeg" },
+            {
+              kind: photo.kind,
+              source: "camera",
+              captured_at: photo.capturedAt,
+              lat: photo.lat,
+              lng: photo.lng,
+              client_id: photo.clientId,
+              offline: true,
+            },
+          );
+          return await api.readDocument({
+            photo_id: ref.id,
+            kind: "fuel_receipt",
+            vehicle_id: vehicleId,
+          });
+        } finally {
+          await temp.cleanup();
+        }
       },
 
       async addFuel(input) {

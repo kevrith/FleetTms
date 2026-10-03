@@ -14,6 +14,7 @@ from app.routers import (
     debtors,
     depots,
     devices,
+    document_readings,
     documents,
     etims,
     expenses,
@@ -22,6 +23,7 @@ from app.routers import (
     fraud,
     fuel,
     fuel_prices,
+    fuel_sensor,
     geofences,
     immobiliser,
     imports,
@@ -37,6 +39,7 @@ from app.routers import (
     payroll,
     photos,
     portal,
+    predictions,
     privacy,
     profit,
     quotes,
@@ -67,7 +70,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for module in (beta, fraud, fuel_prices, scorecards, auth, users, depots, vehicles, staff, documents, imports, photos, inspections, trips, fuel, floats, devices, sync, expenses, reconciliation, workshop, dashboard, tyres, parts, incidents, sos, clients, quotes, jobs, invoices, payments, statements, debtors, etims, leases, finance, payroll, suppliers, profit, portal, locations, livemap, tracking_links, trackers, geofences, behaviour, immobiliser, report_schedules, audit_log, privacy, support):
+for module in (beta, document_readings, fraud, fuel_prices, fuel_sensor, predictions, scorecards, auth, users, depots, vehicles, staff, documents, imports, photos, inspections, trips, fuel, floats, devices, sync, expenses, reconciliation, workshop, dashboard, tyres, parts, incidents, sos, clients, quotes, jobs, invoices, payments, statements, debtors, etims, leases, finance, payroll, suppliers, profit, portal, locations, livemap, tracking_links, trackers, geofences, behaviour, immobiliser, report_schedules, audit_log, privacy, support):
     app.include_router(module.router)
 
 

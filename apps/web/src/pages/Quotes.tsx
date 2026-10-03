@@ -1,5 +1,12 @@
 import { quote as calculate, type BillingMethod as RuleMethod } from "@fleettms/business-rules";
-import type { Client, Quote, QuoteDefaults, SavedRoute, Vehicle } from "@fleettms/types";
+import type {
+  Client,
+  Quote,
+  QuoteDefaults,
+  QuotePreview,
+  SavedRoute,
+  Vehicle,
+} from "@fleettms/types";
 import { Check, Send, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -129,6 +136,39 @@ const fromDefaults = (d: QuoteDefaults): Partial<Form> => ({
   other: toKes(d.other_cents),
 });
 
+const FUEL_SOURCE: Record<string, string> = {
+  learned: "Learned from this lorry's own trips",
+  history: "From this lorry's own trips on this route and load",
+  declared: "The consumption entered for the lorry",
+  "fleet average": "The fleet's average",
+  "typed in": "Typed in on this quote",
+};
+
+/** How the numbers were worked out: where the fuel estimate came from, and for a lorry hired in what its lease charges for the job. */
+function QuoteWorking({ p }: { p: QuotePreview }) {
+  return (
+    <Card title="How this was worked out">
+      <h4>Fuel: {p.fuel_source ? FUEL_SOURCE[p.fuel_source] : ""}</h4>
+      <ul>
+        {p.fuel_detail.map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
+      <ul className="list">
+        {p.lines.map((l) => (
+          <li key={l.label}>
+            <span>{l.total ? <strong>{l.label}</strong> : l.label}</span>
+            <span className={l.cents < 0 ? "muted" : undefined}>
+              {l.total ? <strong>{kes(l.cents)}</strong> : kes(l.cents)}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {p.lease_note && <p className="muted">{p.lease_note}</p>}
+    </Card>
+  );
+}
+
 /** Prices a job and shows the expected profit as you type, with the same calculation the server uses. */
 export function QuoteForm() {
   const navigate = useNavigate();
@@ -136,6 +176,8 @@ export function QuoteForm() {
   const [routes, setRoutes] = useState<SavedRoute[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [f, setF] = useState<Form>(blank);
+  const [typedFuel, setTypedFuel] = useState(false);
+  const [preview, setPreview] = useState<QuotePreview | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -152,6 +194,7 @@ export function QuoteForm() {
   async function choose(patch: Partial<Form>) {
     const next = { ...f, ...patch };
     setF(next);
+    setTypedFuel(false);
     if (!next.clientId) return;
     try {
       const d = await api.quoteDefaults(
@@ -186,8 +229,67 @@ export function QuoteForm() {
     });
   }, [f]);
 
-  const on = (k: keyof Form) => (e: { target: { value: string } }) =>
+  const on = (k: keyof Form) => (e: { target: { value: string } }) => {
+    if (k === "kmplLoaded" || k === "kmplEmpty") setTypedFuel(true);
     setF({ ...f, [k]: e.target.value });
+  };
+
+  /** Asks the server for the working behind the numbers: where the fuel estimate came from, and any lease charge. The server is
+   * left to estimate the fuel economy itself unless it was typed in here. */
+  const previewKey = JSON.stringify([
+    f.clientId,
+    f.routeId,
+    f.vehicleId,
+    f.weight,
+    f.trips,
+    f.returnEmpty,
+    f.method,
+    f.rate,
+    f.distance,
+    f.fuelPrice,
+    f.tolls,
+    f.crew,
+    f.other,
+    typedFuel ? [f.kmplLoaded, f.kmplEmpty] : null,
+  ]);
+  useEffect(() => {
+    if (!f.clientId || !Number(f.distance) || !cents(f.rate)) {
+      setPreview(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      api
+        .previewQuote({
+          client_id: f.clientId,
+          route_id: f.routeId || null,
+          vehicle_id: f.vehicleId || null,
+          weight_tonnes: f.weight || "0",
+          trips: Math.max(1, Number(f.trips) || 1),
+          return_empty: f.returnEmpty,
+          billing_method: f.method,
+          rate_cents: cents(f.rate),
+          distance_km: Number(f.distance),
+          fuel_price_cents: cents(f.fuelPrice) || null,
+          tolls_cents: cents(f.tolls),
+          crew_cents: cents(f.crew),
+          other_cents: cents(f.other),
+          ...(typedFuel ? { kmpl_loaded: f.kmplLoaded, kmpl_empty: f.kmplEmpty } : {}),
+        })
+        .then((p) => {
+          setPreview(p);
+          if (!typedFuel) {
+            setF((cur) => ({
+              ...cur,
+              kmplLoaded: String(p.kmpl_loaded),
+              kmplEmpty: String(p.kmpl_empty),
+            }));
+          }
+        })
+        .catch(() => setPreview(null));
+    }, 500);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewKey]);
 
   async function save() {
     setBusy(true);
@@ -204,8 +306,7 @@ export function QuoteForm() {
         billing_method: f.method,
         rate_cents: cents(f.rate),
         distance_km: Number(f.distance),
-        kmpl_loaded: f.kmplLoaded,
-        kmpl_empty: f.kmplEmpty,
+        ...(typedFuel ? { kmpl_loaded: f.kmplLoaded, kmpl_empty: f.kmplEmpty } : {}),
         fuel_price_cents: cents(f.fuelPrice),
         tolls_cents: cents(f.tolls),
         crew_cents: cents(f.crew),
@@ -399,6 +500,7 @@ export function QuoteForm() {
           </button>
         </p>
       </Card>
+      {preview && <QuoteWorking p={preview} />}
     </>
   );
 }
@@ -470,6 +572,14 @@ export function QuoteDetail() {
               {q.margin_pct !== null && ` (${q.margin_pct}%)`}
             </strong>
           </li>
+          {q.net_profit_cents !== null && (
+            <li>
+              <span>Expected profit after the lease charge of {kes(q.lease_charge_cents)}</span>
+              <strong className={q.net_profit_cents < 0 ? "status bad" : "status ok"}>
+                {kes(q.net_profit_cents)}
+              </strong>
+            </li>
+          )}
         </ul>
         {q.job_id && (
           <p>
@@ -477,6 +587,30 @@ export function QuoteDetail() {
           </p>
         )}
       </Card>
+      {q.fuel_detail && q.fuel_detail.length > 0 && (
+        <Card title="How the costs were worked out">
+          <h4>Fuel: {q.fuel_source ? FUEL_SOURCE[q.fuel_source] : ""}</h4>
+          <ul>
+            {q.fuel_detail.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+          {q.lease_detail && (
+            <>
+              <h4>The lease charge for this job</h4>
+              <ul className="list">
+                {q.lease_detail.lines.map((l) => (
+                  <li key={l.label}>
+                    <span>{l.label}</span>
+                    <span>{kes(l.cents)}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="muted">{q.lease_detail.note}</p>
+            </>
+          )}
+        </Card>
+      )}
       {open && (
         <Card title="Send to the client">
           <div className="form-grid">

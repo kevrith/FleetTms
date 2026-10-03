@@ -14,7 +14,12 @@
         "side_trip_min_km": 15,
         "tamper_window_hours": 6,
         "excess_idle_pct": 20,
-        "excess_idle_minutes": 60
+        "excess_idle_minutes": 60,
+        "fuel_drop_litres": 15,
+        "fuel_refill_litres": 20,
+        "refill_paid_gap_pct": 10,
+        "model_min_trips": 12,
+        "model_z": 3.0
       }
     },
     {
@@ -34,7 +39,12 @@
         "side_trip_min_km": 15,
         "tamper_window_hours": 6,
         "excess_idle_pct": 20,
-        "excess_idle_minutes": 60
+        "excess_idle_minutes": 60,
+        "fuel_drop_litres": 15,
+        "fuel_refill_litres": 20,
+        "refill_paid_gap_pct": 10,
+        "model_min_trips": 12,
+        "model_z": 3.0
       }
     },
     {
@@ -57,7 +67,12 @@
         "side_trip_min_km": 15,
         "tamper_window_hours": 6,
         "excess_idle_pct": 20,
-        "excess_idle_minutes": 60
+        "excess_idle_minutes": 60,
+        "fuel_drop_litres": 15,
+        "fuel_refill_litres": 20,
+        "refill_paid_gap_pct": 10,
+        "model_min_trips": 12,
+        "model_z": 3.0
       }
     },
     {
@@ -78,7 +93,40 @@
         "side_trip_min_km": 15,
         "tamper_window_hours": 6,
         "excess_idle_pct": 20,
-        "excess_idle_minutes": 60
+        "excess_idle_minutes": 60,
+        "fuel_drop_litres": 15,
+        "fuel_refill_litres": 20,
+        "refill_paid_gap_pct": 10,
+        "model_min_trips": 12,
+        "model_z": 3.0
+      }
+    },
+    {
+      "name": "whole-number fields are truncated, the others keep their decimals",
+      "overrides": {
+        "fuel_drop_litres": 25.9,
+        "refill_paid_gap_pct": 7.5,
+        "model_min_trips": 14.2,
+        "model_z": 2.5,
+        "fuel_refill_litres": 30.5
+      },
+      "expected": {
+        "fuel_variance_pct": 10,
+        "idle_litres_per_hour": 3.0,
+        "min_baseline_trips": 3,
+        "min_fuel_km": 30,
+        "long_stop_minutes": 45,
+        "stop_radius_m": 100,
+        "side_trip_pct": 25,
+        "side_trip_min_km": 15,
+        "tamper_window_hours": 6,
+        "excess_idle_pct": 20,
+        "excess_idle_minutes": 60,
+        "fuel_drop_litres": 25,
+        "fuel_refill_litres": 30,
+        "refill_paid_gap_pct": 7,
+        "model_min_trips": 14,
+        "model_z": 2.5
       }
     }
   ],

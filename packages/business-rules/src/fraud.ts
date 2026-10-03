@@ -17,6 +17,11 @@ export interface FraudThresholds {
   tamper_window_hours: number;
   excess_idle_pct: number;
   excess_idle_minutes: number;
+  fuel_drop_litres: number;
+  fuel_refill_litres: number;
+  refill_paid_gap_pct: number;
+  model_min_trips: number;
+  model_z: number;
 }
 
 export const DEFAULT_FRAUD_THRESHOLDS: FraudThresholds = {
@@ -31,6 +36,11 @@ export const DEFAULT_FRAUD_THRESHOLDS: FraudThresholds = {
   tamper_window_hours: 6,
   excess_idle_pct: 20,
   excess_idle_minutes: 60,
+  fuel_drop_litres: 15,
+  fuel_refill_litres: 20,
+  refill_paid_gap_pct: 10,
+  model_min_trips: 12,
+  model_z: 3.0,
 };
 
 /** What a business may set each threshold to. */
@@ -46,12 +56,21 @@ export const FRAUD_LIMITS: Record<keyof FraudThresholds, [number, number]> = {
   tamper_window_hours: [1, 48],
   excess_idle_pct: [5, 90],
   excess_idle_minutes: [10, 600],
+  fuel_drop_litres: [5, 300],
+  fuel_refill_litres: [5, 500],
+  refill_paid_gap_pct: [3, 100],
+  model_min_trips: [6, 100],
+  model_z: [2, 6],
 };
 
 const WHOLE: (keyof FraudThresholds)[] = [
   "min_baseline_trips",
   "long_stop_minutes",
   "excess_idle_minutes",
+  "fuel_drop_litres",
+  "fuel_refill_litres",
+  "refill_paid_gap_pct",
+  "model_min_trips",
 ];
 const MOVING_KMH = 5;
 const MINUTE = 60_000;

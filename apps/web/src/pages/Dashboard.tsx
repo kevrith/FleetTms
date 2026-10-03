@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { api } from "../api";
 import { kes } from "../labels";
 import { Card, ErrorBanner, errorMessage } from "../ui";
+import { ForecastCard } from "./Forecast";
 import { OnboardingCard } from "./Onboarding";
 
 function Stat({ label, value, note }: { label: string; value: string; note?: string }) {
@@ -131,6 +132,7 @@ export default function Dashboard() {
           </p>
         </Card>
       )}
+      <ForecastCard />
       <Card title="Needs attention">
         {data.alerts.length === 0 && (
           <p className="status ok">

@@ -25,7 +25,7 @@ def device(imei: str, status: str = "online") -> dict:
     return {"id": 1, "uniqueId": imei, "name": "Simulated tracker", "status": status}
 
 
-def position(imei: str, at: datetime, lat: float, lng: float, *, speed_kmh: float = 0, course: float = 0, ignition: bool | None = True, alarm: str | None = None, power: float | None = 12.6, battery: float | None = None, valid: bool = True) -> dict:  # fmt: skip
+def position(imei: str, at: datetime, lat: float, lng: float, *, speed_kmh: float = 0, course: float = 0, ignition: bool | None = True, alarm: str | None = None, power: float | None = 12.6, battery: float | None = None, valid: bool = True, fuel: float | None = None) -> dict:  # fmt: skip
     attributes: dict = {}
     if ignition is not None:
         attributes["ignition"] = ignition
@@ -35,6 +35,8 @@ def position(imei: str, at: datetime, lat: float, lng: float, *, speed_kmh: floa
         attributes["power"] = power
     if battery is not None:
         attributes["batteryLevel"] = battery
+    if fuel is not None:
+        attributes["fuel"] = fuel
     pos = {"id": 1, "deviceId": 1, "protocol": "simulated", "serverTime": stamp(at), "deviceTime": stamp(at), "fixTime": stamp(at), "valid": valid, "latitude": lat, "longitude": lng, "speed": round(speed_kmh * KMH_TO_KNOTS, 3), "course": course, "accuracy": 5.0, "attributes": attributes}  # fmt: skip
     return {"position": pos, "device": device(imei)}
 
@@ -71,7 +73,25 @@ def offline(imei: str, at: datetime) -> list[dict]:
     return [event(imei, "deviceOffline", at)]
 
 
-SCENARIOS = {"trip": lambda imei, now: trip(imei, now - timedelta(minutes=20)), "powercut": lambda imei, now: power_cut(imei, now), "jamming": lambda imei, now: jamming(imei, now), "offline": lambda imei, now: offline(imei, now)}
+def siphon(imei: str, start: datetime, lat: float = -1.2921, lng: float = 36.8219, level: float = 280, taken: float = 50) -> list[dict]:
+    """A lorry parked overnight with a fuel sensor: the level is steady for an hour, then falls by `taken` litres in about eight minutes."""
+    out = [position(imei, start + timedelta(minutes=m), lat, lng, speed_kmh=0, ignition=False, fuel=level) for m in range(0, 61, 10)]
+    steps = 5
+    for i in range(1, steps + 1):
+        out.append(position(imei, start + timedelta(minutes=60 + i), lat, lng, speed_kmh=0, ignition=False, fuel=level - taken * i / steps))
+    out += [position(imei, start + timedelta(minutes=m), lat, lng, speed_kmh=0, ignition=False, fuel=level - taken) for m in range(75, 121, 15)]
+    return out
+
+
+def refuel(imei: str, start: datetime, lat: float = -1.2921, lng: float = 36.8219, level: float = 100, added: float = 100) -> list[dict]:
+    """A lorry filling up at a pump: a steady low level, then `added` litres in about five minutes."""
+    out = [position(imei, start + timedelta(minutes=m), lat, lng, speed_kmh=0, ignition=False, fuel=level) for m in range(0, 11, 5)]
+    out += [position(imei, start + timedelta(minutes=10 + i), lat, lng, speed_kmh=0, ignition=False, fuel=level + added * i / 5) for i in range(1, 6)]
+    out += [position(imei, start + timedelta(minutes=m), lat, lng, speed_kmh=0, ignition=False, fuel=level + added) for m in range(20, 41, 10)]
+    return out
+
+
+SCENARIOS = {"trip": lambda imei, now: trip(imei, now - timedelta(minutes=20)), "powercut": lambda imei, now: power_cut(imei, now), "jamming": lambda imei, now: jamming(imei, now), "offline": lambda imei, now: offline(imei, now), "siphon": lambda imei, now: siphon(imei, now - timedelta(minutes=125)), "refuel": lambda imei, now: refuel(imei, now - timedelta(minutes=45))}
 
 
 async def post_all(url: str, key: str, payloads: list[dict], delay: float = 0.0) -> int:

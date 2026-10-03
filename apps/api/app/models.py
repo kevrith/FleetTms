@@ -109,6 +109,7 @@ class PhotoKind(enum.StrEnum):
     DELIVERY_NOTE = "delivery_note"  # the signed delivery note
     DAMAGE = "damage"
     WEIGHBRIDGE = "weighbridge"  # the weighbridge ticket
+    DOCUMENT = "document"  # an insurance certificate, logbook or other paper for the document reader; not evidence, so no freshness rules
 
 
 class PhotoSource(enum.StrEnum):
@@ -1162,6 +1163,11 @@ class Quote(TenantMixin, Base):
     total_cost_cents: Mapped[int] = mapped_column(BigInteger)
     expected_profit_cents: Mapped[int] = mapped_column(BigInteger)
     margin_pct: Mapped[float | None] = mapped_column(Float)
+    fuel_source: Mapped[str | None] = mapped_column(String(40))  # where the fuel estimate came from: learned model, history, declared or fleet average
+    fuel_detail: Mapped[list | None] = mapped_column(JSONB)  # how the fuel estimate was worked out, step by step
+    lease_charge_cents: Mapped[int] = mapped_column(BigInteger, default=0, server_default=text("0"))  # what the lorry's lease charges for this job
+    net_profit_cents: Mapped[int | None] = mapped_column(BigInteger)  # expected profit after that lease charge; none for a lorry that is not leased in
+    lease_detail: Mapped[dict | None] = mapped_column(JSONB)  # the lease charge worked out part by part
     status: Mapped[QuoteStatus] = mapped_column(_enum(QuoteStatus), default=QuoteStatus.DRAFT, index=True)
     valid_until: Mapped[date | None] = mapped_column(Date)
     pickup_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -1670,6 +1676,7 @@ class LocationPoint(TenantMixin, Base):
     heading: Mapped[float | None] = mapped_column(Float)
     accuracy_m: Mapped[float | None] = mapped_column(Float)
     ignition: Mapped[bool | None] = mapped_column(Boolean)  # engine on, from a tracker
+    fuel_litres: Mapped[float | None] = mapped_column(Float)  # the tank level a tracker's fuel sensor reported, in litres
     source: Mapped[str] = mapped_column(String(8), default="phone")  # phone or tracker
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -1719,6 +1726,8 @@ class TrackerDevice(TenantMixin, Base):
     model: Mapped[str | None] = mapped_column(String(60))
     sim_phone: Mapped[str | None] = mapped_column(String(20))
     supports_immobiliser: Mapped[bool] = mapped_column(Boolean, default=False)
+    has_fuel_sensor: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))  # a fuel level sensor is wired to this tracker
+    fuel_unit: Mapped[str] = mapped_column(String(8), default="litres", server_default=text("'litres'"))  # what the sensor reports: litres or percent of the tank
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # anything heard from the device
     last_position_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -1912,3 +1921,44 @@ class Feedback(TenantMixin, Base):
     page: Mapped[str | None] = mapped_column(String(200))  # where in the app they were
     app: Mapped[str | None] = mapped_column(String(10))  # web or mobile
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+# ---- Premium: learned models and document reading (Sprint 14) ----------------------------------------------------------
+
+
+class VehicleModel(TenantMixin, Base):
+    """What was learned about one vehicle from its own trips: how much fuel a trip takes for its distance, load and idling. Retrained
+    whenever it is used; kept so the owner can see what it learned and how reliable it is."""
+
+    __tablename__ = "vehicle_models"
+    __table_args__ = (UniqueConstraint("vehicle_id", "kind"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(20), default="fuel")
+    trips: Mapped[int] = mapped_column(Integer)  # how many trips it was trained on
+    r2: Mapped[float] = mapped_column(Float)  # how much of the variation in fuel it explains, 0 to 1
+    sigma_litres: Mapped[float] = mapped_column(Float)  # the usual miss, in litres
+    reliable: Mapped[bool] = mapped_column(Boolean, default=False)  # good enough to be used alongside the rules
+    params: Mapped[dict] = mapped_column(JSONB, default=dict)  # litres per km, per tonne-km and per idle hour, and the base
+    trained_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class DocumentReading(TenantMixin, Base):
+    """What a document-reading service made of a photo (a fuel receipt, a weighbridge ticket, ...), and what the person confirmed."""
+
+    __tablename__ = "document_readings"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    photo_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("photos.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(24))  # fuel_receipt, weighbridge_ticket, delivery_note, insurance_certificate or logbook
+    vehicle_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("vehicles.id", ondelete="SET NULL"))
+    read_fields: Mapped[dict] = mapped_column(JSONB, default=dict)  # what the service read
+    warnings: Mapped[list[str]] = mapped_column(JSONB, default=list)  # things that do not add up, for the person to check
+    confidence: Mapped[float | None] = mapped_column(Float)
+    provider: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(10), default="pending", index=True)  # pending, confirmed or rejected
+    confirmed_fields: Mapped[dict | None] = mapped_column(JSONB)  # what the person confirmed, with their corrections
+    corrections: Mapped[int] = mapped_column(Integer, default=0)  # how many fields the person changed
+    read_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    confirmed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
