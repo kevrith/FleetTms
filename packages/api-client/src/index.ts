@@ -1,5 +1,21 @@
 import type {
   AuditEntry,
+  AccessInfo,
+  AskAnswer,
+  AskExample,
+  CatalogReport,
+  DataExportInfo,
+  FirstJobInput,
+  InboxMessage,
+  PlanName,
+  PlansInfo,
+  PlatformBusinessDetail,
+  PlatformBusinessRow,
+  PlatformOverview,
+  ReportData,
+  SentMessage,
+  SubscriptionInvoice,
+  SubscriptionStatus,
   DocumentReading,
   DocumentReadingSummary,
   ExpectedFuel,
@@ -545,8 +561,9 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
       ),
 
     reportSchedules: () => get<ReportSchedule[]>("/report-schedules"),
-    createReportSchedule: (input: Pick<ReportSchedule, "frequency" | "channel" | "recipient">) =>
-      post<ReportSchedule>("/report-schedules", input),
+    createReportSchedule: (
+      input: Pick<ReportSchedule, "frequency" | "channel" | "recipient" | "report" | "file_format">,
+    ) => post<ReportSchedule>("/report-schedules", input),
     setReportScheduleActive: (id: string, isActive: boolean) =>
       request<ReportSchedule>("PATCH", `/report-schedules/${id}`, { is_active: isActive }),
     deleteReportSchedule: (id: string) => request<void>("DELETE", `/report-schedules/${id}`),
@@ -1096,6 +1113,109 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
         `/document-readings/${id}/apply`,
       ),
     readingSummary: () => get<DocumentReadingSummary[]>("/document-readings/summary"),
+
+    // ---- subscriptions ----
+    plans: () => request<PlansInfo>("GET", "/plans", undefined, false),
+    subscription: () => get<SubscriptionStatus>("/subscription"),
+    subscriptionBanner: () => get<AccessInfo>("/subscription/banner"),
+    setVehiclePlans: (vehicles: { vehicle_id: string; plan: PlanName }[]) =>
+      request<SubscriptionStatus>("PUT", "/subscription/plans", { vehicles }),
+    setSubscriptionSettings: (input: {
+      period?: "monthly" | "annual";
+      payroll_enabled?: boolean;
+    }) => request<SubscriptionStatus>("PUT", "/subscription/settings", input),
+    raiseInvoice: () => post<SubscriptionInvoice>("/subscription/invoices"),
+    buySmsBundle: (messages: number) =>
+      post<SubscriptionInvoice>("/subscription/sms-bundles", { messages }),
+    payInvoice: (id: string, phone: string) =>
+      post<{ payment_id: string; status: string; message: string }>(
+        `/subscription/invoices/${id}/pay`,
+        { method: "mpesa", phone },
+      ),
+    invoiceStatus: (id: string) => get<SubscriptionInvoice>(`/subscription/invoices/${id}`),
+
+    // ---- getting started ----
+    createFirstJob: (input: FirstJobInput) =>
+      post<{ client_id: string; route_id: string; job: { id: string; number: string } }>(
+        "/onboarding/first-job",
+        input,
+      ),
+    addSampleData: () => post<{ vehicle_id: string; job_id: string }>("/onboarding/sample-data"),
+    removeSampleData: () => request<void>("DELETE", "/onboarding/sample-data"),
+
+    // ---- messages ----
+    sendMessage: (input: {
+      body: string;
+      all_drivers?: boolean;
+      membership_ids?: string[];
+      job_id?: string | null;
+      also_sms?: boolean;
+    }) => post<SentMessage>("/messages", input),
+    sentMessages: (jobId?: string) =>
+      get<SentMessage[]>(`/messages${jobId ? `?job_id=${jobId}` : ""}`),
+    myMessages: () => get<{ unread: number; messages: InboxMessage[] }>("/me/messages"),
+    markMessageRead: (id: string) => request<void>("POST", `/me/messages/${id}/read`, {}),
+
+    // ---- the report catalogue ----
+    reportCatalog: () => get<CatalogReport[]>("/report-catalog"),
+    runReport: (key: string, start?: string, end?: string) => {
+      const q = new URLSearchParams();
+      if (start) q.set("start", start);
+      if (end) q.set("end", end);
+      const qs = q.toString();
+      return get<ReportData>(`/report-catalog/${key}${qs ? `?${qs}` : ""}`);
+    },
+    reportFile: (key: string, fileFormat: "pdf" | "xlsx", start?: string, end?: string) => {
+      const q = new URLSearchParams({ file_format: fileFormat });
+      if (start) q.set("start", start);
+      if (end) q.set("end", end);
+      return request<Blob>(
+        "GET",
+        `/report-catalog/${key}/export?${q.toString()}`,
+        undefined,
+        true,
+        true,
+      );
+    },
+
+    // ---- ask in plain English ----
+    ask: (question: string) => post<AskAnswer>("/ask", { question }),
+    askExamples: () => get<AskExample[]>("/ask/examples"),
+    askLookup: (lookup: string, args: Record<string, string>) =>
+      post<ReportData>("/ask/lookup", { lookup, args }),
+
+    // ---- data export ----
+    requestExport: (includePhotos: boolean) =>
+      post<DataExportInfo>("/data-exports", { include_photos: includePhotos }),
+    dataExports: () => get<DataExportInfo[]>("/data-exports"),
+    dataExport: (id: string) => get<DataExportInfo>(`/data-exports/${id}`),
+    dataExportFile: (id: string) =>
+      request<Blob>("GET", `/data-exports/${id}/download`, undefined, true, true),
+
+    // ---- the platform console ----
+    platformOverview: () => get<PlatformOverview>("/platform/overview"),
+    platformHealth: () =>
+      get<{ database: boolean; redis: boolean; version: string; checked_at: string }>(
+        "/platform/health",
+      ),
+    platformBusinesses: (state?: string, q?: string) => {
+      const p = new URLSearchParams();
+      if (state) p.set("state", state);
+      if (q) p.set("q", q);
+      const qs = p.toString();
+      return get<PlatformBusinessRow[]>(`/platform/customers${qs ? `?${qs}` : ""}`);
+    },
+    platformBusiness: (id: string) => get<PlatformBusinessDetail>(`/platform/businesses/${id}`),
+    platformAct: (
+      id: string,
+      action: "extend-trial" | "complimentary" | "suspend" | "unsuspend" | "custom-price",
+      body: Record<string, unknown> = {},
+    ) => post<PlatformBusinessRow>(`/platform/businesses/${id}/${action}`, body),
+    platformMarkPaid: (invoiceId: string, reference: string) =>
+      post<{ id: string; status: string }>(`/platform/invoices/${invoiceId}/mark-paid`, {
+        method: "bank",
+        reference,
+      }),
 
     // ---- SOS ----
     myTyrePositions: () => get<MyTyrePositions>("/me/tyre-positions"),

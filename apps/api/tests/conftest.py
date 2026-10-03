@@ -1,5 +1,6 @@
 """Test harness: a dedicated database built from the real migrations, truncated between tests."""
 
+import os
 import secrets
 from pathlib import Path
 
@@ -14,7 +15,7 @@ from sqlalchemy.engine import make_url
 from app.config import settings
 
 API_DIR = Path(__file__).resolve().parent.parent
-TEST_DB = "fleettms_test"
+TEST_DB = os.getenv("TEST_DB_NAME", "fleettms_test")  # a second session can use its own database and not clash
 
 # Point the app at the test database before anything creates an engine.
 _dev_url = make_url(settings.database_url)
@@ -50,6 +51,22 @@ async def _clean():
     from app.sms import get_sms_sender
 
     get_sms_sender().outbox.clear()
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _billing_off_by_default():
+    """Most tests are about something else, and a business that has just signed up is on a trial: plan limits and read-only mode are
+    switched on only by the tests about them (the `billing` fixture)."""
+    settings.enforce_plans, settings.enforce_billing = False, False
+    yield
+    settings.enforce_plans, settings.enforce_billing = True, True
+
+
+@pytest.fixture
+def billing():
+    """Plan limits and read-only mode on, as they are in production."""
+    settings.enforce_plans, settings.enforce_billing = True, True
     yield
 
 

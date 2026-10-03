@@ -11,6 +11,11 @@ import AcceptInvite from "./pages/AcceptInvite";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Expenses from "./pages/Expenses";
+import Ask from "./pages/Ask";
+import Messages from "./pages/Messages";
+import Platform from "./pages/Platform";
+import ReportLibrary from "./pages/ReportLibrary";
+import Start from "./pages/Start";
 import Reports from "./pages/Reports";
 import Clients from "./pages/Clients";
 import Incidents from "./pages/Incidents";
@@ -122,6 +127,11 @@ export default function App() {
         <Route path="/jobs/*" element={<Jobs />} />
         <Route path="/clients/*" element={<Clients />} />
         <Route path="/reports" element={<Reports />} />
+        <Route path="/reports/library" element={<ReportLibrary />} />
+        <Route path="/ask" element={<Ask />} />
+        <Route path="/messages" element={<Messages />} />
+        <Route path="/start" element={<Start />} />
+        <Route path="/platform/*" element={<Platform />} />
         <Route path="/trips/:id" element={<TripDetail />} />
         <Route path="/staff/*" element={<StaffArea />} />
         <Route path="/leases/*" element={<Leases />} />

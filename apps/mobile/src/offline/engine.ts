@@ -84,6 +84,8 @@ export function createSyncEngine(deps: {
           const err = asApiError(e);
           if (!err) return "offline";
           if (err.status === 401) return "signed_out";
+          // 402: the account has not paid and is read-only. Nothing is refused for good: it all waits on the phone until it is paid.
+          if (err.status === 402) return "offline";
           // The server looked at the photo and refused it (blank, too old, too small). Retrying cannot help.
           await setItem(item.id, {
             status: "rejected",

@@ -7,6 +7,7 @@ import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { api } from "./api";
 import { useAuth } from "./auth";
 import { FeedbackButton } from "./Feedback";
+import { SubscriptionBanner } from "./SubscriptionBanner";
 import { navItems } from "./nav";
 import { ErrorBanner, errorMessage } from "./ui";
 
@@ -110,7 +111,12 @@ export default function Layout() {
     }
   }
 
-  const items = navItems.filter((n) => !n.permission || [n.permission].flat().some((p) => can(p)));
+  const items = navItems.filter((n) =>
+    n.platform
+      ? me.is_platform_admin
+      : (!n.permission || [n.permission].flat().some((p) => can(p))) &&
+        (me.business !== null || n.path === "/settings"),
+  );
 
   return (
     <div className="shell">
@@ -158,6 +164,7 @@ export default function Layout() {
         </button>
       </nav>
       <main className="main">
+        <SubscriptionBanner />
         {me.permissions.includes("sos.respond") && <SosBanner />}
         <ErrorBanner message={error} />
         <Outlet />

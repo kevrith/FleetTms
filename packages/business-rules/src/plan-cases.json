@@ -1,0 +1,749 @@
+{
+  "quotes": [
+    {
+      "name": "one standard vehicle",
+      "plans": ["standard"],
+      "period": "monthly",
+      "payroll_employees": 0,
+      "expected": {
+        "vehicles": 1,
+        "lines": [
+          {
+            "plan": "standard",
+            "vehicles": 1,
+            "unit_cents": 180000,
+            "cents": 180000
+          }
+        ],
+        "list_cents": 180000,
+        "discount_pct": 0,
+        "discount_cents": 0,
+        "vehicles_cents": 180000,
+        "payroll_cents": 0,
+        "monthly_cents": 180000,
+        "period": "monthly",
+        "months_paid": 1,
+        "months_covered": 1,
+        "total_cents": 180000,
+        "saving_cents": 0,
+        "custom": false
+      }
+    },
+    {
+      "name": "a mixed fleet",
+      "plans": ["starter", "starter", "standard", "premium"],
+      "period": "monthly",
+      "payroll_employees": 0,
+      "expected": {
+        "vehicles": 4,
+        "lines": [
+          {
+            "plan": "starter",
+            "vehicles": 2,
+            "unit_cents": 100000,
+            "cents": 200000
+          },
+          {
+            "plan": "standard",
+            "vehicles": 1,
+            "unit_cents": 180000,
+            "cents": 180000
+          },
+          {
+            "plan": "premium",
+            "vehicles": 1,
+            "unit_cents": 280000,
+            "cents": 280000
+          }
+        ],
+        "list_cents": 660000,
+        "discount_pct": 0,
+        "discount_cents": 0,
+        "vehicles_cents": 660000,
+        "payroll_cents": 0,
+        "monthly_cents": 660000,
+        "period": "monthly",
+        "months_paid": 1,
+        "months_covered": 1,
+        "total_cents": 660000,
+        "saving_cents": 0,
+        "custom": false
+      }
+    },
+    {
+      "name": "ten vehicles get no discount",
+      "plans": [
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard"
+      ],
+      "period": "monthly",
+      "payroll_employees": 0,
+      "expected": {
+        "vehicles": 10,
+        "lines": [
+          {
+            "plan": "standard",
+            "vehicles": 10,
+            "unit_cents": 180000,
+            "cents": 1800000
+          }
+        ],
+        "list_cents": 1800000,
+        "discount_pct": 0,
+        "discount_cents": 0,
+        "vehicles_cents": 1800000,
+        "payroll_cents": 0,
+        "monthly_cents": 1800000,
+        "period": "monthly",
+        "months_paid": 1,
+        "months_covered": 1,
+        "total_cents": 1800000,
+        "saving_cents": 0,
+        "custom": false
+      }
+    },
+    {
+      "name": "eleven vehicles get ten percent off",
+      "plans": [
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard"
+      ],
+      "period": "monthly",
+      "payroll_employees": 0,
+      "expected": {
+        "vehicles": 11,
+        "lines": [
+          {
+            "plan": "standard",
+            "vehicles": 11,
+            "unit_cents": 180000,
+            "cents": 1980000
+          }
+        ],
+        "list_cents": 1980000,
+        "discount_pct": 10,
+        "discount_cents": 198000,
+        "vehicles_cents": 1782000,
+        "payroll_cents": 0,
+        "monthly_cents": 1782000,
+        "period": "monthly",
+        "months_paid": 1,
+        "months_covered": 1,
+        "total_cents": 1782000,
+        "saving_cents": 0,
+        "custom": false
+      }
+    },
+    {
+      "name": "thirty vehicles still get ten percent off",
+      "plans": [
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter"
+      ],
+      "period": "monthly",
+      "payroll_employees": 0,
+      "expected": {
+        "vehicles": 30,
+        "lines": [
+          {
+            "plan": "starter",
+            "vehicles": 30,
+            "unit_cents": 100000,
+            "cents": 3000000
+          }
+        ],
+        "list_cents": 3000000,
+        "discount_pct": 10,
+        "discount_cents": 300000,
+        "vehicles_cents": 2700000,
+        "payroll_cents": 0,
+        "monthly_cents": 2700000,
+        "period": "monthly",
+        "months_paid": 1,
+        "months_covered": 1,
+        "total_cents": 2700000,
+        "saving_cents": 0,
+        "custom": false
+      }
+    },
+    {
+      "name": "thirty-one vehicles are priced by agreement",
+      "plans": [
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter",
+        "starter"
+      ],
+      "period": "monthly",
+      "payroll_employees": 0,
+      "expected": {
+        "vehicles": 31,
+        "lines": [
+          {
+            "plan": "starter",
+            "vehicles": 31,
+            "unit_cents": 100000,
+            "cents": 3100000
+          }
+        ],
+        "list_cents": 3100000,
+        "discount_pct": 0,
+        "discount_cents": 0,
+        "vehicles_cents": 3100000,
+        "payroll_cents": 0,
+        "monthly_cents": 3100000,
+        "period": "monthly",
+        "months_paid": 1,
+        "months_covered": 1,
+        "total_cents": 3100000,
+        "saving_cents": 0,
+        "custom": true
+      }
+    },
+    {
+      "name": "annual pays ten months for twelve",
+      "plans": ["standard", "premium"],
+      "period": "annual",
+      "payroll_employees": 0,
+      "expected": {
+        "vehicles": 2,
+        "lines": [
+          {
+            "plan": "standard",
+            "vehicles": 1,
+            "unit_cents": 180000,
+            "cents": 180000
+          },
+          {
+            "plan": "premium",
+            "vehicles": 1,
+            "unit_cents": 280000,
+            "cents": 280000
+          }
+        ],
+        "list_cents": 460000,
+        "discount_pct": 0,
+        "discount_cents": 0,
+        "vehicles_cents": 460000,
+        "payroll_cents": 0,
+        "monthly_cents": 460000,
+        "period": "annual",
+        "months_paid": 10,
+        "months_covered": 12,
+        "total_cents": 4600000,
+        "saving_cents": 920000,
+        "custom": false
+      }
+    },
+    {
+      "name": "payroll is charged per employee and not discounted",
+      "plans": [
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard"
+      ],
+      "period": "monthly",
+      "payroll_employees": 5,
+      "expected": {
+        "vehicles": 12,
+        "lines": [
+          {
+            "plan": "standard",
+            "vehicles": 12,
+            "unit_cents": 180000,
+            "cents": 2160000
+          }
+        ],
+        "list_cents": 2160000,
+        "discount_pct": 10,
+        "discount_cents": 216000,
+        "vehicles_cents": 1944000,
+        "payroll_cents": 50000,
+        "monthly_cents": 1994000,
+        "period": "monthly",
+        "months_paid": 1,
+        "months_covered": 1,
+        "total_cents": 1994000,
+        "saving_cents": 0,
+        "custom": false
+      }
+    },
+    {
+      "name": "annual with a discount and payroll",
+      "plans": [
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard",
+        "standard"
+      ],
+      "period": "annual",
+      "payroll_employees": 4,
+      "expected": {
+        "vehicles": 12,
+        "lines": [
+          {
+            "plan": "standard",
+            "vehicles": 12,
+            "unit_cents": 180000,
+            "cents": 2160000
+          }
+        ],
+        "list_cents": 2160000,
+        "discount_pct": 10,
+        "discount_cents": 216000,
+        "vehicles_cents": 1944000,
+        "payroll_cents": 40000,
+        "monthly_cents": 1984000,
+        "period": "annual",
+        "months_paid": 10,
+        "months_covered": 12,
+        "total_cents": 19840000,
+        "saving_cents": 3968000,
+        "custom": false
+      }
+    },
+    {
+      "name": "no vehicles yet",
+      "plans": [],
+      "period": "monthly",
+      "payroll_employees": 0,
+      "expected": {
+        "vehicles": 0,
+        "lines": [],
+        "list_cents": 0,
+        "discount_pct": 0,
+        "discount_cents": 0,
+        "vehicles_cents": 0,
+        "payroll_cents": 0,
+        "monthly_cents": 0,
+        "period": "monthly",
+        "months_paid": 1,
+        "months_covered": 1,
+        "total_cents": 0,
+        "saving_cents": 0,
+        "custom": false
+      }
+    },
+    {
+      "name": "a discount that needs rounding",
+      "plans": [
+        "premium",
+        "premium",
+        "premium",
+        "premium",
+        "premium",
+        "premium",
+        "premium",
+        "premium",
+        "premium",
+        "premium",
+        "premium",
+        "starter"
+      ],
+      "period": "monthly",
+      "payroll_employees": 0,
+      "expected": {
+        "vehicles": 12,
+        "lines": [
+          {
+            "plan": "starter",
+            "vehicles": 1,
+            "unit_cents": 100000,
+            "cents": 100000
+          },
+          {
+            "plan": "premium",
+            "vehicles": 11,
+            "unit_cents": 280000,
+            "cents": 3080000
+          }
+        ],
+        "list_cents": 3180000,
+        "discount_pct": 10,
+        "discount_cents": 318000,
+        "vehicles_cents": 2862000,
+        "payroll_cents": 0,
+        "monthly_cents": 2862000,
+        "period": "monthly",
+        "months_paid": 1,
+        "months_covered": 1,
+        "total_cents": 2862000,
+        "saving_cents": 0,
+        "custom": false
+      }
+    }
+  ],
+  "access": [
+    {
+      "name": "on trial",
+      "now": "2026-10-03T09:00:00Z",
+      "input": {
+        "complimentary": false,
+        "trial_ends_at": "2026-10-13T09:00:00Z",
+        "paid_until": null,
+        "cancelled": false
+      },
+      "expected": {
+        "state": "trialing",
+        "days_left": 10,
+        "writable": true,
+        "ends_at": "2026-10-13T09:00:00Z",
+        "grace_ends_at": "2026-10-20T09:00:00Z"
+      }
+    },
+    {
+      "name": "the last day of a trial",
+      "now": "2026-10-03T09:00:00Z",
+      "input": {
+        "complimentary": false,
+        "trial_ends_at": "2026-10-03T14:00:00Z",
+        "paid_until": null,
+        "cancelled": false
+      },
+      "expected": {
+        "state": "trialing",
+        "days_left": 1,
+        "writable": true,
+        "ends_at": "2026-10-03T14:00:00Z",
+        "grace_ends_at": "2026-10-10T14:00:00Z"
+      }
+    },
+    {
+      "name": "a trial that has just ended is in grace",
+      "now": "2026-10-03T09:00:00Z",
+      "input": {
+        "complimentary": false,
+        "trial_ends_at": "2026-10-02T09:00:00Z",
+        "paid_until": null,
+        "cancelled": false
+      },
+      "expected": {
+        "state": "grace",
+        "days_left": 6,
+        "writable": true,
+        "ends_at": "2026-10-02T09:00:00Z",
+        "grace_ends_at": "2026-10-09T09:00:00Z"
+      }
+    },
+    {
+      "name": "a week after the trial it is read-only",
+      "now": "2026-10-03T09:00:00Z",
+      "input": {
+        "complimentary": false,
+        "trial_ends_at": "2026-09-25T09:00:00Z",
+        "paid_until": null,
+        "cancelled": false
+      },
+      "expected": {
+        "state": "read_only",
+        "days_left": 0,
+        "writable": false,
+        "ends_at": "2026-09-25T09:00:00Z",
+        "grace_ends_at": "2026-10-02T09:00:00Z"
+      }
+    },
+    {
+      "name": "exactly the end of grace is still grace",
+      "now": "2026-10-03T09:00:00Z",
+      "input": {
+        "complimentary": false,
+        "trial_ends_at": "2026-09-26T09:00:00Z",
+        "paid_until": null,
+        "cancelled": false
+      },
+      "expected": {
+        "state": "grace",
+        "days_left": 0,
+        "writable": true,
+        "ends_at": "2026-09-26T09:00:00Z",
+        "grace_ends_at": "2026-10-03T09:00:00Z"
+      }
+    },
+    {
+      "name": "paid up",
+      "now": "2026-10-03T09:00:00Z",
+      "input": {
+        "complimentary": false,
+        "trial_ends_at": "2026-08-04T09:00:00Z",
+        "paid_until": "2026-10-23T09:00:00Z",
+        "cancelled": false
+      },
+      "expected": {
+        "state": "active",
+        "days_left": 20,
+        "writable": true,
+        "ends_at": "2026-10-23T09:00:00Z",
+        "grace_ends_at": "2026-10-30T09:00:00Z"
+      }
+    },
+    {
+      "name": "a missed payment is grace for seven days",
+      "now": "2026-10-03T09:00:00Z",
+      "input": {
+        "complimentary": false,
+        "trial_ends_at": "2026-08-04T09:00:00Z",
+        "paid_until": "2026-09-30T09:00:00Z",
+        "cancelled": false
+      },
+      "expected": {
+        "state": "grace",
+        "days_left": 4,
+        "writable": true,
+        "ends_at": "2026-09-30T09:00:00Z",
+        "grace_ends_at": "2026-10-07T09:00:00Z"
+      }
+    },
+    {
+      "name": "then read-only",
+      "now": "2026-10-03T09:00:00Z",
+      "input": {
+        "complimentary": false,
+        "trial_ends_at": "2026-08-04T09:00:00Z",
+        "paid_until": "2026-09-24T09:00:00Z",
+        "cancelled": false
+      },
+      "expected": {
+        "state": "read_only",
+        "days_left": 0,
+        "writable": false,
+        "ends_at": "2026-09-24T09:00:00Z",
+        "grace_ends_at": "2026-10-01T09:00:00Z"
+      }
+    },
+    {
+      "name": "paying again brings full access back",
+      "now": "2026-10-03T09:00:00Z",
+      "input": {
+        "complimentary": false,
+        "trial_ends_at": "2026-08-04T09:00:00Z",
+        "paid_until": "2026-11-02T09:00:00Z",
+        "cancelled": false
+      },
+      "expected": {
+        "state": "active",
+        "days_left": 30,
+        "writable": true,
+        "ends_at": "2026-11-02T09:00:00Z",
+        "grace_ends_at": "2026-11-09T09:00:00Z"
+      }
+    },
+    {
+      "name": "a free account never expires",
+      "now": "2026-10-03T09:00:00Z",
+      "input": {
+        "complimentary": true,
+        "trial_ends_at": "2025-05-21T09:00:00Z",
+        "paid_until": null,
+        "cancelled": false
+      },
+      "expected": {
+        "state": "complimentary",
+        "days_left": null,
+        "writable": true,
+        "ends_at": null,
+        "grace_ends_at": null
+      }
+    },
+    {
+      "name": "a cancelled account is read-only",
+      "now": "2026-10-03T09:00:00Z",
+      "input": {
+        "complimentary": false,
+        "trial_ends_at": "2026-08-04T09:00:00Z",
+        "paid_until": "2026-10-23T09:00:00Z",
+        "cancelled": true
+      },
+      "expected": {
+        "state": "read_only",
+        "days_left": 0,
+        "writable": false,
+        "ends_at": "2026-10-23T09:00:00Z",
+        "grace_ends_at": null
+      }
+    }
+  ],
+  "allows": [
+    {
+      "plan": "starter",
+      "feature": "trackers",
+      "expected": false
+    },
+    {
+      "plan": "starter",
+      "feature": "fuel_sensors",
+      "expected": false
+    },
+    {
+      "plan": "starter",
+      "feature": "ask",
+      "expected": false
+    },
+    {
+      "plan": "starter",
+      "feature": "basic_trips",
+      "expected": true
+    },
+    {
+      "plan": "starter",
+      "feature": "all_roles",
+      "expected": false
+    },
+    {
+      "plan": "standard",
+      "feature": "trackers",
+      "expected": true
+    },
+    {
+      "plan": "standard",
+      "feature": "fuel_sensors",
+      "expected": false
+    },
+    {
+      "plan": "standard",
+      "feature": "ask",
+      "expected": false
+    },
+    {
+      "plan": "standard",
+      "feature": "basic_trips",
+      "expected": true
+    },
+    {
+      "plan": "standard",
+      "feature": "all_roles",
+      "expected": true
+    },
+    {
+      "plan": "premium",
+      "feature": "trackers",
+      "expected": true
+    },
+    {
+      "plan": "premium",
+      "feature": "fuel_sensors",
+      "expected": true
+    },
+    {
+      "plan": "premium",
+      "feature": "ask",
+      "expected": true
+    },
+    {
+      "plan": "premium",
+      "feature": "basic_trips",
+      "expected": true
+    },
+    {
+      "plan": "premium",
+      "feature": "all_roles",
+      "expected": true
+    }
+  ],
+  "best": [
+    {
+      "plans": [],
+      "expected": "standard"
+    },
+    {
+      "plans": ["starter"],
+      "expected": "starter"
+    },
+    {
+      "plans": ["starter", "premium", "standard"],
+      "expected": "premium"
+    },
+    {
+      "plans": ["standard", "standard"],
+      "expected": "standard"
+    }
+  ]
+}

@@ -320,6 +320,19 @@ describe("sync engine", () => {
     expect(store.get().queue.filter((i) => i.status === "queued")).toHaveLength(0); // the other two were sent
   });
 
+  it("keeps everything on the phone when the account is read-only (402), photos included, and sends it once paid", async () => {
+    const { store, server, engine } = await setup();
+    await queueMorning(store);
+    server.photoFailure = new ApiFailure(402, "subscription_read_only", "Read-only until paid.");
+    const held = await engine.run();
+    expect(held.status).toBe("offline");
+    expect(store.get().queue.every((i) => i.status === "queued")).toBe(true);
+    expect(store.get().queue).toHaveLength(3);
+    server.photoFailure = null; // paid
+    await engine.run();
+    expect(store.get().queue).toEqual([]);
+  });
+
   it("reports a signed-out session and leaves the queue alone", async () => {
     const { store, server, engine } = await setup();
     await queueMorning(store);

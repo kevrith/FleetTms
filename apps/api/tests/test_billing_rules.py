@@ -339,3 +339,34 @@ def test_refills_against_purchases(case):
     refills = [{"at": SENSOR_BASE + timedelta(seconds=s), "litres": litres} for s, litres in case["refills"]]
     purchases = [{"at": SENSOR_BASE + timedelta(seconds=s), "litres": litres} for s, litres in case["purchases"]]
     assert fuel_sensor_rules.match_refills(refills, purchases) == case["expected"]
+
+
+# ---- plans and pricing (Sprint 15) ----
+
+from app import plan_rules
+
+PLANS_CASES = json.loads((RULES / "plan-cases.json").read_text())
+
+
+@pytest.mark.parametrize("case", PLANS_CASES["quotes"], ids=_names(PLANS_CASES["quotes"]))
+def test_subscription_price(case):
+    assert plan_rules.quote_subscription(case["plans"], period=case["period"], payroll_employees=case["payroll_employees"]) == case["expected"]
+
+
+@pytest.mark.parametrize("case", PLANS_CASES["access"], ids=_names(PLANS_CASES["access"]))
+def test_access_state(case):
+    def at(text):
+        return None if text is None else datetime.fromisoformat(text)
+
+    i = case["input"]
+    got = plan_rules.access_state(complimentary=i["complimentary"], trial_ends_at=at(i["trial_ends_at"]), paid_until=at(i["paid_until"]), now=at(case["now"]), cancelled=i["cancelled"])
+    want = case["expected"]
+    iso = lambda d: None if d is None else d.isoformat().replace("+00:00", "Z")
+    assert {"state": got["state"], "days_left": got["days_left"], "writable": got["writable"], "ends_at": iso(got["ends_at"]), "grace_ends_at": iso(got["grace_ends_at"])} == want
+
+
+def test_plan_features_and_best_plan():
+    for c in PLANS_CASES["allows"]:
+        assert plan_rules.allows(c["plan"], c["feature"]) is c["expected"], c
+    for c in PLANS_CASES["best"]:
+        assert plan_rules.best_plan(c["plans"]) == c["expected"]

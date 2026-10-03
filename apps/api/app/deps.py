@@ -3,11 +3,12 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db import get_db
 from app.models import AuthSession, Membership, MembershipStatus, Role, SupportGrant, User
 from app.permissions import SUPPORT_PERMISSIONS, permissions_for
@@ -111,14 +112,44 @@ async def principal_unverified(
     return await load_principal(credentials, db)
 
 
-async def current_principal(principal: Principal = Depends(principal_unverified)) -> Principal:
+WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+async def current_principal(
+    request: Request, principal: Principal = Depends(principal_unverified), db: AsyncSession = Depends(get_db)
+) -> Principal:
     if not principal.mfa_verified:
         raise error(
             status.HTTP_403_FORBIDDEN,
             "mfa_setup_required",
             "Set up two-step verification to continue.",
         )
+    if settings.enforce_billing and request.method in WRITE_METHODS and principal.business_id is not None and not principal.support:
+        # An account that has not paid (after its grace period) can still look at everything and take its data out, but not add to it.
+        from app import subscriptions
+
+        if not subscriptions.allowed_when_read_only(request.url.path):
+            access = await subscriptions.access_for(db, principal.business_id)
+            if not access["writable"]:
+                raise error(
+                    status.HTTP_402_PAYMENT_REQUIRED,
+                    "subscription_read_only",
+                    "This account is read-only because the subscription has not been paid. Nothing has been lost: pay in Settings, Subscription and it works again at once.",
+                )
     return principal
+
+
+def feature(name: str) -> Callable[..., Principal]:
+    """A dependency that lets a request through only if the business's plan includes the feature (402 if not)."""
+
+    async def dependency(principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_db)) -> Principal:
+        if principal.business_id is not None and not principal.support:
+            from app import subscriptions
+
+            await subscriptions.require_feature(db, principal.business_id, name)
+        return principal
+
+    return dependency
 
 
 def require(*permissions: str) -> Callable[..., Principal]:

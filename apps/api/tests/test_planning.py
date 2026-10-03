@@ -166,11 +166,12 @@ async def test_the_getting_started_checklist_ticks_itself_off_from_what_exists(c
     first = (await client.get("/onboarding", headers=bearer(f.owner))).json()
     done = {i["key"]: i["done"] for i in first["items"]}
     assert done["vehicles"] and done["team"] and not done["clients"] and not done["routes"] and not done["trip"] and not done["gps"] and not done["alerts"] and not done["limits"]
-    assert first["done"] == 2 and first["total"] == 8 and first["dismissed"] is False and all(i["link"].startswith("/") for i in first["items"])
+    assert first["done"] == 2 and first["total"] == 9 and first["dismissed"] is False and all(i["link"].startswith("/") for i in first["items"])
     c = await add_client(client, f.owner)
     await add_route(client, f.owner, c["id"])
     await client.put("/fraud/settings", headers=bearer(f.owner), json={"thresholds": {"fuel_variance_pct": 12}})
     await client.put("/spend-limits", headers=bearer(f.owner), json=[{"category": None, "role": None, "limit_cents": 100000}])
+    assert (await client.post("/onboarding/first-job", headers=bearer(f.owner), json={"client_name": "Bamburi Cement", "pickup": "Mombasa", "dropoff": "Nairobi", "distance_km": 480, "rate_cents": 12_000_000})).status_code == 201
     trip = await running(client, f)
     await client.post(f"/trips/{trip['id']}/locations", headers=bearer(f.driver), json={"points": [{"recorded_at": trip["started_at"], "lat": -1.29, "lng": 36.82, "accuracy_m": 5}]})
     done = {i["key"]: i["done"] for i in (await client.get("/onboarding", headers=bearer(f.owner))).json()["items"]}

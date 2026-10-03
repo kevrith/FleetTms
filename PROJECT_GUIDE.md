@@ -264,6 +264,23 @@ on the dev machine.
   Test databases: `fleettms_test` is migrated once and then reused, so when an unreleased migration changes, `DROP DATABASE fleettms_test` and it is rebuilt.
   Unverified: real sensors, the real reading service, the web screens in a browser, the phone's receipt reading on a phone.
 
+- **Sprint 15 (subscriptions, onboarding, reports, questions, messages, platform, export).** Rules: `plan_rules.py` (mirrored in `plans.ts`,
+  `plan-cases.json`): prices in cents, `quote` for a fleet, `access_state` (complimentary, trialing, active, grace, read_only; suspended is added
+  server side), `FEATURES` per plan. `subscriptions.py` holds the business's state (`Subscription`, `SubscriptionInvoice`, `SubscriptionPayment`,
+  `SmsAccount`), `effective_plan` (a trial is capped at Standard) and the gates; `deps.feature(name)` is the route dependency (`402 plan_required`),
+  `GATED` in `main.py` gates whole routers, and `deps.current_principal` refuses writes with `402 subscription_read_only` except the paths in
+  `subscriptions.READ_ONLY_OK`. Settings `ENFORCE_PLANS` and `ENFORCE_BILLING` switch the two off (tests do, via an autouse fixture; the `billing`
+  fixture turns them on). `platform_mpesa.py` is the STK push (fake or Safaricom) and its callback at `/hooks/subscription-pay/{key}`;
+  `subscription_jobs.py` sends the notices daily. SMS goes through `sms.MeteredSms`, which counts segments and never blocks. `platform_console.py`
+  serves `/platform/*` to platform admins and writes every action into the business's audit trail. `report_catalog.py` is the report library
+  (`/report-catalog`), also used by scheduled reports. `ask.py`, `ask_llm.py` give Claude fixed lookup tools run as the asking user
+  (`ASK_LLM=fake` for tests). `data_export.py` builds the zip (secrets and hashes excluded) in a background task and `data_export_purge_job` removes it
+  after 7 days. `routers/messages.py`: announcements and direct messages with receipts (`messages.send`); drivers read at `/me/messages`. Onboarding
+  sample rows carry `is_sample` and are left out of the checklist. Web: `Subscription.tsx` (a Settings tab), `SubscriptionBanner.tsx`, `ReportLibrary.tsx`,
+  `Start.tsx`, `Messages.tsx`, `Ask.tsx`, `Platform.tsx`, `DataExport.tsx`. Mobile: `Messages.tsx` tab with an unread badge; the offline engine holds
+  a photo upload that gets `402`. Migration 0019 marks every existing business complimentary. Unverified: the real M-Pesa and Claude services, the
+  prices, the web screens in a browser, the phone tab on a device.
+
 ## Testing against a real phone/emulator
 
 - API tests use a separate `fleettms_test` database that they create and migrate themselves.
@@ -285,7 +302,7 @@ dashboard, quick sign-in) is built and tested; use it on your own lorries for a 
 Sprints 6 to 8 (tyres and parts, clients and jobs, proof of delivery and billing) are built and tested. Sprint 9 (payments,
 debtors, reminders, eTIMS) is built and tested against the stand-ins; it has not been run against the Safaricom or KRA
 sandboxes (needs your keys). Sprint 10 (leases, loans, ownership costs, profit engine, payroll, suppliers, lessor portal) is built and
-tested; compare its profit figures with your own spreadsheet on real lorries. Sprint 11 (phone GPS, live map, client tracking links) is built and was checked on the emulator with a development build; try it on a real phone in a moving lorry. Sprint 12 (trackers, tamper alerts, behaviour, immobiliser) is built and tested, and Traccar's post format was checked against a real Traccar server; no real tracker has been tried. Sprint 13 (fraud engine, alerts, scorecards, route suggestions, EPRA prices, beta feedback) is built and tested, not yet tuned on real trips. Sprint 14 (fuel sensors, predictions, learned models, document reading) is built and tested, not yet tried on a real sensor or the real reading service. Next: Sprint 15.
+tested; compare its profit figures with your own spreadsheet on real lorries. Sprint 11 (phone GPS, live map, client tracking links) is built and was checked on the emulator with a development build; try it on a real phone in a moving lorry. Sprint 12 (trackers, tamper alerts, behaviour, immobiliser) is built and tested, and Traccar's post format was checked against a real Traccar server; no real tracker has been tried. Sprint 13 (fraud engine, alerts, scorecards, route suggestions, EPRA prices, beta feedback) is built and tested, not yet tuned on real trips. Sprint 14 (fuel sensors, predictions, learned models, document reading) is built and tested, not yet tried on a real sensor or the real reading service. Sprint 15 (subscriptions, plan gating, onboarding, report library, plain-English questions, driver messages, platform console, data export) is built and tested; its M-Pesa and Claude parts have only met stand-ins. Next: Sprint 16.
 
 Create the first platform admin with `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_NAME` and `PLATFORM_ADMIN_PASSWORD`
 set in `.env`, then `cd apps/api && .venv/bin/python -m app.cli create-platform-admin`.

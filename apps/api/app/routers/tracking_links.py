@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import audit
 from app.config import settings
 from app.db import get_db
-from app.deps import Principal, error, require_any
+from app.deps import Principal, error, feature, require_any
 from app.gps_rules import FRESH_SECONDS, eta_minutes, haversine_km
 from app.models import (
     Business,
@@ -54,7 +54,7 @@ def link_out(link: TrackingLink) -> dict:
     return {"id": link.id, "trip_id": link.trip_id, "created_at": link.created_at, "expires_at": link.expires_at, "state": state, "views": link.views, "last_viewed_at": link.last_viewed_at, "sent_to": link.sent_to}
 
 
-@router.post("/trips/{trip_id}/tracking-link", status_code=status.HTTP_201_CREATED)
+@router.post("/trips/{trip_id}/tracking-link", status_code=status.HTTP_201_CREATED, dependencies=[Depends(feature("tracking_links"))])
 async def create_link(trip_id: uuid.UUID, body: LinkIn, principal: Principal = Depends(require_any(*MANAGE)), db: AsyncSession = Depends(get_db)):
     """Makes a link for a trip that has not been delivered yet. The link itself is shown once: only a hash of it is kept."""
     trip = await get_trip(db, principal, trip_id)

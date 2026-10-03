@@ -6,7 +6,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit
+from app import audit, subscriptions
 from app.auth_service import now
 from app.config import settings
 from app.db import get_db
@@ -25,6 +25,7 @@ from app.models import (
 from app.permissions import OTP_ONLY_ROLES
 from app.phone import normalize_phone
 from app.security import new_secret_token, sha256
+from app.tenancy import current_business_id
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -88,6 +89,12 @@ async def list_users(_: Principal = Depends(require("users.view")), db: AsyncSes
     return [_out(m) for m in rows]
 
 
+async def _roles_allowed_by_plan(db: AsyncSession, roles: set[Role]) -> None:
+    """Starter has two roles, owner and driver; the rest (manager, supervisor, accountant, workshop) come with Standard."""
+    if roles - {Role.OWNER, Role.DRIVER, Role.TURNBOY, Role.LESSOR} and current_business_id.get() is not None:
+        await subscriptions.require_feature(db, current_business_id.get(), "all_roles")
+
+
 async def invite_member(
     db: AsyncSession,
     actor: Principal,
@@ -101,6 +108,7 @@ async def invite_member(
     party_id: uuid.UUID | None = None,
 ) -> tuple[Membership, str | None]:
     """Adds a person to the current business and audits it. The caller commits. Returns (membership, invite token)."""
+    await _roles_allowed_by_plan(db, roles)
     if Role.LESSOR in roles:
         if roles != {Role.LESSOR}:
             raise error(422, "lessor_only", "A lessor's login is only for viewing their own leases, so it cannot have other roles.")
@@ -199,6 +207,7 @@ async def set_roles(
 ):
     m = await _get_membership(db, membership_id)
     new_roles = set(body.roles)
+    await _roles_allowed_by_plan(db, new_roles)
     if (Role.LESSOR in new_roles) != (m.party_id is not None):
         raise error(422, "lessor_login", "A lessor's login is made by inviting them as a lessor. It cannot be turned on or off here.")
     before = {"roles": sorted(r.role.value for r in m.roles)}

@@ -1,6 +1,9 @@
 import {
   BarChart3,
   MapPinned,
+  MessageCircleQuestion,
+  Mail,
+  Server,
   Radio,
   ShieldAlert,
   Trophy,
@@ -24,6 +27,8 @@ export interface NavItem {
   icon: LucideIcon;
   /** Permission (from /auth/me) needed to see this item; with a list, any one is enough. Omit for everyone. */
   permission?: string | string[];
+  /** Only for platform admins (people who run FleetTms itself). */
+  platform?: boolean;
 }
 
 // Navigation per masterplan Section 6. Items appear as their sprint ships; until then they
@@ -70,6 +75,14 @@ export const navItems: NavItem[] = [
   { path: "/staff", label: "Staff & Payroll", icon: Users, permission: "staff.view" },
   { path: "/suppliers", label: "Suppliers", icon: Package, permission: "workshop.manage" },
   { path: "/portal", label: "My leased lorries", icon: Building2, permission: "lease.view_own" },
+  { path: "/messages", label: "Driver messages", icon: Mail, permission: "messages.send" },
+  {
+    path: "/ask",
+    label: "Ask a question",
+    icon: MessageCircleQuestion,
+    permission: ["reports.view", "finance.view", "alerts.view"],
+  },
+  { path: "/platform", label: "Platform console", icon: Server, platform: true },
   { path: "/reports", label: "Reports", icon: BarChart3, permission: "reports.view" },
   { path: "/settings", label: "Settings", icon: Settings },
 ];

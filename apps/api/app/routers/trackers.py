@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit, tracker_ingest
+from app import audit, subscriptions, tracker_ingest
 from app.config import settings
 from app.db import get_db
 from app.deps import Principal, error, require, require_any
@@ -67,6 +67,13 @@ async def list_trackers(principal: Principal = Depends(require("livemap.view")),
     return [device_out(d, vehicles[d.vehicle_id]) for d in (await db.execute(select(TrackerDevice).order_by(TrackerDevice.created_at))).scalars() if d.vehicle_id in vehicles]
 
 
+async def _plan_allows(db: AsyncSession, principal: Principal, vehicle: Vehicle, body: TrackerIn) -> None:
+    """A tracker needs the vehicle to be on Standard, and a fuel sensor needs Premium."""
+    await subscriptions.require_vehicle_feature(db, principal.business_id, vehicle, "trackers")
+    if body.has_fuel_sensor:
+        await subscriptions.require_vehicle_feature(db, principal.business_id, vehicle, "fuel_sensors")
+
+
 async def _set_tier(db: AsyncSession, vehicle: Vehicle) -> None:
     """A vehicle with a working fuel sensor is Premium; one whose sensor was taken off goes back to Standard (it still has a tracker)."""
     sensors = (await db.execute(select(TrackerDevice.id).where(TrackerDevice.vehicle_id == vehicle.id, TrackerDevice.is_active.is_(True), TrackerDevice.has_fuel_sensor.is_(True)).limit(1))).first()
@@ -82,6 +89,7 @@ async def add_tracker(body: TrackerIn, principal: Principal = Depends(require("v
     vehicle = (await db.execute(select(Vehicle).where(Vehicle.id == body.vehicle_id))).scalar_one_or_none()
     if vehicle is None:
         raise error(status.HTTP_404_NOT_FOUND, "not_found", "That vehicle was not found.")
+    await _plan_allows(db, principal, vehicle, body)
     d = TrackerDevice(**{**body.model_dump(), "imei": body.imei.strip().upper()})
     db.add(d)
     try:
@@ -104,6 +112,7 @@ async def update_tracker(tracker_id: uuid.UUID, body: TrackerIn, principal: Prin
     vehicle = (await db.execute(select(Vehicle).where(Vehicle.id == body.vehicle_id))).scalar_one_or_none()
     if vehicle is None:
         raise error(status.HTTP_404_NOT_FOUND, "not_found", "That vehicle was not found.")
+    await _plan_allows(db, principal, vehicle, body)
     for k, v in {**body.model_dump(), "imei": body.imei.strip().upper()}.items():
         setattr(d, k, v)
     try:

@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     daraja_env: str = "sandbox"  # sandbox or production
     daraja_consumer_key: str = ""
     daraja_consumer_secret: str = ""
+    # The platform's own Paybill, where subscriptions are paid by M-Pesa prompt (STK push). Separate from the Paybills businesses use for their clients.
+    platform_shortcode: str = ""
+    platform_passkey: str = ""
+    # Switch on at launch: plan limits and read-only mode. Off, every account has every feature and nothing is ever read-only.
+    enforce_plans: bool = True
+    enforce_billing: bool = True
     public_api_url: str = ""  # the address Safaricom can reach this API on, for payment callbacks
 
     # KRA eTIMS. Leave the base address empty in development: a stand-in is used. The sandbox address is in .env.example.
@@ -77,7 +83,11 @@ class Settings(BaseSettings):
     document_reader: str = ""
     anthropic_api_key: str = ""
     document_reader_model: str = "claude-haiku-4-5-20251001"
-    document_reads_per_day: int = 200  # per person, so a stuck screen cannot run up the bill  # Google's drive times are for cars; a loaded lorry takes this much longer
+    document_reads_per_day: int = 200  # per person, so a stuck screen cannot run up the bill
+    # Asking questions in plain English: a model that may only call read-only lookups on the business's own data. "fake" is for tests.
+    ask_llm: str = ""
+    ask_model: str = "claude-sonnet-5-5"
+    ask_per_day: int = 100  # questions per person per day, so a stuck screen cannot run up the bill
     monitoring_notice_version: str = "draft-2"
 
 

@@ -7,7 +7,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit
+from app import audit, subscriptions
 from app.auth_service import (
     check_sms_challenge,
     has_two_factor,
@@ -182,6 +182,7 @@ async def signup(body: SignupIn, db: AsyncSession = Depends(get_db)):
     await db.flush()
 
     current_business_id.set(business.id)
+    await subscriptions.start_trial(db, business)  # 14 days of Standard, no payment details
     membership = Membership(user_id=user.id)
     db.add(membership)
     await db.flush()

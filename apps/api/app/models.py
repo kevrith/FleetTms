@@ -217,6 +217,9 @@ class Business(Base):
     kra_pin: Mapped[str | None] = mapped_column(String(20))
     onboarding_dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # the owner hid the getting-started checklist
     fuel_region: Mapped[str] = mapped_column(String(40), default="Nairobi", server_default=text("'Nairobi'"))  # whose EPRA pump price quotes start from
+    complimentary: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))  # never billed: the pilot tenant, partners, gifts
+    suspended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # the platform put the account on hold (it is read-only)
+    suspended_reason: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -389,6 +392,8 @@ class Vehicle(TenantMixin, Base):
     expected_kmpl_empty: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     odometer_km: Mapped[int] = mapped_column(Integer, default=0)
     tracking_tier: Mapped[TrackingTier] = mapped_column(_enum(TrackingTier), default=TrackingTier.BASIC)
+    plan: Mapped[str] = mapped_column(String(10), default="standard", server_default=text("'standard'"))  # starter, standard or premium: what this vehicle is billed as
+    is_sample: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))  # made by "try it with sample data"
     depot_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("depots.id", ondelete="SET NULL"))
     ownership_type: Mapped[OwnershipType] = mapped_column(_enum(OwnershipType), default=OwnershipType.OWNED)
     party_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("parties.id", ondelete="RESTRICT"))
@@ -846,6 +851,8 @@ class ReportSchedule(TenantMixin, Base):
     frequency: Mapped[ReportFrequency] = mapped_column(Enum(ReportFrequency, native_enum=False, length=20, values_callable=lambda e: [m.value for m in e]))
     channel: Mapped[ReportChannel] = mapped_column(Enum(ReportChannel, native_enum=False, length=20, values_callable=lambda e: [m.value for m in e]))
     recipient: Mapped[str] = mapped_column(String(255))  # an email address, or a phone number for WhatsApp
+    report: Mapped[str] = mapped_column(String(30), default="summary", server_default=text("'summary'"))  # which report from the catalogue
+    file_format: Mapped[str] = mapped_column(String(5), default="pdf", server_default=text("'pdf'"))  # pdf or xlsx
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     last_period_end: Mapped[date | None] = mapped_column(Date)  # the last day covered by the report most recently sent
     last_error: Mapped[str | None] = mapped_column(String(255))
@@ -1099,6 +1106,7 @@ class Client(TenantMixin, Base):
     __tablename__ = "clients"
     __table_args__ = (UniqueConstraint("business_id", "name"),)
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    is_sample: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     name: Mapped[str] = mapped_column(String(160))
     contact_name: Mapped[str | None] = mapped_column(String(120))
     phone: Mapped[str | None] = mapped_column(String(20))
@@ -1120,6 +1128,7 @@ class SavedRoute(TenantMixin, Base):
     __tablename__ = "saved_routes"
     __table_args__ = (UniqueConstraint("business_id", "client_id", "name"),)
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    is_sample: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     client_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(160))
     pickup: Mapped[str] = mapped_column(String(160))
@@ -1189,6 +1198,7 @@ class Job(TenantMixin, Base):
     __tablename__ = "jobs"
     __table_args__ = (UniqueConstraint("business_id", "number"), UniqueConstraint("business_id", "quote_id"))
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    is_sample: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     number: Mapped[str] = mapped_column(String(20))
     client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
     quote_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("quotes.id", ondelete="SET NULL"))
@@ -1962,3 +1972,126 @@ class DocumentReading(TenantMixin, Base):
     confirmed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+# ---- Subscriptions, messaging, exports, questions (Sprint 15) ----------------------------------------------------------------
+
+
+class Subscription(TenantMixin, Base):
+    """A business's subscription. What it is allowed to do now is worked out from these dates (app/plan_rules.py), never stored."""
+
+    __tablename__ = "subscriptions"
+    __table_args__ = (UniqueConstraint("business_id"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    trial_ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    paid_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # the end of the period most recently paid for
+    period: Mapped[str] = mapped_column(String(8), default="monthly")  # monthly or annual
+    payroll_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    custom_monthly_cents: Mapped[int | None] = mapped_column(BigInteger)  # a price agreed for a large fleet, set by the platform
+    last_notice: Mapped[str | None] = mapped_column(String(40))  # the reminder most recently sent for the current period, so none goes twice
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SubscriptionInvoice(TenantMixin, Base):
+    """What a business owes the platform: a subscription period, or a bundle of text messages."""
+
+    __tablename__ = "subscription_invoices"
+    __table_args__ = (UniqueConstraint("business_id", "number"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    number: Mapped[str] = mapped_column(String(20))
+    kind: Mapped[str] = mapped_column(String(12), default="subscription")  # subscription or sms_bundle
+    period_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    billing_period: Mapped[str | None] = mapped_column(String(8))
+    sms_messages: Mapped[int | None] = mapped_column(Integer)
+    quote: Mapped[dict] = mapped_column(JSONB, default=dict)  # the price worked out line by line when it was raised
+    total_cents: Mapped[int] = mapped_column(BigInteger)
+    status: Mapped[str] = mapped_column(String(8), default="issued", index=True)  # issued, paid or void
+    due_date: Mapped[date] = mapped_column(Date)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    payment_method: Mapped[str | None] = mapped_column(String(10))  # mpesa, bank, card or manual
+    mpesa_code: Mapped[str | None] = mapped_column(String(12))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SubscriptionPayment(TenantMixin, Base):
+    """An M-Pesa payment request sent to the owner's phone for an invoice, and how it ended."""
+
+    __tablename__ = "subscription_payments"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    invoice_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("subscription_invoices.id", ondelete="CASCADE"), index=True)
+    phone: Mapped[str] = mapped_column(String(20))
+    amount_cents: Mapped[int] = mapped_column(BigInteger)
+    checkout_id: Mapped[str] = mapped_column(String(64), unique=True)  # Safaricom's number for the request, how its answer finds us
+    status: Mapped[str] = mapped_column(String(8), default="pending")  # pending, paid or failed
+    result_note: Mapped[str | None] = mapped_column(String(255))
+    mpesa_code: Mapped[str | None] = mapped_column(String(12))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class SmsAccount(TenantMixin, Base):
+    """Text message bundles: credits bought, messages sent. Sending is never blocked for want of credits; an alert must get through."""
+
+    __tablename__ = "sms_accounts"
+    __table_args__ = (UniqueConstraint("business_id"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    credits: Mapped[int] = mapped_column(Integer, default=0)  # may go below zero: that much has been sent on account
+    sent_total: Mapped[int] = mapped_column(Integer, default=0)
+    sent_month: Mapped[date | None] = mapped_column(Date)  # the month sent_this_month is for
+    sent_this_month: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class Message(TenantMixin, Base):
+    """An announcement or direct message from the office to drivers, optionally about a job."""
+
+    __tablename__ = "messages"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    sender_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    kind: Mapped[str] = mapped_column(String(12))  # announcement (everyone it was sent to) or direct (one person)
+    body: Mapped[str] = mapped_column(String(2000))
+    job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), index=True)
+    trip_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("trips.id", ondelete="SET NULL"), index=True)
+    also_sms: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class MessageRecipient(TenantMixin, Base):
+    __tablename__ = "message_recipients"
+    __table_args__ = (UniqueConstraint("message_id", "membership_id"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    message_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"), index=True)
+    membership_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("memberships.id", ondelete="CASCADE"), index=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # the read receipt
+    sms_sent: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class DataExport(TenantMixin, Base):
+    """A full copy of a business's data, made on request for its owner."""
+
+    __tablename__ = "data_exports"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    requested_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    status: Mapped[str] = mapped_column(String(8), default="queued", index=True)  # queued, running, ready, failed or expired
+    include_photos: Mapped[bool] = mapped_column(Boolean, default=False)
+    storage_key: Mapped[str | None] = mapped_column(String(200))
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    tables: Mapped[dict | None] = mapped_column(JSONB)  # rows written per table
+    error: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    ready_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AskQuestion(TenantMixin, Base):
+    """A question typed to "ask in plain English", what was looked up to answer it, and the answer."""
+
+    __tablename__ = "ask_questions"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    question: Mapped[str] = mapped_column(String(500))
+    answer: Mapped[str | None] = mapped_column(String(4000))
+    lookups: Mapped[list] = mapped_column(JSONB, default=list)  # which lookups were run, with what
+    provider: Mapped[str] = mapped_column(String(20))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

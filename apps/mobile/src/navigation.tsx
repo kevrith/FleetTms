@@ -2,13 +2,16 @@ import { Ionicons } from "@expo/vector-icons";
 import { colors, tapTarget } from "@fleettms/design-tokens";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { DarkTheme, DefaultTheme, NavigationContainer } from "@react-navigation/native";
-import { ActivityIndicator, ScrollView, useColorScheme, View } from "react-native";
+import { useEffect, useState } from "react";
+import { ActivityIndicator, AppState, ScrollView, useColorScheme, View } from "react-native";
+import { api } from "./api";
 import { useAuth } from "./auth";
 import { Screen } from "./ui";
 import HomeScreen from "./screens/Home";
 import LoginScreen from "./screens/Login";
 import ExpensesScreen from "./screens/Expenses";
 import FleetScreen from "./screens/Fleet";
+import MessagesScreen from "./screens/Messages";
 import MoreScreen from "./screens/More";
 import NoticesScreen from "./screens/Notices";
 import TripPanel from "./screens/TripPanel";
@@ -42,6 +45,7 @@ const DRIVER_TABS: TabDef[] = [
   { name: "Home", icon: "home-outline", component: HomeScreen },
   { name: "Trips", icon: "navigate-outline", component: Trips },
   { name: "Expenses", icon: "cash-outline", component: ExpensesScreen },
+  { name: "Messages", icon: "mail-outline", component: MessagesScreen },
   { name: "More", icon: "menu-outline", component: MoreScreen },
 ];
 const OWNER_TABS: TabDef[] = [
@@ -62,7 +66,29 @@ const WORKSHOP_TABS: TabDef[] = [
   { name: "More", icon: "menu-outline", component: MoreScreen },
 ];
 
+/** How many office messages the driver has not opened yet; checked every minute and whenever the app returns. */
+function useUnreadMessages(enabled: boolean) {
+  const [unread, setUnread] = useState(0);
+  useEffect(() => {
+    if (!enabled) return;
+    const check = () =>
+      api
+        .myMessages()
+        .then((r) => setUnread(r.unread))
+        .catch(() => {}); // offline: keep the last count
+    void check();
+    const timer = setInterval(check, 60_000);
+    const sub = AppState.addEventListener("change", (s) => s === "active" && void check());
+    return () => {
+      clearInterval(timer);
+      sub.remove();
+    };
+  }, [enabled]);
+  return unread;
+}
+
 function Tabs({ tabs }: { tabs: TabDef[] }) {
+  const unread = useUnreadMessages(tabs.some((t) => t.name === "Messages"));
   return (
     <Tab.Navigator
       screenOptions={{
@@ -76,6 +102,7 @@ function Tabs({ tabs }: { tabs: TabDef[] }) {
           name={name}
           component={component}
           options={{
+            tabBarBadge: name === "Messages" && unread > 0 ? unread : undefined,
             tabBarIcon: ({ color, size }) => <Ionicons name={icon} size={size} color={color} />,
           }}
         />

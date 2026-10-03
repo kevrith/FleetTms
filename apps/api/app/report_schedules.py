@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import report_catalog
 from app.db import get_sessionmaker
 from app.models import Business, ReportFrequency, ReportSchedule
 from app.reminders import nairobi_today
@@ -32,9 +33,16 @@ def last_finished_period(frequency: ReportFrequency, today: date) -> tuple[date,
 async def send_schedule(db: AsyncSession, schedule: ReportSchedule, period: tuple[date, date]) -> None:
     """Builds and sends one report. Raises DeliveryError; the caller records the outcome."""
     start, end = period
-    pdf = report_pdf(await build_summary(db, start, end))
-    name = f"fleettms-report-{start.isoformat()}-to-{end.isoformat()}.pdf"
-    await get_report_sender(schedule.channel.value).send(schedule.recipient, f"FleetTms report {start.isoformat()} to {end.isoformat()}", name, pdf)
+    if schedule.report == "summary" and schedule.file_format == "pdf":
+        pdf = report_pdf(await build_summary(db, start, end))
+        name, mime = f"fleettms-report-{start.isoformat()}-to-{end.isoformat()}.pdf", "application/pdf"
+    else:
+        definition, build = report_catalog.CATALOG[schedule.report]
+        data = await build(db, start, end, report_catalog.system_principal(current_business_id.get()))
+        pdf, name, mime = report_catalog.render(data, schedule.file_format)
+        title = definition.title
+    subject = f"FleetTms report {start.isoformat()} to {end.isoformat()}" if schedule.report == "summary" else f"FleetTms: {title}, {start.isoformat()} to {end.isoformat()}"
+    await get_report_sender(schedule.channel.value).send(schedule.recipient, subject, name, pdf, mime=mime)
 
 
 async def _for_business(db: AsyncSession, today: date) -> int:

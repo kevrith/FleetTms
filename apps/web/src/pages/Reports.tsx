@@ -1,6 +1,7 @@
-import type { ReportSchedule, ReportSummary } from "@fleettms/types";
+import type { CatalogReport, ReportSchedule, ReportSummary } from "@fleettms/types";
 import { Download, Pause, Play, Send, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api";
 import { EXPENSE_CATEGORY, kes, todayIso } from "../labels";
 import { useAuth } from "../auth";
@@ -20,7 +21,22 @@ function ScheduledReports() {
     frequency: ReportSchedule["frequency"];
     channel: ReportSchedule["channel"];
     recipient: string;
-  }>({ frequency: "weekly", channel: "email", recipient: "" });
+    report: string;
+    file_format: "pdf" | "xlsx";
+  }>({
+    frequency: "weekly",
+    channel: "email",
+    recipient: "",
+    report: "summary",
+    file_format: "pdf",
+  });
+  const [catalog, setCatalog] = useState<CatalogReport[]>([]);
+  useEffect(() => {
+    api
+      .reportCatalog()
+      .then(setCatalog)
+      .catch(() => setCatalog([]));
+  }, []);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
@@ -56,7 +72,9 @@ function ScheduledReports() {
         {rows.map((s) => (
           <li key={s.id}>
             <span>
-              {CHANNEL[s.channel]} to {s.recipient}: {FREQUENCY[s.frequency]}
+              {catalog.find((r) => r.key === (s.report ?? "summary"))?.title ?? "Summary"} as{" "}
+              {(s.file_format ?? "pdf").toUpperCase()}, {CHANNEL[s.channel].toLowerCase()} to{" "}
+              {s.recipient}: {FREQUENCY[s.frequency]}
               {!s.is_active && " (paused)"}
               {s.last_error && <span className="muted"> Last attempt failed: {s.last_error}</span>}
             </span>
@@ -87,6 +105,31 @@ function ScheduledReports() {
         ))}
       </ul>
       <div className="form-grid">
+        <label className="field">
+          <span>Which report</span>
+          <select
+            value={form.report}
+            onChange={(e) => setForm({ ...form, report: e.target.value })}
+          >
+            {catalog
+              .filter((r) => r.available && r.has_period)
+              .map((r) => (
+                <option key={r.key} value={r.key}>
+                  {r.title}
+                </option>
+              ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>As a</span>
+          <select
+            value={form.file_format}
+            onChange={(e) => setForm({ ...form, file_format: e.target.value as "pdf" | "xlsx" })}
+          >
+            <option value="pdf">PDF</option>
+            <option value="xlsx">Excel spreadsheet</option>
+          </select>
+        </label>
         <label className="field">
           <span>How often</span>
           <select
@@ -187,6 +230,12 @@ export default function Reports() {
   return (
     <>
       <h2>Reports</h2>
+      <p>
+        <Link to="/reports/library">
+          More reports: profit and loss, fuel efficiency, who owes us, alert history, driver
+          scorecards
+        </Link>
+      </p>
       <Card title="Date range">
         <p className="actions">
           <button className="btn" onClick={() => preset(today, today)}>

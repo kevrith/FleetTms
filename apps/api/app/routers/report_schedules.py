@@ -1,6 +1,7 @@
 """Scheduled report delivery: who gets the PDF, how often and by which channel (masterplan 5.15)."""
 
 import uuid
+from typing import Literal
 
 from email_validator import EmailNotValidError, validate_email
 from fastapi import APIRouter, Depends, status
@@ -8,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit
+from app import audit, report_catalog, subscriptions
 from app.db import get_db
 from app.deps import Principal, error, require
 from app.models import ReportChannel, ReportFrequency, ReportSchedule
@@ -25,6 +26,8 @@ class ScheduleIn(BaseModel):
     frequency: ReportFrequency
     channel: ReportChannel
     recipient: str
+    report: str = "summary"  # which report from the catalogue
+    file_format: Literal["pdf", "xlsx"] = "pdf"
 
 
 class ScheduleActive(BaseModel):
@@ -33,7 +36,7 @@ class ScheduleActive(BaseModel):
 
 def _out(s: ReportSchedule) -> dict:
     return {
-        "id": s.id, "frequency": s.frequency, "channel": s.channel, "recipient": s.recipient, "is_active": s.is_active,
+        "id": s.id, "frequency": s.frequency, "channel": s.channel, "recipient": s.recipient, "report": s.report, "file_format": s.file_format, "is_active": s.is_active,
         "last_period_end": s.last_period_end, "last_error": s.last_error,
     }  # fmt: skip
 
@@ -65,12 +68,19 @@ async def list_schedules(principal: Principal = Depends(require("reports.schedul
 @router.post("/report-schedules", status_code=status.HTTP_201_CREATED)
 async def create_schedule(body: ScheduleIn, principal: Principal = Depends(require("reports.schedule")), db: AsyncSession = Depends(get_db)):
     recipient = _recipient(body.channel, body.recipient)
+    if body.report not in report_catalog.CATALOG:
+        raise error(422, "unknown_report", f"Choose one of: {', '.join(report_catalog.CATALOG)}.")
+    definition = report_catalog.CATALOG[body.report][0]
+    if not any(p in principal.permissions for p in definition.permissions):
+        raise error(403, "forbidden", "You do not have permission to schedule that report.")
+    if definition.feature:
+        await subscriptions.require_feature(db, principal.business_id, definition.feature)
     existing = (await db.execute(select(ReportSchedule))).scalars().all()
     if len(existing) >= MAX_SCHEDULES:
         raise error(422, "too_many", f"You can have up to {MAX_SCHEDULES} scheduled reports.")
-    if any((s.frequency, s.channel, s.recipient) == (body.frequency, body.channel, recipient) for s in existing):
+    if any((s.frequency, s.channel, s.recipient, s.report, s.file_format) == (body.frequency, body.channel, recipient, body.report, body.file_format) for s in existing):
         raise error(409, "duplicate_schedule", "That report is already scheduled for this recipient.")
-    schedule = ReportSchedule(frequency=body.frequency, channel=body.channel, recipient=recipient, created_by_user_id=principal.user.id)
+    schedule = ReportSchedule(frequency=body.frequency, channel=body.channel, recipient=recipient, report=body.report, file_format=body.file_format, created_by_user_id=principal.user.id)
     db.add(schedule)
     await db.flush()
     audit.record(db, actor_user_id=principal.user.id, action="report_schedule.created", entity_type="report_schedule", entity_id=schedule.id, after={"frequency": body.frequency.value, "channel": body.channel.value})

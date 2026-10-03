@@ -740,6 +740,8 @@ export interface ReportSchedule {
   frequency: "daily" | "weekly" | "monthly";
   channel: "email" | "whatsapp";
   recipient: string;
+  report?: string;
+  file_format?: "pdf" | "xlsx";
   is_active: boolean;
   last_period_end: string | null;
   last_error: string | null;
@@ -2222,6 +2224,7 @@ export interface OnboardingItem {
 
 export interface Onboarding {
   dismissed: boolean;
+  has_sample_data?: boolean;
   done: number;
   total: number;
   items: OnboardingItem[];
@@ -2340,4 +2343,224 @@ export interface DocumentReadingSummary {
   exact: number;
   fields_corrected: number;
   exact_pct: number | null;
+}
+
+// ---- Sprint 15: subscriptions, onboarding, messages, reports, questions, data export, platform console ----
+
+export type PlanName = "starter" | "standard" | "premium";
+export type AccessStateName =
+  "complimentary" | "trialing" | "active" | "grace" | "read_only" | "suspended";
+
+export interface AccessInfo {
+  state: AccessStateName;
+  writable: boolean;
+  days_left: number | null;
+  ends_at: string | null;
+  grace_ends_at: string | null;
+  complimentary: boolean;
+  suspended: boolean;
+  reason?: string | null;
+}
+
+export interface SubscriptionQuoteView {
+  vehicles: number;
+  lines: { plan: PlanName; vehicles: number; unit_cents: number; cents: number }[];
+  list_cents: number;
+  discount_pct: number;
+  discount_cents: number;
+  vehicles_cents: number;
+  payroll_cents: number;
+  monthly_cents: number;
+  period: "monthly" | "annual";
+  months_paid: number;
+  months_covered: number;
+  total_cents: number;
+  saving_cents: number;
+  custom: boolean;
+  agreed?: boolean;
+}
+
+export interface SubscriptionInvoice {
+  id: string;
+  number: string;
+  kind: "subscription" | "sms_bundle";
+  status: "issued" | "paid" | "void";
+  total_cents: number;
+  period_start: string | null;
+  period_end: string | null;
+  billing_period: "monthly" | "annual" | null;
+  sms_messages: number | null;
+  due_date: string;
+  paid_at: string | null;
+  payment_method: string | null;
+  mpesa_code: string | null;
+  created_at: string;
+  last_payment?: { status: "pending" | "paid" | "failed"; note: string | null } | null;
+}
+
+export interface SubscriptionStatus {
+  access: AccessInfo;
+  trial_ends_at: string;
+  paid_until: string | null;
+  period: "monthly" | "annual";
+  payroll_enabled: boolean;
+  payroll_employees: number;
+  fleet_plan: PlanName;
+  vehicles: {
+    vehicle_id: string;
+    registration: string;
+    plan: PlanName;
+    effective_plan: PlanName;
+  }[];
+  quote: SubscriptionQuoteView;
+  annual_quote: SubscriptionQuoteView;
+  custom_monthly_cents: number | null;
+  open_invoice: SubscriptionInvoice | null;
+  invoices: SubscriptionInvoice[];
+  sms: { credits: number; sent_total: number; sent_this_month: number; low: boolean };
+}
+
+export interface PlansInfo {
+  plans: { plan: PlanName; name: string; price_cents: number; features: string[] }[];
+  features: Record<string, { name: string; plan: PlanName }>;
+  trial_days: number;
+  grace_days: number;
+  annual_months_paid: number;
+  volume: { from: number; to: number; pct: number; custom_from: number };
+  payroll_cents: number;
+  sms_bundles: { messages: number; price_cents: number }[];
+}
+
+export interface FirstJobInput {
+  client_name: string;
+  pickup: string;
+  dropoff: string;
+  distance_km: number;
+  rate_cents: number;
+  billing_method?: "per_trip" | "per_tonne" | "per_km" | "monthly_contract";
+  cargo_description?: string | null;
+  weight_tonnes?: number;
+  trips?: number;
+}
+
+export interface MessageReceipt {
+  membership_id: string;
+  name: string | null;
+  read_at: string | null;
+  sms_sent: boolean;
+}
+
+export interface SentMessage {
+  id: string;
+  kind: "announcement" | "direct";
+  body: string;
+  job_id: string | null;
+  trip_id: string | null;
+  also_sms: boolean;
+  created_at: string;
+  from: string | null;
+  recipients: number;
+  read: number;
+  receipts: MessageReceipt[];
+}
+
+export interface InboxMessage {
+  id: string;
+  kind: "announcement" | "direct";
+  body: string;
+  job_id: string | null;
+  trip_id: string | null;
+  from: string | null;
+  created_at: string;
+  read_at: string | null;
+}
+
+export interface CatalogReport {
+  key: string;
+  title: string;
+  description: string;
+  has_period: boolean;
+  available: boolean;
+  plan_needed: PlanName | null;
+}
+
+export interface ReportData {
+  key: string;
+  title: string;
+  from: string;
+  to: string;
+  notes: string[];
+  sections: { title: string; columns: string[]; rows: (string | number | null)[][] }[];
+}
+
+export interface AskAnswer {
+  id: string;
+  answer: string;
+  lookups: { lookup: string; args: Record<string, unknown> }[];
+  tables: (ReportData & {
+    lookup: string;
+    sections: (ReportData["sections"][number] & { total_rows?: number })[];
+  })[];
+  provider: string;
+}
+
+export interface AskExample {
+  question: string;
+  lookup: string;
+  args: Record<string, string>;
+}
+
+export interface DataExportInfo {
+  id: string;
+  status: "queued" | "running" | "ready" | "failed" | "expired";
+  include_photos: boolean;
+  size_bytes: number | null;
+  tables: Record<string, number> | null;
+  error: string | null;
+  created_at: string;
+  ready_at: string | null;
+  expires_at: string | null;
+}
+
+export interface PlatformBusinessRow {
+  id: string;
+  name: string;
+  created_at: string;
+  state: AccessStateName;
+  complimentary: boolean;
+  suspended: boolean;
+  days_left: number | null;
+  trial_ends_at: string | null;
+  paid_until: string | null;
+  period: "monthly" | "annual";
+  vehicles: number;
+  plans: Partial<Record<PlanName, number>>;
+  people: number;
+  monthly_cents: number;
+  custom_monthly_cents: number | null;
+}
+
+export interface PlatformBusinessDetail extends PlatformBusinessRow {
+  kra_pin: string | null;
+  suspended_reason: string | null;
+  owner: { name: string; email: string | null; phone: string | null } | null;
+  invoices: {
+    id: string;
+    number: string;
+    kind: string;
+    status: string;
+    total_cents: number;
+    due_date: string;
+    paid_at: string | null;
+    payment_method: string | null;
+  }[];
+}
+
+export interface PlatformOverview {
+  businesses: number;
+  by_state: Record<string, number>;
+  vehicles: number;
+  vehicles_by_plan: Record<string, number>;
+  mrr_cents: number;
+  open_invoices: number;
 }

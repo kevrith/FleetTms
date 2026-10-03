@@ -58,6 +58,10 @@ CHECKS = {
     "my_trips": ("GET", "/me/trips", None, "trips.own"),
     "list_expenses": ("GET", "/expenses", None, "expenses.view"),
     "import_template": ("GET", "/imports/staff/template", None, "data.import"),
+    "my_subscription": ("GET", "/subscription", None, "business.manage"),
+    "list_data_exports": ("GET", "/data-exports", None, "business.manage"),
+    "sent_messages": ("GET", "/messages", None, "messages.send"),
+    "my_messages": ("GET", "/me/messages", None, "trips.own"),
     "grant_support": ("POST", "/support/grants", {"hours": 1, "reason": "help"}, "support.grant"),
 }
 

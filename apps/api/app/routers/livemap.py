@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import tracking
 from app.config import settings
 from app.db import get_db
-from app.deps import Principal, require
+from app.deps import Principal, feature, require
 from app.gps_rules import vehicle_state
 from app.models import Depot, Membership, TrackerDevice, TrackingGap, Trip, TripStatus, Vehicle
 from app.routers.trips import get_trip
@@ -22,7 +22,7 @@ ACTIVE = (TripStatus.IN_PROGRESS, TripStatus.DELIVERED)
 MAX_TRACK_POINTS = 1500
 
 
-@router.get("/map/vehicles")
+@router.get("/map/vehicles", dependencies=[Depends(feature("live_map"))])
 async def map_vehicles(principal: Principal = Depends(require("livemap.view")), db: AsyncSession = Depends(get_db)):
     """Every vehicle in the caller's scope with its last known position and state: moving, idle, offline, parked or unknown."""
     now = datetime.now(UTC)
@@ -66,7 +66,7 @@ async def trip_track(trip_id: uuid.UUID, principal: Principal = Depends(require(
     }  # fmt: skip
 
 
-@router.get("/map/gaps")
+@router.get("/map/gaps", dependencies=[Depends(feature("live_map"))])
 async def map_gaps(principal: Principal = Depends(require("livemap.view")), db: AsyncSession = Depends(get_db)):
     """Trips whose phone has gone quiet, and recent ones that have come back."""
     names = {v.id: v.registration for v in (await db.execute(scope_vehicles(select(Vehicle), principal))).scalars()}

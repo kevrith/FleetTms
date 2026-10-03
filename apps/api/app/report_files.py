@@ -38,9 +38,15 @@ def _tables(data: dict) -> list[tuple[str, list[str], list[list]]]:
 
 
 def report_xlsx(data: dict) -> bytes:
+    return sections_xlsx(_tables(data))
+
+
+def sections_xlsx(sections: list[tuple[str, list[str], list[list]]]) -> bytes:
+    """Any report as a workbook: one sheet per section."""
     book = Workbook()
     book.remove(book.active)
-    for title, header, rows in _tables(data):
+    for title, header, rows in sections:
+        title = title[:31].replace("/", "-").replace("\\", "-").replace("?", "").replace("*", "").replace("[", "(").replace("]", ")").replace(":", "-")
         sheet = book.create_sheet(title)
         sheet.append(header)
         for cell in sheet[1]:
@@ -55,12 +61,19 @@ def report_xlsx(data: dict) -> bytes:
 
 
 def report_pdf(data: dict) -> bytes:
+    return sections_pdf(f"FleetTms report: {data['from'].isoformat()} to {data['to'].isoformat()}", _tables(data))
+
+
+def sections_pdf(title: str, sections: list[tuple[str, list[str], list[list]]], notes: list[str] | None = None) -> bytes:
+    """Any report as a PDF: a title, then each section as a table."""
     out = io.BytesIO()
     doc = SimpleDocTemplate(out, pagesize=landscape(A4), title="FleetTms report", leftMargin=30, rightMargin=30, topMargin=30, bottomMargin=30)
     styles = getSampleStyleSheet()
-    story: list = [Paragraph(f"FleetTms report: {data['from'].isoformat()} to {data['to'].isoformat()}", styles["Title"])]
-    for title, header, rows in _tables(data):
-        story += [Spacer(1, 12), Paragraph(title, styles["Heading2"])]
+    story: list = [Paragraph(title, styles["Title"])]
+    for note in notes or []:
+        story.append(Paragraph(note, styles["Normal"]))
+    for section, header, rows in sections:
+        story += [Spacer(1, 12), Paragraph(section, styles["Heading2"])]
         if not rows:
             story.append(Paragraph("Nothing in this range.", styles["Normal"]))
             continue

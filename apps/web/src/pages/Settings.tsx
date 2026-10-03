@@ -4,9 +4,11 @@ import Audit from "./Audit";
 import Checklist from "./Checklist";
 import Depots from "./Depots";
 import FuelPricesPage from "./FuelPrices";
+import DataExport from "./DataExport";
 import ImportData from "./ImportData";
 import PaymentSettingsPage from "./PaymentSettings";
 import Security from "./Security";
+import SubscriptionPage from "./Subscription";
 import Users from "./Users";
 
 export default function Settings() {
@@ -26,6 +28,8 @@ export default function Settings() {
       show: can("clients.manage") || can("vehicles.view"),
     },
     { to: "import", label: "Import from Excel", show: can("data.import") },
+    { to: "subscription", label: "Subscription", show: can("business.manage") },
+    { to: "data", label: "Your data", show: can("business.manage") },
     { to: "audit", label: "Audit trail", show: can("audit.view") },
     { to: "security", label: "Security", show: true },
   ].filter((t) => t.show);
@@ -52,6 +56,8 @@ export default function Settings() {
           <Route path="fuel-prices" element={<FuelPricesPage />} />
         )}
         {can("data.import") && <Route path="import" element={<ImportData />} />}
+        {can("business.manage") && <Route path="subscription" element={<SubscriptionPage />} />}
+        {can("business.manage") && <Route path="data" element={<DataExport />} />}
         {can("audit.view") && <Route path="audit" element={<Audit />} />}
         <Route path="security" element={<Security />} />
         <Route path="*" element={<Navigate to="." replace />} />

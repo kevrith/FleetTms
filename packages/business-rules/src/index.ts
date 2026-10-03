@@ -16,3 +16,4 @@ export * from "./immobiliser";
 export * from "./fraud";
 export * from "./scorecard";
 export * from "./fuelsensor";
+export * from "./plans";
