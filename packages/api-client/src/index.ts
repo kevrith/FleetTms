@@ -1,4 +1,6 @@
 import type {
+  JobSchedule,
+  JobScheduleInput,
   FunnelReport,
   PartnerApplication,
   PartnerPortal,
@@ -21,6 +23,8 @@ import type {
   PlansInfo,
   PlatformBusinessDetail,
   PlatformBusinessRow,
+  PlatformEtims,
+  PlatformEtimsInvoice,
   PlatformOverview,
   ReportData,
   SentMessage,
@@ -392,9 +396,13 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
     deleteDocument: (id: string) => request<void>("DELETE", `/documents/${id}`),
 
     // ---- Excel import ----
-    importTemplate: (kind: "vehicles" | "staff") =>
+    importTemplate: (kind: "vehicles" | "staff" | "clients" | "suppliers" | "balances") =>
       request<Blob>("GET", `/imports/${kind}/template`, undefined, true, true),
-    importFile: (kind: "vehicles" | "staff", file: Blob, dryRun: boolean) => {
+    importFile: (
+      kind: "vehicles" | "staff" | "clients" | "suppliers" | "balances",
+      file: Blob,
+      dryRun: boolean,
+    ) => {
       const form = new FormData();
       form.append("file", file);
       return request<ImportResult>("POST", `/imports/${kind}?dry_run=${dryRun}`, form);
@@ -942,6 +950,7 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
     draftLowStockOrders: (supplierId?: string) =>
       post<PartsOrder[]>("/orders/from-low-stock", { supplier_id: supplierId ?? null }),
     sendOrder: (id: string) => post<PartsOrder>(`/orders/${id}/send`, {}),
+    sendOrderOnWhatsApp: (id: string) => post<PartsOrder>(`/orders/${id}/whatsapp`, {}),
     moveOrder: (id: string, status: string, reference?: string) =>
       post<PartsOrder>(`/orders/${id}/status`, { status, reference: reference ?? null }),
 
@@ -1149,6 +1158,13 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
         { method: "mpesa", phone },
       ),
     invoiceStatus: (id: string) => get<SubscriptionInvoice>(`/subscription/invoices/${id}`),
+    payInvoiceByCard: (id: string) =>
+      post<{ payment_id: string; status: string; checkout_url: string }>(
+        `/subscription/invoices/${id}/pay-card`,
+        {},
+      ),
+    checkCardPayment: (id: string) =>
+      post<SubscriptionInvoice>(`/subscription/invoices/${id}/card-check`, {}),
 
     // ---- getting started ----
     createFirstJob: (input: FirstJobInput) =>
@@ -1241,6 +1257,21 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
         hours: string;
       }>("GET", "/contact", undefined, false),
 
+    /** What the odometer in a just-uploaded photo says, so the number can be filled in for the driver to check. */
+    suggestOdometer: (photoId: string) =>
+      post<{ value: number | null; readable: boolean }>("/odometer/suggest", { photo_id: photoId }),
+
+    // ---- recurring work ----
+    jobSchedules: () => get<JobSchedule[]>("/job-schedules"),
+    jobSchedule: (id: string) => get<JobSchedule>(`/job-schedules/${id}`),
+    createJobSchedule: (input: JobScheduleInput) => post<JobSchedule>("/job-schedules", input),
+    updateJobSchedule: (id: string, input: Record<string, unknown>) =>
+      request<JobSchedule>("PUT", `/job-schedules/${id}`, input),
+    runJobSchedule: (id: string) =>
+      post<{
+        made: { day: string; job_id: string | null; trip_id: string | null; note: string | null }[];
+      }>(`/job-schedules/${id}/run`),
+
     // ---- partners: public, then the platform admin's side ----
     applyAsPartner: (body: PartnerApplication) =>
       request<{ id: string; status: string; message: string }>(
@@ -1327,6 +1358,19 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
         method: "bank",
         reference,
       }),
+
+    platformEtims: () => get<PlatformEtims>("/platform/etims"),
+    platformEtimsConnect: () => post<{ connected: boolean }>("/platform/etims/connect", {}),
+    platformEtimsBackfill: () => post<{ queued: number }>("/platform/etims/backfill", {}),
+    platformEtimsRetry: (id: string) =>
+      post<PlatformEtimsInvoice>(`/platform/etims/${id}/retry`, {}),
+    platformEtimsResolve: (id: string, note: string, receiptNo?: string) =>
+      post<PlatformEtimsInvoice>(`/platform/etims/${id}/resolve`, {
+        note,
+        receipt_no: receiptNo || null,
+      }),
+    subscriptionInvoicePdf: (id: string) =>
+      request<Blob>("GET", `/subscription/invoices/${id}/pdf`, undefined, true, true),
 
     // ---- SOS ----
     myTyrePositions: () => get<MyTyrePositions>("/me/tyre-positions"),

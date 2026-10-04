@@ -45,12 +45,14 @@ export default function TripPanel() {
   const { trip, vehicle, inspection } = offline.state.cache;
   const [mode, setMode] = useState<Mode>({ kind: "idle" });
   const [typed, setTyped] = useState("");
+  const [suggested, setSuggested] = useState<number | null>(null); // what the server read from the photo, if it could
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const finish = () => {
     setMode({ kind: "idle" });
     setTyped("");
+    setSuggested(null);
   };
 
   async function run(action: () => Promise<unknown>) {
@@ -101,8 +103,20 @@ export default function TripPanel() {
         onCancel={finish}
         onDone={(photo) => {
           // A trip starts where the last one ended, so the vehicle's last reading is filled in; it can only be raised.
-          setTyped(mode.phase === "start" && lastKnown > 0 ? String(lastKnown) : "");
+          const initial = mode.phase === "start" && lastKnown > 0 ? String(lastKnown) : "";
+          setTyped(initial);
+          setSuggested(null);
           setMode({ kind: "reading", phase: mode.phase, photo });
+          // With a connection, the server reads the photo and offers the number. It only fills the box if the driver has not typed anything, and
+          // the driver still confirms it; with no connection nothing changes.
+          void offline
+            .suggestOdometer(photo)
+            .then((value) => {
+              if (value === null) return;
+              setSuggested(value);
+              setTyped((current) => (current === initial ? String(value) : current));
+            })
+            .catch(() => undefined);
         }}
       />
     );
@@ -142,6 +156,9 @@ export default function TripPanel() {
           keyboardType="number-pad"
           autoFocus
         />
+        {suggested !== null && typed === String(suggested) && (
+          <Body muted>Read from the photo. Check it matches what the odometer shows.</Body>
+        )}
         {problem && <Body muted>{problem}</Body>}
         <ErrorText message={error} />
         <Button

@@ -18,9 +18,10 @@ HINTS = {
     "weighbridge_ticket": "a weighbridge ticket. Weights are in kilograms (convert tonnes to kilograms). registration is the vehicle's number plate.",
     "delivery_note": "a signed delivery note. recipient_name is who received the goods; quantity is the number of units, bags or tonnes delivered; notes holds any shortage or damage written on it.",
     "insurance_certificate": "a motor insurance certificate. valid_from and valid_to are the cover period. cover_type is comprehensive or third party.",
+    "odometer": "a photograph of a vehicle's dashboard odometer. reading is the total distance shown on the main odometer as a whole number, not the trip meter or the clock. unit is km or mi as shown or marked.",
     "logbook": "a Kenyan vehicle logbook (registration certificate). year is the year of manufacture.",
 }
-NUMBER_FIELDS = {"litres", "price_per_litre", "amount", "gross_kg", "tare_kg", "net_kg", "quantity", "year"}
+NUMBER_FIELDS = {"reading", "litres", "price_per_litre", "amount", "gross_kg", "tare_kg", "net_kg", "quantity", "year"}
 
 
 class ReadError(Exception):

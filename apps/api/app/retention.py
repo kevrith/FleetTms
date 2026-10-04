@@ -124,7 +124,7 @@ async def _purge_photos_of(db: AsyncSession, cutoff: datetime, now: datetime, *,
         if str(photo.id) in keep:
             kept += 1
             continue
-        storage.delete(photo.storage_key)
+        await storage.delete(photo.storage_key)
         photo.purged_at, photo.lat, photo.lng = now, None, None  # the record of it stays; the picture and where it was taken do not
         purged += 1
     return {"photos_purged": purged, "photos_kept_for_open_matters": kept}
@@ -214,7 +214,7 @@ async def wind_down(db: AsyncSession, business: Business, now: datetime) -> dict
         if model is DataExport:
             for export in (await db.execute(select(DataExport))).scalars():
                 if export.storage_key:
-                    storage.delete(export.storage_key)
+                    await storage.delete(export.storage_key)
         result = await db.execute(delete(model))
         counts[model.__tablename__] = result.rowcount or 0
     people = 0

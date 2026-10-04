@@ -77,11 +77,11 @@ async def test_a_photo_older_than_24_months_loses_its_picture_but_keeps_its_reco
     await backdate_photos(bid, 800, only=[old])
     async with inside(bid) as db:
         key = (await db.get(Photo, uuid.UUID(old))).storage_key
-    assert storage.read_path(key) is not None
+    assert await storage.exists(key)
 
     result = await retention.purge_old_photos()
     assert result == {"photos_purged": 1, "photos_kept_for_open_matters": 0}
-    assert storage.read_path(key) is None
+    assert not await storage.exists(key)
     async with inside(bid) as db:
         gone, kept = await db.get(Photo, uuid.UUID(old)), await db.get(Photo, uuid.UUID(recent))
     assert gone.purged_at is not None and gone.lat is None and gone.lng is None and gone.sha256  # the record stays, the place does not
@@ -259,9 +259,9 @@ async def test_after_90_days_personal_data_images_and_tracking_go_but_the_legall
     assert photos_before > 0
     async with inside(bid) as db:
         keys = [p.storage_key for p in (await db.execute(select(Photo))).scalars()]
-    assert any(storage.read_path(k) for k in keys)
+    assert any([await storage.exists(k) for k in keys])
     assert await retention.process_cancelled() == {"wound_down": 1, "erased": 0}
-    assert not any(storage.read_path(k) for k in keys)  # every image file is gone
+    assert not any([await storage.exists(k) for k in keys])  # every image file is gone
     assert await count(bid, LocationPoint) == 0 and await count(bid, Message) == 0 and await count(bid, StaffProfile) == 0
     assert await count(bid, Expense) == 1  # financial records are kept for their own period
     assert await count(bid, Photo) == photos_before  # the records of the photos stay, without the pictures

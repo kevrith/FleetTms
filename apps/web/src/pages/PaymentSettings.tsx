@@ -67,7 +67,7 @@ export default function PaymentSettingsPage() {
       "Saved.",
     );
   }
-  const channel = (c: "sms" | "email") => (
+  const channel = (c: "sms" | "email" | "whatsapp") => (
     <label className="field" key={c}>
       <span>
         <input
@@ -82,7 +82,11 @@ export default function PaymentSettingsPage() {
             })
           }
         />{" "}
-        {c === "sms" ? "SMS" : "Email (with the invoice attached)"}
+        {c === "sms"
+          ? "SMS"
+          : c === "whatsapp"
+            ? "WhatsApp (a message from the business's WhatsApp number)"
+            : "Email (with the invoice attached)"}
       </span>
     </label>
   );
@@ -177,6 +181,7 @@ export default function PaymentSettingsPage() {
         </label>
         {channel("sms")}
         {channel("email")}
+        {channel("whatsapp")}
         <Field label="When (days from the due date, minus is before; for example -3, 1, 7, 14, 30)">
           <input disabled={!editable} value={steps} onChange={(e) => setSteps(e.target.value)} />
         </Field>

@@ -72,6 +72,8 @@ MAY_SKIP_THE_FILTER = {
     "data_export.py": "deleting expired copies across businesses; the export itself runs inside one business",
     "analytics.py": "the sign-up funnel counts which businesses have done what, across businesses: counts only, never records",
     "partners.py": "a partner's report counts a referred business's subscription and vehicles across businesses: its name, state and size only",
+    "whatsapp_inbound.py": "Meta's reports are found by the id it gave each message before the business is known; everything changed is then inside that business",
+    "platform_etims.py": "the platform's own invoices are sent to KRA across businesses: it reads each paying business's name and PIN, and nothing else",
     "retention.py": "the daily retention job works across every business, one at a time, and sets the business for each",
 }
 

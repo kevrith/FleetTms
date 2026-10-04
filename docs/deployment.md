@@ -42,7 +42,10 @@ After the fixes, on that machine:
 - [ ] Domain names for `APP_HOST` and `API_HOST` pointing at the server (an `A` record each), ports 80 and 443 open.
 - [ ] Africa's Talking account, a registered sender name, credit; `AT_USERNAME`, `AT_API_KEY`, `AT_SENDER_ID` set. Send a real sign-in code to a real phone.
 - [ ] Safaricom Daraja: the platform Paybill and passkey for subscriptions (`PLATFORM_SHORTCODE`, `PLATFORM_PASSKEY`) and the consumer key and secret; `PUBLIC_API_URL` reachable by Safaricom. Make one real payment of a small amount and check it marks the invoice paid.
-- [ ] KRA eTIMS device registration, if invoicing through it from day one.
+- [ ] KRA eTIMS device registration, if invoicing through it from day one. FleetTms's own tax invoices to its customers need the platform's own PIN and device (`PLATFORM_KRA_PIN`, `PLATFORM_ETIMS_DEVICE_SERIAL`, `PLATFORM_VAT_PCT`): connect it from the console's KRA invoices tab and check one real invoice reaches KRA.
+- [ ] Optional: a private S3-compatible bucket for photos and data copies instead of the server's disk (`STORAGE_BACKEND=s3` and the `S3_*` settings, bucket versioning on). Move what is on disk with `python -m app.storage_migrate --dry-run`, then `--delete-local`, inside the api container. `/ready` shows a `storage` check.
+- [ ] Paystack account for card payments (`PAYSTACK_SECRET_KEY`; webhook `https://API_HOST/hooks/paystack`). Make one small real card payment and a refund (`docs/card-payments.md`).
+- [ ] WhatsApp Business for automatic parts orders and reminders: a Meta app and number, the two approved templates, the webhook, and the five `WHATSAPP_*` settings (`docs/whatsapp.md`).
 - [ ] Email sending (SMTP) and, if wanted, WhatsApp; `ANTHROPIC_API_KEY` if the reading and question features are on; `GOOGLE_MAPS_API_KEY` for route suggestions.
 - [ ] Maps: the web map uses OpenStreetMap's public tile server, whose usage policy does not allow heavy commercial use. Choose a tile provider before launch and change `TILES` in `apps/web/src/MapView.tsx` and the policy line in `deploy/Caddyfile`.
 

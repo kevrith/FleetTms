@@ -11,12 +11,13 @@ KINDS = {
     "delivery_note": ["reference", "recipient_name", "date", "description", "quantity", "notes"],
     "insurance_certificate": ["insurer", "policy_no", "registration", "cover_type", "valid_from", "valid_to"],
     "logbook": ["registration", "chassis_no", "engine_no", "make", "model", "year", "owner_name"],
+    "odometer": ["reading", "unit"],  # read from a dashboard photo when a trip starts or ends; not offered through /document-readings
 }
 REQUIRED = {
     "fuel_receipt": ["litres", "amount"], "weighbridge_ticket": ["gross_kg", "net_kg"], "delivery_note": ["recipient_name", "date"],
-    "insurance_certificate": ["policy_no", "valid_to"], "logbook": ["registration"],
+    "insurance_certificate": ["policy_no", "valid_to"], "logbook": ["registration"], "odometer": ["reading"],
 }  # fmt: skip
-NUMBERS = {"litres": 2, "price_per_litre": 2, "amount": 2, "gross_kg": 0, "tare_kg": 0, "net_kg": 0, "quantity": 2, "year": 0}
+NUMBERS = {"litres": 2, "price_per_litre": 2, "amount": 2, "gross_kg": 0, "tare_kg": 0, "net_kg": 0, "quantity": 2, "year": 0, "reading": 0}
 DATES = ("date", "valid_from", "valid_to")
 TEXTS = ("station", "fuel_type", "receipt_no", "ticket_no", "cargo", "reference", "recipient_name", "description", "notes", "insurer", "policy_no", "cover_type", "chassis_no", "engine_no", "make", "model", "owner_name")
 

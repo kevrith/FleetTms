@@ -726,6 +726,21 @@
       "plan": "premium",
       "feature": "all_roles",
       "expected": true
+    },
+    {
+      "plan": "starter",
+      "feature": "full_fraud",
+      "expected": false
+    },
+    {
+      "plan": "standard",
+      "feature": "full_fraud",
+      "expected": true
+    },
+    {
+      "plan": "premium",
+      "feature": "full_fraud",
+      "expected": true
     }
   ],
   "best": [

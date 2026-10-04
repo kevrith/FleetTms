@@ -1,6 +1,6 @@
 import enum
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time
 from decimal import Decimal
 
 from sqlalchemy import (
@@ -16,6 +16,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    Time,
     UniqueConstraint,
     text,
 )
@@ -2026,19 +2027,65 @@ class SubscriptionInvoice(TenantMixin, Base):
 
 
 class SubscriptionPayment(TenantMixin, Base):
-    """An M-Pesa payment request sent to the owner's phone for an invoice, and how it ended."""
+    """A payment attempt for an invoice, by M-Pesa prompt to the owner's phone or by card on the card provider's page, and how it ended."""
 
     __tablename__ = "subscription_payments"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
     invoice_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("subscription_invoices.id", ondelete="CASCADE"), index=True)
-    phone: Mapped[str] = mapped_column(String(20))
+    method: Mapped[str] = mapped_column(String(8), default="mpesa", server_default="mpesa")  # mpesa or card
+    phone: Mapped[str | None] = mapped_column(String(20))  # M-Pesa only
     amount_cents: Mapped[int] = mapped_column(BigInteger)
-    checkout_id: Mapped[str] = mapped_column(String(64), unique=True)  # Safaricom's number for the request, how its answer finds us
+    checkout_id: Mapped[str] = mapped_column(String(64), unique=True)  # Safaricom's number for the request, or our reference for the card, how the answer finds us
     status: Mapped[str] = mapped_column(String(8), default="pending")  # pending, paid or failed
     result_note: Mapped[str | None] = mapped_column(String(255))
     mpesa_code: Mapped[str | None] = mapped_column(String(12))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class WhatsAppMessage(TenantMixin, Base):
+    """A message sent through the WhatsApp Business API (a parts order to a supplier, a payment reminder to a client), and how it went:
+    Meta reports sent, delivered and read, and a supplier can answer an order with a button. Holds no message text, only what it was about."""
+
+    __tablename__ = "whatsapp_messages"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    wa_message_id: Mapped[str | None] = mapped_column(String(120), unique=True)  # Meta's id for it, how its reports find us
+    to_phone: Mapped[str] = mapped_column(String(20))
+    purpose: Mapped[str] = mapped_column(String(12))  # order or reminder
+    entity_type: Mapped[str] = mapped_column(String(24))
+    entity_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    status: Mapped[str] = mapped_column(String(10), default="queued")  # queued, sent, delivered, read or failed
+    error: Mapped[str | None] = mapped_column(String(255))
+    reply: Mapped[str | None] = mapped_column(String(10))  # confirm or decline: which button the recipient pressed
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    replied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PlatformEtimsSubmission(Base):
+    """A subscription or text bundle invoice FleetTms issued to a business, on its way to KRA eTIMS. FleetTms is the seller, from its own
+    device and one invoice number sequence, so this is not a business's table: no business sees or sends these except through its own invoice."""
+
+    __tablename__ = "platform_etims_submissions"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    business_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("businesses.id", ondelete="CASCADE"), index=True)
+    subscription_invoice_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("subscription_invoices.id", ondelete="CASCADE"), unique=True)
+    invoice_no: Mapped[int] = mapped_column(Integer, unique=True)  # the number eTIMS knows it by: one sequence for the whole platform
+    status: Mapped[str] = mapped_column(String(12), default="pending", index=True)  # pending, submitted, needs_review, resolved
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(String(500))
+    receipt_no: Mapped[str | None] = mapped_column(String(40))
+    sdc_id: Mapped[str | None] = mapped_column(String(40))
+    sdc_time: Mapped[str | None] = mapped_column(String(20))
+    receipt_signature: Mapped[str | None] = mapped_column(String(200))
+    internal_data: Mapped[str | None] = mapped_column(String(200))
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_note: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class SmsAccount(TenantMixin, Base):
@@ -2206,3 +2253,38 @@ class UsageCounter(Base):
     feature: Mapped[str] = mapped_column(String(30))
     business_key: Mapped[str] = mapped_column(String(16))
     requests: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class JobSchedule(TenantMixin, Base):
+    """Work that comes round on its own: every day, on chosen weekdays, or on a day of the month. A schedule repeats a template job (a new job
+    each time), or for a monthly contract, which already bills itself every month, sends a trip of the contract out each time."""
+
+    __tablename__ = "job_schedules"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    template_job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
+    vehicle_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("vehicles.id", ondelete="SET NULL"))  # the lorry to send; its own crew goes with it
+    cadence: Mapped[str] = mapped_column(String(8))  # daily, weekly or monthly
+    weekdays: Mapped[list] = mapped_column(JSONB, default=list)  # for weekly: 0 is Monday, 6 is Sunday
+    day_of_month: Mapped[int | None] = mapped_column(Integer)  # for monthly: 1 to 28, so every month has the day
+    pickup_time: Mapped[time] = mapped_column(Time)  # Nairobi time
+    deliver_within_hours: Mapped[int] = mapped_column(Integer, default=24)
+    lead_days: Mapped[int] = mapped_column(Integer, default=2)  # how many days before the day the work is put in the diary
+    starts_on: Mapped[date] = mapped_column(Date)
+    ends_on: Mapped[date | None] = mapped_column(Date)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class JobScheduleRun(TenantMixin, Base):
+    """One day's work a schedule has already put in the diary. The unique day is what stops the same day being made twice."""
+
+    __tablename__ = "job_schedule_runs"
+    __table_args__ = (UniqueConstraint("schedule_id", "occurrence_on"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    schedule_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("job_schedules.id", ondelete="CASCADE"), index=True)
+    occurrence_on: Mapped[date] = mapped_column(Date)
+    job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"))
+    trip_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("trips.id", ondelete="SET NULL"))
+    note: Mapped[str | None] = mapped_column(String(255))  # why a lorry could not be assigned, if that happened
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

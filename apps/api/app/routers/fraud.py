@@ -28,7 +28,7 @@ from app.vehicle_scope import require_vehicle_in_scope, scope_vehicles
 
 router = APIRouter(tags=["fraud"])
 LABELS = {
-    "fuel_variance": "Fuel above expected", "odometer_mismatch": "Odometer and GPS disagree", "side_trip": "Side trip", "long_stop": "Long unexplained stop", "tamper_then_stop": "Stop after tracker cut",
+    "fuel_variance": "Fuel above expected", "odometer_mismatch": "Odometer and GPS disagree", "odometer_photo_mismatch": "Odometer typed differently from its photo", "side_trip": "Side trip", "long_stop": "Long unexplained stop", "tamper_then_stop": "Stop after tracker cut",
     "excess_idling": "Excess idling", "overload": "Overloaded", "power_cut": "Tracker power cut", "gps_jamming": "GPS jamming", "tamper": "Tracker tampering", "went_dark": "Went dark during a trip",
     "fake_gps": "Fake GPS app", "rooted_phone": "Rooted phone", "clock_changed": "Phone clock changed", "tyre_swap": "Possible tyre swap", "expense_above_norm": "Expense above the route's norm",
     "fuel_amount_mismatch": "Fuel total does not add up", "delivery_off_site": "Delivery away from the site", "parts_unfitted": "Parts issued but not fitted", "sensitive_change": "Sensitive change by staff",
@@ -131,7 +131,14 @@ async def summary(principal: Principal = Depends(require("alerts.view")), db: As
     for k, c in sorted(per_kind.items(), key=lambda kv: -sum(kv[1].values())):
         answered = c["explained"] + c["confirmed"]
         kinds.append({"kind": k, "label": LABELS.get(k, k), "total": sum(c.values()), "open": c["open"], "explained": c["explained"], "confirmed": c["confirmed"], "confirmed_pct": round(c["confirmed"] / answered * 100) if answered else None})
-    return {"open": {"red": open_by_severity["red"], "amber": open_by_severity["amber"], "total": sum(open_by_severity.values())}, "kinds": kinds}
+    from app import fraud, subscriptions
+
+    full = await subscriptions.feature_allowed(db, principal.business_id, "full_fraud")
+    return {
+        "open": {"red": open_by_severity["red"], "amber": open_by_severity["amber"], "total": sum(open_by_severity.values())}, "kinds": kinds,
+        # What this plan checks: the basic checks always, the full set from Standard. The screen says so, so a quiet list is not mistaken for a clean fleet.
+        "plan": {"full_checks": full, "not_included": [] if full else sorted(k for k, need in fraud.PLAN_OF_KIND.items() if need == "full_fraud"), "plan_needed": "standard"},
+    }  # fmt: skip
 
 
 @router.post("/fraud/scan")

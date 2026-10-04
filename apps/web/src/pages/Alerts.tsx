@@ -509,11 +509,32 @@ export function TripAlertsCard({ tripId }: { tripId: string }) {
   );
 }
 
+/** A plan that does not run the full set of checks says so: an empty list on a smaller plan is not the same as a clean fleet. */
+function PlanNote() {
+  const [full, setFull] = useState(true);
+  useEffect(() => {
+    api
+      .fraudSummary()
+      .then((s) => setFull(s.plan?.full_checks ?? true))
+      .catch(() => setFull(true));
+  }, []);
+  if (full) return null;
+  return (
+    <p className="banner">
+      Your plan runs the basic checks: fuel against distance, the odometer, padded expenses,
+      duplicate claims, fake GPS and overloading. The route, long stop, idling, tracker tampering,
+      tyre and parts checks are part of the Standard plan.{" "}
+      <Link to="/settings/subscription">See the plans</Link>.
+    </p>
+  );
+}
+
 export default function Alerts() {
   const { can } = useAuth();
   return (
     <>
       <h2>Alerts</h2>
+      <PlanNote />
       <nav className="tabs">
         <NavLink to="/alerts" end>
           Alerts

@@ -115,11 +115,27 @@ async def notify(db: AsyncSession, alert: FraudAlert, channels: dict) -> int:
     return told
 
 
+# The checks that belong to a bigger plan (masterplan Section 9): every plan has the phone-based checks (fuel against distance and the vehicle's own
+# normal, the odometer against the phone, padded expenses, duplicate claims, fake GPS and changed clocks, overloading, edits to approved records, a
+# delivery away from the site); Standard adds "full fraud detection" (routes, stops, idling, tracker tampering, tyres and parts); the learned fuel
+# model is Premium with the predictions. The fuel-sensor checks only happen on a vehicle that has a sensor, which is Premium already.
+PLAN_OF_KIND = {
+    "side_trip": "full_fraud", "long_stop": "full_fraud", "tamper_then_stop": "full_fraud", "excess_idling": "full_fraud",
+    "tyre_swap": "full_fraud", "parts_unfitted": "full_fraud", "fuel_model_anomaly": "predictions",
+}  # fmt: skip
+
+
 async def raise_finding(db: AsyncSession, f: Finding, channels: dict | None = None) -> FraudAlert | None:
-    """Records a finding unless the same one was raised before. Returns None for a repeat."""
+    """Records a finding unless the same one was raised before or the business's plan does not include that check. Returns None for either."""
     existing = (await db.execute(select(FraudAlert).where(FraudAlert.dedupe_key == f.dedupe_key))).scalars().first()
     if existing is not None:
         return None
+    needed = PLAN_OF_KIND.get(f.kind)
+    if needed is not None:
+        from app import subscriptions
+
+        if not await subscriptions.feature_allowed(db, current_business_id.get(), needed):
+            return None
     if channels is None:
         _, channels = await load_settings(db)
     trust = None

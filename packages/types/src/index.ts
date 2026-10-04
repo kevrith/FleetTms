@@ -1224,7 +1224,7 @@ export interface Invoice {
   etims?: InvoiceEtims | null;
   reminders?: {
     id: string;
-    channel: "sms" | "email";
+    channel: "sms" | "email" | "whatsapp";
     status: "sent" | "failed";
     sent_at: string;
     error: string | null;
@@ -1282,7 +1282,7 @@ export interface PaymentSettings {
   validation_url?: string;
   reminders_enabled: boolean;
   reminder_offsets: number[];
-  reminder_channels: ("sms" | "email")[];
+  reminder_channels: ("sms" | "email" | "whatsapp")[];
   etims_enabled: boolean;
   etims_live: boolean;
   etims_branch_id: string;
@@ -1721,6 +1721,17 @@ export interface PartsOrder {
   }[];
   whatsapp_url?: string;
   message?: string;
+  /** Automatic WhatsApp: whether it is on offer, and how the latest message to the supplier went. */
+  whatsapp?: {
+    automatic: boolean;
+    status: "queued" | "sent" | "delivered" | "read" | "failed" | null;
+    sent_at?: string | null;
+    delivered_at?: string | null;
+    read_at?: string | null;
+    reply?: "confirm" | "decline" | null;
+    replied_at?: string | null;
+    error?: string | null;
+  };
 }
 
 export interface PortalLease extends LeaseAgreement {
@@ -2100,6 +2111,8 @@ export interface FraudSummary {
     confirmed: number;
     confirmed_pct: number | null;
   }[];
+  /** Which checks this plan runs: the basic ones always, the full set from Standard. */
+  plan?: { full_checks: boolean; not_included: string[]; plan_needed: string };
 }
 
 export interface FraudThresholds {
@@ -2399,6 +2412,12 @@ export interface SubscriptionInvoice {
   mpesa_code: string | null;
   created_at: string;
   last_payment?: { status: "pending" | "paid" | "failed"; note: string | null } | null;
+  /** The tax invoice for a paid invoice: with KRA ("filed", with its receipt number) or on its way. Null when none was made. */
+  tax_invoice?: {
+    status: "sending" | "filed";
+    receipt_no: string | null;
+    filed_at: string | null;
+  } | null;
 }
 
 export interface SubscriptionStatus {
@@ -2423,6 +2442,8 @@ export interface SubscriptionStatus {
   custom_monthly_cents: number | null;
   open_invoice: SubscriptionInvoice | null;
   invoices: SubscriptionInvoice[];
+  /** Whether paying by card is on offer (the card provider is set up). */
+  card_available?: boolean;
   sms: { credits: number; sent_total: number; sent_this_month: number; low: boolean };
 }
 
@@ -2573,6 +2594,35 @@ export interface PlatformOverview {
   open_invoices: number;
 }
 
+export interface PlatformEtimsInvoice {
+  id: string;
+  invoice_number: string;
+  business: string;
+  business_has_pin: boolean;
+  total_cents: number;
+  status: "pending" | "submitted" | "needs_review" | "resolved";
+  status_text: string;
+  invoice_no: number;
+  attempts: number;
+  next_attempt_at: string | null;
+  last_error: string | null;
+  receipt_no: string | null;
+  submitted_at: string | null;
+  resolved_note: string | null;
+  created_at: string;
+}
+
+/** FleetTms's own invoices to its customers on their way to KRA eTIMS. */
+export interface PlatformEtims {
+  enabled: boolean;
+  vat_pct: number;
+  pending: number;
+  submitted: number;
+  needs_review: number;
+  resolved: number;
+  invoices: PlatformEtimsInvoice[];
+}
+
 export type DataRequestKind = "access" | "correct" | "delete" | "object" | "portability";
 
 /** A person's data protection request to their employer, with the date it must be answered by. */
@@ -2701,4 +2751,39 @@ export interface FunnelReport {
     share_pct: number | null;
   }[];
   cohorts: Record<string, number | string>[];
+}
+
+export interface JobSchedule {
+  id: string;
+  template_job_id: string;
+  template: string | null;
+  client: string | null;
+  /** A monthly contract: each day sends a trip of the contract out, instead of making a new job. */
+  contract: boolean;
+  cadence: "daily" | "weekly" | "monthly";
+  weekdays: number[];
+  day_of_month: number | null;
+  pickup_time: string;
+  deliver_within_hours: number;
+  lead_days: number;
+  starts_on: string;
+  ends_on: string | null;
+  vehicle_id: string | null;
+  registration: string | null;
+  is_active: boolean;
+  next: string[];
+  runs?: { day: string; job_id: string | null; trip_id: string | null; note: string | null }[];
+}
+
+export interface JobScheduleInput {
+  template_job_id: string;
+  cadence: "daily" | "weekly" | "monthly";
+  weekdays?: number[];
+  day_of_month?: number | null;
+  pickup_time: string;
+  deliver_within_hours?: number;
+  lead_days?: number;
+  starts_on?: string | null;
+  ends_on?: string | null;
+  vehicle_id?: string | null;
 }

@@ -214,6 +214,8 @@ interface Offline {
   addFuel: (input: FuelFormInput) => Promise<void>;
   /** Reads a fuel receipt photo (needs a connection): suggests litres, price, total, station and M-Pesa code to check and correct. */
   readReceipt: (photo: LocalPhoto, vehicleId: string) => Promise<DocumentReading>;
+  /** What the odometer in a just-taken photo says, to fill the number in for the driver to check (needs a connection; null if it cannot be read). */
+  suggestOdometer: (photo: LocalPhoto) => Promise<number | null>;
   addExpense: (input: ExpenseFormInput) => Promise<void>;
   submitReconciliation: () => Promise<void>;
   /** The float balance with expenses still waiting to be sent already taken off. */
@@ -491,6 +493,29 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
           payload: { trip_id: trip.id, photo_client_id: photo.clientId, value },
         });
         await setCache({ trip, vehicle: withOdometer(cache().vehicle, value) });
+      },
+
+      async suggestOdometer(photo) {
+        const temp = await store.materialize(photo.clientId);
+        if (!temp) return null;
+        try {
+          // Uploaded now under the id the phone gave it, so when the reading is sent the server hands back this same photo.
+          const ref = await api.uploadPhoto(
+            { uri: temp.uri, name: "photo.jpg", type: "image/jpeg" },
+            {
+              kind: photo.kind,
+              source: "camera",
+              captured_at: photo.capturedAt,
+              lat: photo.lat,
+              lng: photo.lng,
+              client_id: photo.clientId,
+              offline: true,
+            },
+          );
+          return (await api.suggestOdometer(ref.id)).value;
+        } finally {
+          await temp.cleanup();
+        }
       },
 
       async readReceipt(photo, vehicleId) {

@@ -145,12 +145,12 @@ async def test_a_copy_that_is_not_ready_cannot_be_downloaded_and_old_copies_are_
         return (await db.execute(select(DataExport.storage_key))).scalar_one()
 
     key = await in_db(key_of)
-    assert storage.read_path(key) is not None
+    assert await storage.exists(key)
     await in_db(lambda db: db.execute(update(DataExport).values(status="running")))
     assert (await client.get(f"/data-exports/{export['id']}/download", headers=bearer(f.owner))).json()["detail"]["code"] == "not_ready"
     await in_db(lambda db: db.execute(update(DataExport).values(status="ready", expires_at=datetime.now(UTC) - timedelta(hours=1))))
     assert await data_export.purge_expired() == 1
-    assert storage.read_path(key) is None
+    assert not await storage.exists(key)
     after = (await client.get(f"/data-exports/{export['id']}", headers=bearer(f.owner))).json()
     assert after["status"] == "expired"
     assert (await client.get(f"/data-exports/{export['id']}/download", headers=bearer(f.owner))).json()["detail"]["code"] == "not_ready"

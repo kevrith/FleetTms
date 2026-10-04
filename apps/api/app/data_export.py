@@ -55,44 +55,44 @@ async def build(db: AsyncSession, export: DataExport) -> dict:
     """Writes the zip. Returns how many rows went into each file."""
     business_id = current_business_id.get()
     key = storage_key(business_id, export.id)
-    path = storage._safe_path(key)
-    path.parent.mkdir(parents=True, exist_ok=True)
     counts: dict[str, int] = {}
-    photos = {"included": 0, "skipped": 0, "bytes": 0}
-    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for table in tables_to_export():
-            columns = safe_columns(table)
-            buffer = io.StringIO(newline="")
-            writer = csv.writer(buffer)
-            writer.writerow(columns)
-            n = 0
-            result = await db.stream(select(*[table.c[c] for c in columns]).where(table.c.business_id == business_id))
-            async for row in result:
-                writer.writerow([_cell(v) for v in row])
-                n += 1
-            counts[table.name] = n
-            if n:
-                zf.writestr(f"{table.name}.csv", buffer.getvalue())
-        business = (await db.execute(select(Business).where(Business.id == business_id))).scalar_one()
-        zf.writestr("business.csv", _single_csv(["id", "name", "kra_pin", "fuel_region", "created_at"], [[business.id, business.name, business.kra_pin, business.fuel_region, business.created_at]]))
-        people = []
-        for m in (await db.execute(select(Membership))).scalars():
-            people.append([m.id, m.user.name, m.user.email, m.user.phone, ";".join(sorted(r.role.value for r in m.roles)), m.status.value, m.created_at])
-        zf.writestr("people.csv", _single_csv(["membership_id", "name", "email", "phone", "roles", "status", "joined"], people))
-        counts["people"] = len(people)
-        if export.include_photos:
-            for pid, skey, ctype in (await db.execute(select(Base.metadata.tables["photos"].c.id, Base.metadata.tables["photos"].c.storage_key, Base.metadata.tables["photos"].c.content_type).where(Base.metadata.tables["photos"].c.business_id == business_id))).all():
-                src = storage.read_path(skey)
-                if src is None or photos["bytes"] + src.stat().st_size > PHOTO_LIMIT_BYTES:
-                    photos["skipped"] += 1
-                    continue
-                zf.write(src, f"photos/{pid}.{ctype.split('/')[-1].replace('jpeg', 'jpg')}")
-                photos["included"] += 1
-                photos["bytes"] += src.stat().st_size
-        manifest = {"business": business.name, "made_at": datetime.now(UTC).isoformat(), "rows": counts, "photos": photos if export.include_photos else None}
-        zf.writestr("manifest.json", json.dumps(manifest, indent=1))
-        zf.writestr("README.txt", readme(business.name, counts, export.include_photos, photos))
-    export.storage_key, export.size_bytes = key, path.stat().st_size
+    with storage.Scratch() as path:  # built on local disk, then handed to storage (which may be a bucket)
+        photos = {"included": 0, "skipped": 0, "bytes": 0}
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for table in tables_to_export():
+                columns = safe_columns(table)
+                buffer = io.StringIO(newline="")
+                writer = csv.writer(buffer)
+                writer.writerow(columns)
+                n = 0
+                result = await db.stream(select(*[table.c[c] for c in columns]).where(table.c.business_id == business_id))
+                async for row in result:
+                    writer.writerow([_cell(v) for v in row])
+                    n += 1
+                counts[table.name] = n
+                if n:
+                    zf.writestr(f"{table.name}.csv", buffer.getvalue())
+            business = (await db.execute(select(Business).where(Business.id == business_id))).scalar_one()
+            zf.writestr("business.csv", _single_csv(["id", "name", "kra_pin", "fuel_region", "created_at"], [[business.id, business.name, business.kra_pin, business.fuel_region, business.created_at]]))
+            people = []
+            for m in (await db.execute(select(Membership))).scalars():
+                people.append([m.id, m.user.name, m.user.email, m.user.phone, ";".join(sorted(r.role.value for r in m.roles)), m.status.value, m.created_at])
+            zf.writestr("people.csv", _single_csv(["membership_id", "name", "email", "phone", "roles", "status", "joined"], people))
+            counts["people"] = len(people)
+            if export.include_photos:
+                for pid, skey, ctype in (await db.execute(select(Base.metadata.tables["photos"].c.id, Base.metadata.tables["photos"].c.storage_key, Base.metadata.tables["photos"].c.content_type).where(Base.metadata.tables["photos"].c.business_id == business_id))).all():
+                    data = await storage.read(skey)
+                    if data is None or photos["bytes"] + len(data) > PHOTO_LIMIT_BYTES:
+                        photos["skipped"] += 1
+                        continue
+                    zf.writestr(f"photos/{pid}.{ctype.split('/')[-1].replace('jpeg', 'jpg')}", data)
+                    photos["included"] += 1
+                    photos["bytes"] += len(data)
+            manifest = {"business": business.name, "made_at": datetime.now(UTC).isoformat(), "rows": counts, "photos": photos if export.include_photos else None}
+            zf.writestr("manifest.json", json.dumps(manifest, indent=1))
+            zf.writestr("README.txt", readme(business.name, counts, export.include_photos, photos))
+        await storage.save_file(key, path, "application/zip")
+        export.storage_key, export.size_bytes = key, path.stat().st_size
     return counts
 
 
@@ -144,9 +144,8 @@ async def purge_expired() -> int:
     removed = 0
     async with get_sessionmaker()() as db:
         for e in (await db.execute(select(DataExport).where(DataExport.status == "ready", DataExport.expires_at < datetime.now(UTC)).execution_options(skip_tenant=True))).scalars().all():
-            path = storage.read_path(e.storage_key) if e.storage_key else None
-            if path is not None:
-                path.unlink(missing_ok=True)
+            if e.storage_key:
+                await storage.delete(e.storage_key)
             current_business_id.set(e.business_id)  # a change is made inside the business it belongs to
             e.status, e.storage_key = "expired", None
             await db.flush()

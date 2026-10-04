@@ -37,6 +37,14 @@ class Settings(BaseSettings):
     whatsapp_token: str = ""
     whatsapp_phone_number_id: str = ""
     whatsapp_report_template: str = ""  # an approved template with a document header, needed to message people first
+    # Automatic sending of parts orders and payment reminders, and the supplier's answer coming back, need the app secret and verify token of
+    # the Meta app (the webhook is /hooks/whatsapp) and two approved templates: see docs/whatsapp.md for their wording. Without the token
+    # and number id, messages go to an in-memory stand-in in development, and the automatic button is hidden in production.
+    whatsapp_app_secret: str = ""
+    whatsapp_verify_token: str = ""
+    whatsapp_order_template: str = ""
+    whatsapp_reminder_template: str = ""
+    whatsapp_template_language: str = "en"
 
     # M-Pesa Daraja (client payments). Leave the keys empty in development: a stand-in is used and nothing leaves the machine.
     daraja_env: str = "sandbox"  # sandbox or production
@@ -52,6 +60,18 @@ class Settings(BaseSettings):
 
     # KRA eTIMS. Leave the base address empty in development: a stand-in is used. The sandbox address is in .env.example.
     etims_base_url: str = ""
+    # The platform's own eTIMS device, for the tax invoices FleetTms issues to its customers for their subscriptions and text bundles. Both
+    # empty means those invoices are not sent to KRA. The prices are VAT inclusive, so the VAT is worked out from the total; set the rate to
+    # 0 if the platform is not VAT registered.
+    platform_kra_pin: str = ""
+    platform_etims_branch_id: str = "00"
+    platform_etims_device_serial: str = ""
+    platform_vat_pct: float = 16
+
+    # Card payments for subscriptions, through Paystack's hosted checkout (the card number never touches FleetTms). Their dashboard needs the
+    # webhook address https://<your API address>/hooks/paystack. Empty key: a stand-in in development, and no card button in production.
+    paystack_secret_key: str = ""
+    paystack_base_url: str = "https://api.paystack.co"
 
     # Phone GPS and client tracking links (masterplan 5.3, 5.26, 11.3).
     public_web_url: str = "http://localhost:5180"  # where the web app is, for the links clients are sent
@@ -79,6 +99,10 @@ class Settings(BaseSettings):
     support_whatsapp: str = ""  # a Kenyan number, like 0712 345 678
     support_email: str = ""
     support_hours: str = "Monday to Saturday, 8am to 6pm (Nairobi time)"
+    # Reading the odometer from its photo (odometer_reader.py): the same reading service as receipts. Never holds a trip up: it gives up after the timeout.
+    odometer_reading: bool = True
+    odometer_read_timeout_seconds: float = 8.0
+    odometer_suggestions_per_day: int = 60  # per person, for the number offered while typing
     # Monitoring (see readiness.py). Leave BACKUP_DIR empty where backups are not made on this machine: the check then says "not configured".
     backup_dir: str = ""  # the folder that holds base/ and wal/ (scripts/dr)
     backup_max_age_hours: int = 30  # a daily base backup older than this is a failure
@@ -101,6 +125,19 @@ class Settings(BaseSettings):
 
     # Photos live in private storage and are only ever viewed through short-lived signed links.
     media_dir: str = "media_store"
+    # Where the files are kept: "local" (the folder above) or "s3" (any S3-compatible bucket: AWS S3, Cloudflare R2, DigitalOcean Spaces,
+    # MinIO, Backblaze B2). The bucket must be private; the API reads and serves the files, so no public access is ever needed. Leave
+    # the access key and secret empty to use the machine's own role (AWS) or environment. Run `python -m app.storage_migrate` once to
+    # move the files already on disk into the bucket.
+    storage_backend: str = "local"
+    s3_bucket: str = ""
+    s3_endpoint_url: str = ""  # empty for AWS; the provider's address for the others
+    s3_region: str = ""
+    s3_access_key: str = ""
+    s3_secret_key: str = ""
+    s3_prefix: str = ""  # a folder inside the bucket, when the bucket is shared with something else
+    s3_force_path_style: bool = False  # MinIO and some others need this on
+    s3_encryption: str = ""  # "AES256" to ask the provider to encrypt at rest (most do it anyway); "aws:kms" on AWS
     media_link_seconds: int = 300
     max_photo_bytes: int = 8 * 1024 * 1024
     photo_fresh_minutes: int = 10  # how old a captured photo may be when it is uploaded

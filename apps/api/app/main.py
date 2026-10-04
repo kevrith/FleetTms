@@ -38,6 +38,7 @@ from app.routers import (
     incidents,
     inspections,
     invoices,
+    job_schedules,
     jobs,
     leases,
     livemap,
@@ -71,6 +72,7 @@ from app.routers import (
     tyres,
     users,
     vehicles,
+    whatsapp,
     workshop,
 )
 
@@ -92,7 +94,7 @@ GATED = {
     predictions: "predictions", fuel_sensor: "fuel_sensors", report_schedules: "scheduled_reports", ask: "ask",
 }  # fmt: skip  (a whole router that belongs to one plan)
 
-for module in (contact, analytics, partners, breaches, data_requests, data_exports, ask, report_catalog, messages, platform_console, subscription, beta, document_readings, fraud, fuel_prices, fuel_sensor, predictions, scorecards, auth, users, depots, vehicles, staff, documents, imports, photos, inspections, trips, fuel, floats, devices, sync, expenses, reconciliation, workshop, dashboard, tyres, parts, incidents, sos, clients, quotes, jobs, invoices, payments, statements, debtors, etims, leases, finance, payroll, suppliers, profit, portal, locations, livemap, tracking_links, trackers, geofences, behaviour, immobiliser, report_schedules, audit_log, privacy, support):
+for module in (whatsapp, job_schedules, contact, analytics, partners, breaches, data_requests, data_exports, ask, report_catalog, messages, platform_console, subscription, beta, document_readings, fraud, fuel_prices, fuel_sensor, predictions, scorecards, auth, users, depots, vehicles, staff, documents, imports, photos, inspections, trips, fuel, floats, devices, sync, expenses, reconciliation, workshop, dashboard, tyres, parts, incidents, sos, clients, quotes, jobs, invoices, payments, statements, debtors, etims, leases, finance, payroll, suppliers, profit, portal, locations, livemap, tracking_links, trackers, geofences, behaviour, immobiliser, report_schedules, audit_log, privacy, support):
     app.include_router(module.router, dependencies=[Depends(feature(GATED[module]))] if module in GATED else None)
 
 

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { api } from "../api";
 import { Card, ErrorBanner, errorMessage } from "../ui";
 
-type Kind = "vehicles" | "staff";
+type Kind = "vehicles" | "staff" | "clients" | "suppliers" | "balances";
 
 function ImportCard({ kind, title, help }: { kind: Kind; title: string; help: string }) {
   const [file, setFile] = useState<File | null>(null);
@@ -131,6 +131,21 @@ export default function ImportData() {
         kind="staff"
         title="Import staff"
         help="One row per person. Drivers and turnboys need a phone number; other roles need an email. Roles can be separated by commas."
+      />
+      <ImportCard
+        kind="clients"
+        title="Import clients"
+        help="One row per client. Money is in shillings (3000 for KES 3,000 a tonne); billing method is per_trip, per_tonne, per_km or monthly_contract. A name that already exists is refused."
+      />
+      <ImportCard
+        kind="suppliers"
+        title="Import suppliers"
+        help="One row per supplier, with a phone number and what they sell. A name that already exists is refused."
+      />
+      <ImportCard
+        kind="balances"
+        title="Import what clients owe you"
+        help="One row for each invoice your clients had not paid when you started: the client's name exactly as imported, the old invoice number, its date, when it is due, and the amount still owed in shillings. Each becomes a balance brought forward, so your debtors list and reminders work from day one. It is not counted as new income and is not sent to the tax authority. Import the clients first."
       />
     </>
   );

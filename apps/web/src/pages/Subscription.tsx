@@ -38,12 +38,39 @@ export default function SubscriptionPage() {
   }, []);
   useEffect(() => {
     void load();
+    // Back from the card provider's page (?card=<invoice id>): ask how the payment went, and keep asking for a little while, since the
+    // provider's own report can be a moment behind.
+    const returned = new URLSearchParams(window.location.search).get("card");
+    if (returned) {
+      window.history.replaceState(null, "", window.location.pathname);
+      let tries = 0;
+      const check = async () => {
+        tries += 1;
+        const now = await api.checkCardPayment(returned).catch(() => null);
+        if (now?.status === "paid") {
+          setMessage("Paid by card. Thank you: everything is switched on.");
+          await load();
+        } else if (now?.last_payment?.status === "failed") {
+          setError(now.last_payment.note ?? "The card payment was not completed.");
+          await load();
+        } else if (tries < 8) {
+          setMessage("Waiting for the card payment to be confirmed...");
+          timer.current = setTimeout(check, 3000) as unknown as ReturnType<typeof setInterval>;
+        } else {
+          setMessage("The card payment has not been confirmed yet. It will show here when it is.");
+        }
+      };
+      void check();
+    }
     api
       .plans()
       .then(setPlans)
       .catch(() => undefined);
     return () => {
-      if (timer.current) clearInterval(timer.current);
+      if (timer.current) {
+        clearInterval(timer.current);
+        clearTimeout(timer.current);
+      }
     };
   }, [load]);
 
@@ -54,6 +81,17 @@ export default function SubscriptionPage() {
       await work();
       if (done) setMessage(done);
       await load();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+
+  /** Sends the owner to the card provider's page; they come back with ?card=<invoice id> and the check above settles it. */
+  async function payByCard(invoice: SubscriptionInvoice) {
+    setError(null);
+    try {
+      const res = await api.payInvoiceByCard(invoice.id);
+      window.location.href = res.checkout_url;
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -82,6 +120,20 @@ export default function SubscriptionPage() {
           await load();
         }
       }, 3000);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+
+  async function downloadInvoice(invoice: SubscriptionInvoice) {
+    setError(null);
+    try {
+      const url = URL.createObjectURL(await api.subscriptionInvoicePdf(invoice.id));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${invoice.number}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -328,10 +380,23 @@ export default function SubscriptionPage() {
               >
                 <CreditCard size={16} /> Send the payment request
               </button>
+              {s.card_available && (
+                <button
+                  className="btn"
+                  type="button"
+                  disabled={waiting !== null}
+                  onClick={() => void payByCard(owing)}
+                >
+                  <CreditCard size={16} /> Pay by card
+                </button>
+              )}
             </div>
             <p className="muted">
-              A prompt appears on that phone: enter your M-Pesa PIN. Card payments are not available
-              yet; to pay by bank transfer, contact us with the invoice number.
+              A prompt appears on that phone: enter your M-Pesa PIN.
+              {s.card_available
+                ? " Pay by card opens the card payment page: your card number goes to the payment provider, never to us."
+                : ""}{" "}
+              To pay by bank transfer, contact us with the invoice number.
             </p>
           </>
         )}
@@ -384,6 +449,16 @@ export default function SubscriptionPage() {
                     ? `paid ${i.paid_at ? nairobiTime(i.paid_at) : ""}`
                     : "waiting for payment"}
                 </span>
+                {i.status === "paid" && i.tax_invoice && (
+                  <span className={`status ${i.tax_invoice.status === "filed" ? "ok" : "warn"}`}>
+                    {i.tax_invoice.status === "filed"
+                      ? `KRA receipt ${i.tax_invoice.receipt_no ?? ""}`
+                      : "being sent to KRA"}
+                  </span>
+                )}{" "}
+                <button className="btn" type="button" onClick={() => void downloadInvoice(i)}>
+                  {i.status === "paid" ? "Tax invoice (PDF)" : "Invoice (PDF)"}
+                </button>
                 {i.status === "issued" && i.kind === "sms_bundle" && (
                   <button
                     className="btn"

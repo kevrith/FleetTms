@@ -60,12 +60,12 @@ async def read_document(body: ReadIn, principal: Principal = Depends(current_pri
     today_reads = (await db.execute(select(func.count()).select_from(DocumentReading).where(DocumentReading.read_by_user_id == principal.user.id, DocumentReading.created_at >= datetime.now(UTC) - timedelta(days=1)))).scalar_one()
     if today_reads >= settings.document_reads_per_day:
         raise error(status.HTTP_429_TOO_MANY_REQUESTS, "too_many_reads", "That is a lot of documents for one day. Type the rest in, or try again tomorrow.")
-    path = storage.read_path(photo.storage_key)
-    if path is None:
+    image = await storage.read(photo.storage_key)
+    if image is None:
         raise error(status.HTTP_404_NOT_FOUND, "not_found", "That photo is no longer stored.")
     try:
         reader = document_reader.get_reader()
-        raw = await reader.read(body.kind, path.read_bytes(), photo.content_type)
+        raw = await reader.read(body.kind, image, photo.content_type)
     except document_reader.ReadError as e:
         raise error(status.HTTP_503_SERVICE_UNAVAILABLE, "reading_unavailable", str(e)) from None
     fields = document_rules.normalise(body.kind, raw)

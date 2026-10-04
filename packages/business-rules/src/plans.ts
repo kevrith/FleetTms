@@ -34,6 +34,7 @@ export const FEATURES: Record<string, Plan> = {
   etims: "standard",
   custom_reports: "standard",
   all_roles: "standard",
+  full_fraud: "standard",
   fuel_sensors: "premium",
   immobiliser: "premium",
   predictions: "premium",

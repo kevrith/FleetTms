@@ -13,9 +13,18 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import Image as PdfImage
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from app import storage
 from app.etims_rules import qr_data
-from app.models import Client, EtimsSubmission, Invoice, Photo, ProofOfDelivery, Trip
+from app.models import (
+    Business,
+    Client,
+    EtimsSubmission,
+    Invoice,
+    Photo,
+    PlatformEtimsSubmission,
+    ProofOfDelivery,
+    SubscriptionInvoice,
+    Trip,
+)
 from app.reminders import NAIROBI
 
 STYLES = getSampleStyleSheet()
@@ -25,12 +34,12 @@ def kes(cents: int) -> str:
     return f"KES {cents / 100:,.2f}"
 
 
-def _photo_flow(photo: Photo | None, width: int = 230) -> PdfImage | None:
-    """A photo shrunk to fit the page, or None if the file is missing."""
-    path = storage.read_path(photo.storage_key) if photo else None
-    if path is None or not path.exists():
+def _photo_flow(photo: Photo | None, images: dict, width: int = 230) -> PdfImage | None:
+    """A photo shrunk to fit the page, or None if the file is missing. `images` holds the stored bytes, by photo id."""
+    data = images.get(photo.id) if photo else None
+    if data is None:
         return None
-    img = Image.open(path).convert("RGB")
+    img = Image.open(io.BytesIO(data)).convert("RGB")
     img.thumbnail((900, 900))
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=70)
@@ -78,8 +87,10 @@ def _qr(text: str, size: int = 90) -> Drawing:
 def invoice_pdf(
     invoice: Invoice, client: Client, business: str, *, pod: ProofOfDelivery | None = None, photos: dict | None = None, trip: Trip | None = None,
     pay_info: str | None = None, etims: EtimsSubmission | None = None, tin: str | None = None, branch_id: str = "00",
+    images: dict | None = None,
 ) -> bytes:
     photos = photos or {}
+    images = images or {}
     out = io.BytesIO()
     doc = SimpleDocTemplate(out, pagesize=A4, title=f"Invoice {invoice.number}", leftMargin=40, rightMargin=40, topMargin=40, bottomMargin=40)
     s = STYLES
@@ -130,14 +141,14 @@ def invoice_pdf(
         story.append(Spacer(1, 10))
         shown: list = []
         for caption, photo in (("Signed delivery note", photos.get(pod.note_photo_id)), ("Cargo delivered", photos.get(pod.cargo_photo_id)), ("Weighbridge ticket", photos.get(trip.weighbridge_photo_id) if trip else None)):
-            flow = _photo_flow(photo)
+            flow = _photo_flow(photo, images)
             if flow is not None:
                 shown.append([Paragraph(caption, s["Heading5"]), flow])
         if pod.signature:
             sig = PdfImage(io.BytesIO(signature_png(pod.signature)), width=230, height=84)
             shown.append([Paragraph("Signature", s["Heading5"]), sig])
         for pid in pod.damage_photo_ids:
-            flow = _photo_flow(photos.get(uuid.UUID(pid)))
+            flow = _photo_flow(photos.get(uuid.UUID(pid)), images)
             if flow is not None:
                 shown.append([Paragraph("Damage", s["Heading5"]), flow])
         # two to a row
@@ -146,5 +157,41 @@ def invoice_pdf(
             cells = [[c for c in item] for item in row]
             story.append(Table([cells], colWidths=[262] * len(cells)))
             story.append(Spacer(1, 8))
+    doc.build(story)
+    return out.getvalue()
+
+
+def subscription_invoice_pdf(
+    invoice: SubscriptionInvoice, business: Business, *, description: str, net_cents: int, vat_cents: int, vat_pct: float, seller_pin: str | None,
+    branch_id: str = "00", etims: PlatformEtimsSubmission | None = None,
+) -> bytes:
+    """What FleetTms charges a business for its subscription or a text bundle. Once paid it is the tax invoice, with KRA's receipt on it."""
+    out = io.BytesIO()
+    paid = invoice.status == "paid"
+    doc = SimpleDocTemplate(out, pagesize=A4, title=f"Invoice {invoice.number}", leftMargin=40, rightMargin=40, topMargin=40, bottomMargin=40)
+    s = STYLES
+    story: list = [Paragraph("FleetTms", s["Title"]), Paragraph(("Tax invoice " if paid else "Invoice ") + invoice.number, s["Heading2"])]
+    if seller_pin:
+        story.append(Paragraph(f"Seller KRA PIN {seller_pin}", s["Normal"]))
+    bill = business.name + (f"<br/>KRA PIN {business.kra_pin}" if business.kra_pin else "")
+    story += [Paragraph(f"Bill to: {bill}", s["Normal"]), Paragraph(f"Issued {invoice.created_at.astimezone(NAIROBI).date().isoformat()}, due {invoice.due_date.isoformat()}", s["Normal"]), Spacer(1, 10)]
+    story.append(_table([["Description", "Amount"], [Paragraph(description, s["BodyText"]), kes(net_cents)]], [400, 125]))
+    story.append(Spacer(1, 8))
+    totals = [["Subtotal", kes(net_cents)]]
+    if vat_pct > 0:
+        totals.append([f"VAT {vat_pct:g}%", kes(vat_cents)])
+    totals += [["Total", kes(invoice.total_cents)], ["Paid" if paid else "Balance due", kes(invoice.total_cents)]]
+    story.append(_table(totals, [400, 125], header=False))
+    if paid and invoice.paid_at:
+        how = {"mpesa": "M-Pesa", "bank": "bank transfer", "card": "card", "manual": "recorded by hand"}.get(invoice.payment_method or "", invoice.payment_method or "")
+        story += [Spacer(1, 8), Paragraph(f"Paid {invoice.paid_at.astimezone(NAIROBI).strftime('%d %b %Y')} by {how}" + (f", reference {invoice.mpesa_code}" if invoice.mpesa_code else ""), s["Normal"])]
+    if etims is not None and etims.status == "submitted" and etims.receipt_no:
+        facts = [f"KRA eTIMS receipt no. {etims.receipt_no}"] + ([f"Control unit {etims.sdc_id}"] if etims.sdc_id else []) + ([f"Internal data {etims.internal_data}"] if etims.internal_data else [])
+        block = [Paragraph("<br/>".join(facts), s["BodyText"])]
+        if seller_pin and etims.receipt_signature:
+            block.insert(0, _qr(qr_data(seller_pin, branch_id, etims.receipt_signature)))
+        story += [Spacer(1, 8), Table([block], colWidths=[100, 425] if len(block) == 2 else [525])]
+    elif paid and etims is not None:
+        story += [Spacer(1, 8), Paragraph("This invoice is being sent to KRA. Download it again shortly for the KRA receipt.", s["Normal"])]
     doc.build(story)
     return out.getvalue()

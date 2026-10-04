@@ -51,7 +51,7 @@ class SettingsIn(BaseModel):
     shortcode_type: Literal["paybill", "till"] = "paybill"
     reminders_enabled: bool = False
     reminder_offsets: list[int] = Field(default_factory=lambda: [-3, 1, 7, 14, 30], max_length=8)
-    reminder_channels: list[Literal["sms", "email"]] = Field(default_factory=lambda: ["sms", "email"])
+    reminder_channels: list[Literal["sms", "email", "whatsapp"]] = Field(default_factory=lambda: ["sms", "email"])
     etims_enabled: bool = False
     etims_branch_id: str = Field(default="00", pattern=r"^\d{2}$")
     etims_device_serial: str | None = Field(default=None, max_length=100)

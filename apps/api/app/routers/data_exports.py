@@ -4,7 +4,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, status
-from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -64,9 +63,9 @@ async def download(export_id: uuid.UUID, principal: Principal = Depends(require(
         raise error(status.HTTP_404_NOT_FOUND, "not_found", "That copy was not found.")
     if e.status != "ready" or not e.storage_key:
         raise error(status.HTTP_409_CONFLICT, "not_ready", "That copy is not ready, or has expired. Ask for a new one.")
-    path = storage.read_path(e.storage_key)
-    if path is None:
+    response = await storage.serve(e.storage_key, "application/zip", filename=f"fleettms-data-{e.created_at.date().isoformat()}.zip")
+    if response is None:
         raise error(status.HTTP_404_NOT_FOUND, "not_found", "That copy is no longer stored. Ask for a new one.")
     audit.record(db, actor_user_id=principal.user.id, action="export.downloaded", entity_type="data_export", entity_id=e.id)
     await db.commit()
-    return FileResponse(path, media_type="application/zip", filename=f"fleettms-data-{e.created_at.date().isoformat()}.zip")
+    return response

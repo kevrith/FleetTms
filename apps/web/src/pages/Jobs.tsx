@@ -1,6 +1,7 @@
 import type { Availability, Client, Job, SavedRoute } from "@fleettms/types";
 import { Plus, Repeat, Truck } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import JobSchedules from "./JobSchedules";
 import { Link, NavLink, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
@@ -439,11 +440,13 @@ export default function JobsArea() {
         </NavLink>
         {can("clients.manage") && <NavLink to="/jobs/quotes">Quotes</NavLink>}
         <NavLink to="/jobs/calendar">Calendar</NavLink>
+        <NavLink to="/jobs/schedules">Recurring work</NavLink>
       </nav>
       <Routes>
         <Route index element={<JobList />} />
         <Route path="view/:id" element={<JobDetail />} />
         <Route path="calendar" element={<Calendar />} />
+        <Route path="schedules" element={<JobSchedules />} />
         <Route path="quotes" element={<QuoteList />} />
         <Route path="quotes/new" element={<QuoteForm />} />
         <Route path="quotes/:id" element={<QuoteDetail />} />

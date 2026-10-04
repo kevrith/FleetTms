@@ -67,7 +67,7 @@ class TripInvoiceIn(BaseModel):
 
 
 class RemindIn(BaseModel):
-    channels: list[Literal["sms", "email"]] = Field(default_factory=lambda: ["sms", "email"], min_length=1)
+    channels: list[Literal["sms", "email", "whatsapp"]] = Field(default_factory=lambda: ["sms", "email"], min_length=1)
 
 
 class ContractRunIn(BaseModel):

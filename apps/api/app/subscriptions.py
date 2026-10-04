@@ -6,10 +6,11 @@ import logging
 import uuid
 from datetime import UTC, date, datetime, timedelta
 
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import plan_rules
+from app import audit, plan_rules
 from app.config import settings
 from app.deps import error
 from app.lease_rules import add_months
@@ -93,7 +94,7 @@ async def fleet_plan(db: AsyncSession, access: dict) -> str:
 PLAN_NAME = {"starter": "Starter", "standard": "Standard", "premium": "Premium"}
 FEATURE_NAME = {
     "trackers": "GPS tracker integration", "live_map": "The live fleet map", "replay": "Trip replay and driving behaviour", "geofences": "Mapped areas", "scorecards": "Driver scorecards",
-    "tyres_parts": "Tyres and the parts store", "tracking_links": "Client tracking links", "etims": "eTIMS invoicing", "custom_reports": "Custom reports", "all_roles": "Roles beyond owner and driver",
+    "tyres_parts": "Tyres and the parts store", "full_fraud": "The full fraud checks (routes, stops, idling, tyres and parts)", "tracking_links": "Client tracking links", "etims": "eTIMS invoicing", "custom_reports": "Custom reports", "all_roles": "Roles beyond owner and driver",
     "fuel_sensors": "Fuel sensors", "immobiliser": "The remote immobiliser", "predictions": "Predictions and learned models", "ask": "Asking questions in plain English", "scheduled_reports": "Scheduled reports",
 }  # fmt: skip
 
@@ -112,6 +113,17 @@ async def require_feature(db: AsyncSession, business_id: uuid.UUID, feature: str
         return
     if not plan_rules.allows(await fleet_plan(db, access), feature):
         raise plan_required(feature)
+
+
+async def feature_allowed(db: AsyncSession, business_id: uuid.UUID, feature: str) -> bool:
+    """The same question as `require_feature`, answered yes or no, for code that quietly does less on a smaller plan."""
+    try:
+        await require_feature(db, business_id, feature)
+    except HTTPException as e:
+        if e.status_code == 402:
+            return False
+        raise
+    return True
 
 
 async def require_vehicle_feature(db: AsyncSession, business_id: uuid.UUID, vehicle: Vehicle, feature: str) -> None:
@@ -168,6 +180,7 @@ async def apply_paid(db: AsyncSession, invoice: SubscriptionInvoice, *, method: 
             account = SmsAccount(credits=0, sent_total=0, sent_this_month=0)
             db.add(account)
         account.credits += invoice.sms_messages or 0
+        await _queue_tax_invoice(db, invoice)
         return
     sub = await subscription_of(db)
     if sub is not None:
@@ -175,12 +188,48 @@ async def apply_paid(db: AsyncSession, invoice: SubscriptionInvoice, *, method: 
         sub.period = invoice.billing_period or sub.period
         sub.last_notice = None
     await db.flush()
+    await _queue_tax_invoice(db, invoice)
     try:
         from app import partners
 
         await partners.accrue(db, invoice, now)  # the installer who brought this business in earns their share
     except Exception:
         log.exception("Partner commission could not be recorded for an invoice")
+
+
+async def _queue_tax_invoice(db: AsyncSession, invoice: SubscriptionInvoice) -> None:
+    """The platform's own eTIMS invoice for what was just paid. A problem here is logged and must never undo the payment."""
+    try:
+        from app import platform_etims
+
+        async with db.begin_nested():
+            await platform_etims.queue(db, invoice)
+    except Exception:
+        log.exception("The tax invoice for a payment could not be queued")
+
+
+async def settle_card_payment(db: AsyncSession, payment: SubscriptionPayment, invoice: SubscriptionInvoice, charge) -> bool:
+    """Applies what the card provider says about a payment attempt. Returns True if this call settled it. Safe to call again and from two
+    places (the webhook and the customer coming back): an attempt that is no longer pending is left alone. The caller commits."""
+    if payment.status != "pending" or charge.status == "pending":
+        return False
+    payment.answered_at = now_utc()
+    if charge.status != "success":
+        payment.status, payment.result_note = "failed", "The card payment was not completed."
+        return True
+    if charge.currency != "KES" or charge.amount_cents < invoice.total_cents:
+        payment.status, payment.result_note = "failed", "The amount paid was less than the invoice."
+        log.warning("A card payment came in for less than its invoice")
+        return True
+    payment.status, payment.result_note = "paid", "Paid"
+    if invoice.status == "paid":  # paid another way in the meantime: the invoice is not paid twice, and this charge has to go back
+        payment.result_note = "The invoice was already paid when this card payment arrived. It needs a refund."
+        audit.record(db, actor_user_id=None, action="subscription.duplicate_card_payment", entity_type="subscription_invoice", entity_id=invoice.id, after={"number": invoice.number, "reference": payment.checkout_id})
+        log.warning("A card payment arrived for an invoice that was already paid: refund needed")
+        return True
+    await apply_paid(db, invoice, method="card", code=payment.checkout_id[-12:].upper())
+    audit.record(db, actor_user_id=None, action="subscription.paid", entity_type="subscription_invoice", entity_id=invoice.id, after={"number": invoice.number, "method": "card", "reference": payment.checkout_id})
+    return True
 
 
 async def payment_for_checkout(db: AsyncSession, checkout_id: str) -> SubscriptionPayment | None:

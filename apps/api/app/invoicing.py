@@ -10,7 +10,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit
+from app import audit, storage
 from app.billing_rules import invoice_standing, invoice_totals, trip_amount
 from app.db import get_sessionmaker
 from app.etims_service import queue_sale
@@ -169,14 +169,18 @@ async def render_invoice_pdf(db: AsyncSession, invoice: Invoice) -> bytes:
     cfg = await get_settings(db)
     pod = trip = None
     photos: dict = {}
+    images: dict = {}  # the stored picture of each photo, read here because drawing the page is not async
     if invoice.trip_id:
         trip = (await db.execute(select(Trip).where(Trip.id == invoice.trip_id))).scalar_one_or_none()
         pod = (await db.execute(select(ProofOfDelivery).where(ProofOfDelivery.trip_id == invoice.trip_id))).scalar_one_or_none()
         if pod:
             ids = [i for i in [pod.cargo_photo_id, pod.note_photo_id, trip.weighbridge_photo_id if trip else None, *[uuid.UUID(d) for d in pod.damage_photo_ids]] if i]
             photos = {p.id: p for p in (await db.execute(select(Photo).where(Photo.id.in_(ids)))).scalars()}
+            for p in photos.values():
+                if p.purged_at is None and (data := await storage.read(p.storage_key)) is not None:
+                    images[p.id] = data
     sale = (await db.execute(select(EtimsSubmission).where(EtimsSubmission.invoice_id == invoice.id, EtimsSubmission.kind == "sale"))).scalar_one_or_none()
-    return invoice_pdf(invoice, client, business.name, pod=pod, photos=photos, trip=trip, pay_info=pay_instructions(cfg, invoice), etims=sale, tin=business.kra_pin, branch_id=cfg.etims_branch_id)
+    return invoice_pdf(invoice, client, business.name, pod=pod, photos=photos, trip=trip, pay_info=pay_instructions(cfg, invoice), etims=sale, tin=business.kra_pin, branch_id=cfg.etims_branch_id, images=images)
 
 
 def pay_instructions(cfg, invoice: Invoice) -> str | None:

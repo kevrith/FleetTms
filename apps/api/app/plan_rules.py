@@ -16,7 +16,7 @@ CUSTOM_FROM = 31  # larger fleets are priced by agreement
 SMS_BUNDLES = {500: 60_000, 2000: 240_000, 5000: 600_000}  # messages: price, at cost plus a small margin
 FEATURES = {  # the cheapest plan that includes each feature
     "trackers": "standard", "live_map": "standard", "replay": "standard", "geofences": "standard", "scorecards": "standard", "tyres_parts": "standard",
-    "tracking_links": "standard", "etims": "standard", "custom_reports": "standard", "all_roles": "standard",
+    "tracking_links": "standard", "etims": "standard", "custom_reports": "standard", "all_roles": "standard", "full_fraud": "standard",
     "fuel_sensors": "premium", "immobiliser": "premium", "predictions": "premium", "ask": "premium", "scheduled_reports": "premium",
 }  # fmt: skip
 VEHICLE_FEATURES = {"trackers", "fuel_sensors", "immobiliser"}  # decided by the vehicle's own plan; the rest by the fleet's best plan

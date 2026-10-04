@@ -339,6 +339,7 @@ export function quietFor(seconds: number | null): string {
 export const FRAUD_KIND: Record<string, string> = {
   fuel_variance: "Fuel above expected",
   odometer_mismatch: "Odometer and GPS disagree",
+  odometer_photo_mismatch: "Odometer typed differently from its photo",
   side_trip: "Side trip",
   long_stop: "Long unexplained stop",
   tamper_then_stop: "Stop after tracker cut",

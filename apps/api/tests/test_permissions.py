@@ -62,6 +62,7 @@ CHECKS = {
     "list_data_exports": ("GET", "/data-exports", None, "business.manage"),
     "sent_messages": ("GET", "/messages", None, "messages.send"),
     "my_messages": ("GET", "/me/messages", None, "trips.own"),
+    "list_job_schedules": ("GET", "/job-schedules", None, "jobs.manage"),
     "list_data_requests": ("GET", "/data-requests", None, "privacy.manage"),
     "data_request_summary": ("GET", "/data-requests/summary", None, "privacy.manage"),
     "grant_support": ("POST", "/support/grants", {"hours": 1, "reason": "help"}, "support.grant"),

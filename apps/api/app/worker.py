@@ -10,6 +10,8 @@ from app.etims_service import etims_job
 from app.invoicing import contract_invoices_job
 from app.lease_notices import lease_charges_job, lease_notices_job
 from app.payment_reminders import payment_reminders_job
+from app.platform_etims import platform_etims_job
+from app.recurrence import recurring_jobs_job
 from app.reminders import NAIROBI, document_reminders_job
 from app.report_schedules import scheduled_reports_job
 from app.retention import retention_job
@@ -31,7 +33,7 @@ async def ping(ctx: dict, value: str) -> str:
 
 
 class WorkerSettings:
-    functions: ClassVar[list] = [ping, document_reminders_job, service_reminders_job, scheduled_reports_job, contract_invoices_job, payment_reminders_job, etims_job, lease_charges_job, lease_notices_job, going_dark_job, gps_retention_job, fraud_sweep_job, fuel_price_job, subscription_notices_job, data_export_purge_job, retention_job, heartbeat_job, usage_flush_job]
+    functions: ClassVar[list] = [ping, document_reminders_job, service_reminders_job, scheduled_reports_job, contract_invoices_job, payment_reminders_job, etims_job, platform_etims_job, lease_charges_job, lease_notices_job, going_dark_job, gps_retention_job, fraud_sweep_job, fuel_price_job, subscription_notices_job, data_export_purge_job, retention_job, heartbeat_job, usage_flush_job, recurring_jobs_job]
     cron_jobs: ClassVar[list] = [
         cron(heartbeat_job, second={0}),  # every minute
         cron(document_reminders_job, hour=7, minute=0),
@@ -47,9 +49,11 @@ class WorkerSettings:
         cron(fuel_price_job, hour=6, minute=15),
         cron(subscription_notices_job, hour=8, minute=20),  # trial ending, payment due, grace, read-only
         cron(data_export_purge_job, hour=3, minute=45),  # copies are kept for a week
+        cron(recurring_jobs_job, hour=5, minute=30),  # puts the coming days of recurring work in the diary
         cron(usage_flush_job, hour=0, minute=10),  # yesterday's usage counts, from Redis into the database
         cron(retention_job, hour=3, minute=50),  # photos, audit trail, former staff and cancelled businesses (masterplan 11.3)
         cron(etims_job, minute=set(range(0, 60, 5))),  # every five minutes: send what is due, retry what failed
+        cron(platform_etims_job, minute=set(range(2, 60, 5))),  # the platform's own invoices, the same way
     ]
     timezone = NAIROBI
     redis_settings: ClassVar[RedisSettings] = RedisSettings.from_dsn(settings.redis_url)

@@ -12,14 +12,17 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit, plan_rules, subscriptions
+from app import audit, plan_rules, platform_etims, subscriptions
 from app.config import settings
 from app.db import database_is_up, get_db
 from app.deps import Principal, error, platform_admin
+from app.etims import EtimsRejected, EtimsTransient
+from app.etims_rules import EtimsRuleError
 from app.models import (
     BreachIncident,
     Business,
     Membership,
+    PlatformEtimsSubmission,
     Subscription,
     SubscriptionInvoice,
     User,
@@ -221,6 +224,101 @@ async def mark_paid(invoice_id: uuid.UUID, body: MarkPaidIn, principal: Principa
     finally:
         current_business_id.set(None)
     return {"id": invoice.id, "status": invoice.status}
+
+
+class EtimsResolveIn(BaseModel):
+    note: str = Field(min_length=3, max_length=255)
+    receipt_no: str | None = Field(default=None, max_length=40)
+
+
+ETIMS_LABELS = {"pending": "Waiting to send", "submitted": "Sent to KRA", "needs_review": "Needs a person", "resolved": "Handled by hand"}
+
+
+async def _etims_row(db: AsyncSession, s: PlatformEtimsSubmission) -> dict:
+    invoice = (await db.execute(_all(select(SubscriptionInvoice).where(SubscriptionInvoice.id == s.subscription_invoice_id)))).scalar_one()
+    business = (await db.execute(select(Business).where(Business.id == s.business_id))).scalar_one()
+    return {
+        "id": s.id, "invoice_number": invoice.number, "business": business.name, "business_has_pin": bool(business.kra_pin), "total_cents": invoice.total_cents, "status": s.status,
+        "status_text": ETIMS_LABELS[s.status], "invoice_no": s.invoice_no, "attempts": s.attempts, "next_attempt_at": s.next_attempt_at, "last_error": s.last_error,
+        "receipt_no": s.receipt_no, "submitted_at": s.submitted_at, "resolved_note": s.resolved_note, "created_at": s.created_at,
+    }  # fmt: skip
+
+
+async def _etims_get(db: AsyncSession, sub_id: uuid.UUID) -> PlatformEtimsSubmission:
+    s = (await db.execute(select(PlatformEtimsSubmission).where(PlatformEtimsSubmission.id == sub_id).with_for_update())).scalar_one_or_none()
+    if s is None:
+        raise error(status.HTTP_404_NOT_FOUND, "not_found", "That invoice was not found.")
+    return s
+
+
+@router.get("/platform/etims")
+async def etims_overview(principal: Principal = Depends(platform_admin), db: AsyncSession = Depends(get_db)):
+    """FleetTms's own invoices on their way to KRA: whether the device is set up, the counts, and the ones that need a person first."""
+    counts = dict((await db.execute(select(PlatformEtimsSubmission.status, func.count()).group_by(PlatformEtimsSubmission.status))).all())
+    rows = (await db.execute(select(PlatformEtimsSubmission).order_by((PlatformEtimsSubmission.status != "needs_review"), PlatformEtimsSubmission.created_at.desc()).limit(100))).scalars().all()
+    return {"enabled": platform_etims.enabled(), "vat_pct": settings.platform_vat_pct, **{k: int(counts.get(k, 0)) for k in ETIMS_LABELS}, "invoices": [await _etims_row(db, s) for s in rows]}
+
+
+@router.post("/platform/etims/connect")
+async def etims_connect(principal: Principal = Depends(platform_admin)):
+    """Checks the platform's device with KRA and registers what is sold."""
+    try:
+        await platform_etims.connect()
+    except EtimsRuleError as e:
+        raise error(422, "etims_setup", str(e)) from None
+    except EtimsRejected as e:
+        raise error(422, "etims_refused", f"KRA refused the device: {e}") from None
+    except EtimsTransient as e:
+        raise error(502, "etims_unreachable", str(e)) from None
+    return {"connected": True}
+
+
+@router.post("/platform/etims/backfill")
+async def etims_backfill(days: int = 30, principal: Principal = Depends(platform_admin), db: AsyncSession = Depends(get_db)):
+    """Queues the invoices paid in the last `days` days that were never queued (paid before the device was set up). Safe to run again."""
+    if not platform_etims.enabled():
+        raise error(422, "etims_setup", "Set PLATFORM_KRA_PIN and PLATFORM_ETIMS_DEVICE_SERIAL first.")
+    since = datetime.now(UTC) - timedelta(days=max(1, min(days, 400)))
+    queued_ids = select(PlatformEtimsSubmission.subscription_invoice_id)
+    paid = (await db.execute(_all(select(SubscriptionInvoice).where(SubscriptionInvoice.status == "paid", SubscriptionInvoice.paid_at >= since, SubscriptionInvoice.id.not_in(queued_ids)).order_by(SubscriptionInvoice.paid_at)))).scalars().all()
+    for invoice in paid:
+        await platform_etims.queue(db, invoice)
+    await db.commit()
+    return {"queued": len(paid)}
+
+
+@router.post("/platform/etims/{sub_id}/retry")
+async def etims_retry(sub_id: uuid.UUID, principal: Principal = Depends(platform_admin), db: AsyncSession = Depends(get_db)):
+    """Tries again now (after fixing what KRA complained about, such as the business's KRA PIN)."""
+    s = await _etims_get(db, sub_id)
+    if s.status in ("submitted", "resolved"):
+        raise error(status.HTTP_409_CONFLICT, "done", "That invoice is already dealt with.")
+    if s.status == "needs_review":
+        s.attempts = 0
+    try:
+        await platform_etims.submit(db, s)
+        current_business_id.set(s.business_id)  # the entry goes in the paying business's own trail
+        audit.record(db, actor_user_id=principal.user.id, action="platform_etims.retried", entity_type="subscription_invoice", entity_id=s.subscription_invoice_id, after={"status": s.status})
+        await db.commit()
+    finally:
+        current_business_id.set(None)
+    return await _etims_row(db, s)
+
+
+@router.post("/platform/etims/{sub_id}/resolve")
+async def etims_resolve(sub_id: uuid.UUID, body: EtimsResolveIn, principal: Principal = Depends(platform_admin), db: AsyncSession = Depends(get_db)):
+    """The invoice was dealt with outside FleetTms (entered on the KRA portal). Say how, and optionally keep the receipt number."""
+    s = await _etims_get(db, sub_id)
+    if s.status in ("submitted", "resolved"):
+        raise error(status.HTTP_409_CONFLICT, "done", "That invoice is already dealt with.")
+    s.status, s.next_attempt_at, s.resolved_note, s.receipt_no = "resolved", None, body.note, body.receipt_no or s.receipt_no
+    current_business_id.set(s.business_id)
+    try:
+        audit.record(db, actor_user_id=principal.user.id, action="platform_etims.resolved_by_hand", entity_type="subscription_invoice", entity_id=s.subscription_invoice_id, after={"receipt_no": s.receipt_no}, note=body.note)
+        await db.commit()
+    finally:
+        current_business_id.set(None)
+    return await _etims_row(db, s)
 
 
 @router.get("/platform/health")

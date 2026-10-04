@@ -13,10 +13,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit
+from app import audit, whatsapp
 from app.db import get_db
 from app.deps import Principal, error, require_any
-from app.models import Business, Part, PartsOrder, PartsOrderLine, Supplier
+from app.models import Business, Part, PartsOrder, PartsOrderLine, Supplier, WhatsAppMessage
 from app.numbering import create_numbered
 from app.phone import normalize_phone
 from app.routers.parts import receive_stock
@@ -78,8 +78,9 @@ def _clean(body: SupplierIn) -> dict:
     return data
 
 
-def order_out(o: PartsOrder, supplier: Supplier | None = None) -> dict:
+def order_out(o: PartsOrder, supplier: Supplier | None = None, message: WhatsAppMessage | None = None) -> dict:
     return {
+        "whatsapp": {"automatic": whatsapp.available(), **(whatsapp.state_of(message) or {"status": None})},
         "id": o.id, "number": o.number, "supplier_id": o.supplier_id, "supplier_name": supplier.name if supplier else None, "status": o.status, "notes": o.notes,
         "expected_on": o.expected_on, "total_cents": o.total_cents, "sent_at": o.sent_at, "confirmed_at": o.confirmed_at, "collected_at": o.collected_at, "paid_at": o.paid_at,
         "paid_reference": o.paid_reference, "created_at": o.created_at,
@@ -93,6 +94,13 @@ def order_text(o: PartsOrder, supplier: Supplier, business: str) -> str:
     when = f"\nNeeded by {o.expected_on:%d %b %Y}." if o.expected_on else ""
     note = f"\n{o.notes}" if o.notes else ""
     return f"Hello {supplier.name}, order {o.number} from {business}:\n" + "\n".join(rows) + total + when + note + "\nPlease confirm availability and price. Thank you."
+
+
+async def _latest_messages(db: AsyncSession, order_ids: list[uuid.UUID]) -> dict[uuid.UUID, WhatsAppMessage]:
+    if not order_ids:
+        return {}
+    rows = (await db.execute(select(WhatsAppMessage).where(WhatsAppMessage.entity_type == "parts_order", WhatsAppMessage.entity_id.in_(order_ids)).order_by(WhatsAppMessage.created_at))).scalars()
+    return {m.entity_id: m for m in rows}  # the newest of each, since later rows replace earlier ones
 
 
 async def _supplier(db: AsyncSession, supplier_id: uuid.UUID) -> Supplier:
@@ -152,7 +160,9 @@ async def list_orders(status_filter: str | None = None, principal: Principal = D
     query = select(PartsOrder).order_by(PartsOrder.created_at.desc()).limit(200)
     if status_filter:
         query = query.where(PartsOrder.status == status_filter)
-    return [order_out(o, suppliers.get(o.supplier_id)) for o in (await db.execute(query)).scalars()]
+    orders = list((await db.execute(query)).scalars())
+    messages = await _latest_messages(db, [o.id for o in orders])
+    return [order_out(o, suppliers.get(o.supplier_id), messages.get(o.id)) for o in orders]
 
 
 @router.post("/orders", status_code=status.HTTP_201_CREATED)
@@ -197,7 +207,7 @@ async def draft_from_low_stock(body: LowStockIn, principal: Principal = Depends(
 @router.get("/orders/{order_id}")
 async def read_order(order_id: uuid.UUID, principal: Principal = Depends(require_any(*WRITE)), db: AsyncSession = Depends(get_db)):
     o = await _order(db, order_id)
-    return order_out(o, await _supplier(db, o.supplier_id))
+    return order_out(o, await _supplier(db, o.supplier_id), await whatsapp.latest_for(db, "parts_order", o.id))
 
 
 @router.put("/orders/{order_id}")
@@ -230,7 +240,43 @@ async def send_order(order_id: uuid.UUID, principal: Principal = Depends(require
         o.status, o.sent_at = "sent", datetime.now(UTC)
         audit.record(db, actor_user_id=principal.user.id, action="order.sent", entity_type="parts_order", entity_id=o.id, after={"number": o.number})
     await db.commit()
-    return {**order_out(o, supplier), "message": text, "whatsapp_url": f"https://wa.me/{supplier.phone.lstrip('+')}?text={quote(text)}"}
+    return {**order_out(o, supplier, await whatsapp.latest_for(db, "parts_order", o.id)), "message": text, "whatsapp_url": f"https://wa.me/{supplier.phone.lstrip('+')}?text={quote(text)}"}
+
+
+def order_summary(o: PartsOrder) -> str:
+    """The order on one line: a template variable cannot hold a line break."""
+    rows = ", ".join(f"{ln.quantity} x {ln.description}" for ln in o.lines)
+    extra = (f" Total KES {o.total_cents / 100:,.2f}." if o.total_cents else "") + (f" Needed by {o.expected_on:%d %b %Y}." if o.expected_on else "") + (f" {o.notes}" if o.notes else "")
+    return rows + "." + extra
+
+
+@router.post("/orders/{order_id}/whatsapp")
+async def send_order_on_whatsapp(order_id: uuid.UUID, principal: Principal = Depends(require_any(*WRITE)), db: AsyncSession = Depends(get_db)):
+    """Sends the order to the supplier on WhatsApp by itself (the official Business API), marks it sent, and from then on follows the message:
+    delivered, read, and the supplier's answer (Confirm or Cannot supply) when they press a button."""
+    o = await _order(db, order_id)
+    if o.status not in ("draft", "sent"):
+        raise error(status.HTTP_409_CONFLICT, "locked", "That order has already moved on.")
+    if not whatsapp.available():
+        raise error(status.HTTP_409_CONFLICT, "whatsapp_not_set_up", "Automatic WhatsApp is not switched on yet. Use Send by WhatsApp link instead.")
+    supplier = await _supplier(db, o.supplier_id)
+    phone = normalize_phone(supplier.phone) if supplier.phone else None
+    if phone is None:
+        raise error(422, "no_phone", f"{supplier.name} has no WhatsApp number on file. Add one first.")
+    business = (await db.execute(select(Business).where(Business.id == principal.business_id))).scalar_one()
+    try:
+        message = await whatsapp.send(
+            db, to=phone, purpose="order", entity_type="parts_order", entity_id=o.id, buttons=whatsapp.BUTTONS,
+            params=[supplier.name, o.number, business.name, order_summary(o), "Please confirm if you can supply."],
+        )  # fmt: skip
+    except whatsapp.WhatsAppError as e:
+        await db.commit()  # the failed attempt is kept, so the order shows what went wrong
+        raise error(status.HTTP_502_BAD_GATEWAY, "whatsapp_failed", str(e)) from None
+    if o.status == "draft":
+        o.status, o.sent_at = "sent", datetime.now(UTC)
+        audit.record(db, actor_user_id=principal.user.id, action="order.sent", entity_type="parts_order", entity_id=o.id, after={"number": o.number, "channel": "whatsapp"})
+    await db.commit()
+    return order_out(o, supplier, message)
 
 
 @router.post("/orders/{order_id}/status")
@@ -255,4 +301,4 @@ async def move_order(order_id: uuid.UUID, body: StatusIn, principal: Principal =
     o.status = body.status
     audit.record(db, actor_user_id=principal.user.id, action=f"order.{body.status}", entity_type="parts_order", entity_id=o.id, after={"number": o.number})
     await db.commit()
-    return order_out(o, await _supplier(db, o.supplier_id))
+    return order_out(o, await _supplier(db, o.supplier_id), await whatsapp.latest_for(db, "parts_order", o.id))

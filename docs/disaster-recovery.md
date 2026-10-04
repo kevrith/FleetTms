@@ -11,6 +11,7 @@ PostgreSQL writes every change to a write-ahead log (WAL). With archiving on (`d
 | WAL archive | `BACKUP_DIR/wal/` (the `archive_command` in `deploy/postgres/dr.conf`) | continuously; a quiet database still ships at least every `archive_timeout` (300 s) |
 | Base backup | `BACKUP_DIR/base/*.tar.gz` + checksum | `scripts/dr/backup.sh`, daily; keeps 7, and trims the WAL older than the oldest kept (the trimming ran in the drill with one backup; pruning several has not been exercised) |
 | Photos and data copies | `BACKUP_DIR/files/<time>/` | `scripts/dr/backup-files.sh`, daily; hard-linked snapshots so each costs only what changed |
+| Photos and data copies, when `STORAGE_BACKEND=s3` | the bucket | the provider keeps them durable; turn on **versioning** (and, if the provider offers it, replication to a second region) so a deleted or overwritten file can be got back. `backup-files.sh` only covers the media folder, so it has nothing to copy once everything is in the bucket. The bucket and its keys are not recreated by the restore script: the new machine only needs the same `S3_*` settings |
 | Restore | a new container and volume | `scripts/dr/restore.sh <base backup> <latest or a time>` |
 | The test of all of it | | `scripts/dr/drill.sh` |
 

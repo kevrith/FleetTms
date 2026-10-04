@@ -39,6 +39,7 @@ GLOBAL_TABLES = {
     "breach_incidents": "the platform's own register of data breaches, seen only by platform admins",
     "partners": "the platform's own partner list; a partner sees only their own report",
     "partner_commissions": "what partners have earned; kept after the business that paid it is gone",
+    "platform_etims_submissions": "FleetTms's own invoices to its customers on their way to KRA: the platform is the seller; a business sees only the state of its own invoice",
     "usage_counters": "counts of which parts of the product are used, keyed by a pseudonym: no person, no content",
 }
 
@@ -94,6 +95,9 @@ PUBLIC = {
     ("POST", "/hooks/subscription-pay/{key}"): "a derived secret, the checkout id and the amount are all checked",
     ("GET", "/plans"): "public prices",
     ("POST", "/hooks/traccar/{key}"): "a secret key in the address; wrong keys shut an address out",
+    ("POST", "/hooks/paystack"): "the card provider signs every report with the secret key; nothing unsigned is believed, the reference and the amount are checked, and wrong signatures shut an address out",
+    ("POST", "/hooks/whatsapp"): "Meta signs every delivery with the app secret; nothing unsigned is believed, and wrong signatures shut an address out",
+    ("GET", "/hooks/whatsapp"): "Meta's one-time check of the address, answered only to the verify token",
     ("GET", "/track/{token}"): "an unguessable link that ends with the delivery; rate limited",
     ("GET", "/contact"): "how to reach support: a number and an address that are meant to be public; rate limited",
     ("POST", "/partners/apply"): "an application only: nothing is given out until a person approves it; five an hour per address",
@@ -228,6 +232,12 @@ AUDIT_EXEMPT = {
     ("POST", "/fuel-prices/fetch"): "fetches public prices, stored with their source",
     ("POST", "/routes/suggest"): "looks up a route; nothing is saved",
     ("POST", "/imports/vehicles"): "every row created is audited by the function that creates it (vehicle.created)",
+    ("POST", "/imports/clients"): "every client added is audited (client.added)",
+    ("POST", "/imports/suppliers"): "every supplier added is audited (supplier.added)",
+    ("POST", "/imports/balances"): "every opening balance is audited (invoice.opening_balance)",
+    ("POST", "/odometer/suggest"): "reads a photo and answers with a number; nothing is saved",
+    ("POST", "/platform/etims/connect"): "asks KRA whether the platform's device is registered; changes nothing here",
+    ("POST", "/platform/etims/backfill"): "queues invoices already paid; each one is sent, and audited, when KRA accepts it",
     ("POST", "/imports/staff"): "every person added is audited when they are invited",
     ("POST", "/trips/{trip_id}/locations"): "a stream of positions; the points are the record",
     ("POST", "/me/messages/{message_id}/read"): "the read receipt is on the message",
@@ -236,6 +246,7 @@ AUDIT_EXEMPT = {
     ("POST", "/report-schedules/{schedule_id}/send-now"): "the delivery is recorded on the schedule",
     ("POST", "/sos/{alert_id}/location"): "a stream of positions for an open alert",
     ("POST", "/hooks/traccar/{key}"): "a machine feed; every position and event is stored",
+    ("POST", "/hooks/whatsapp"): "a reply that changes an order is audited as order.confirmed_on_whatsapp or order.declined_on_whatsapp",
     ("POST", "/trips/{trip_id}/pod/code"): "texts a one-time code; the delivery record shows when it was confirmed",
     ("POST", "/tyres/{tyre_id}/tread"): "a measurement row that records who took it",
 }

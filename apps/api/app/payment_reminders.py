@@ -9,7 +9,7 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit
+from app import audit, whatsapp
 from app.db import get_sessionmaker
 from app.debtor_rules import days_late, reminder_offset_due
 from app.invoicing import pay_instructions, render_invoice_pdf
@@ -47,18 +47,32 @@ def reminder_text(*, business: str, invoice: Invoice, balance_cents: int, today:
     return sms, email
 
 
+def address_of(client: Client, channel: str) -> str | None:
+    """Where a reminder on this channel would go: the phone for text and WhatsApp, the email address for email."""
+    return client.email if channel == "email" else client.phone
+
+
 async def _send_one(db: AsyncSession, invoice: Invoice, client: Client, business: Business, cfg: PaymentSettings, channel: str, today: date) -> tuple[str, str | None]:
     """Sends one reminder on one channel. Returns (recipient, error text or None)."""
-    recipient = (client.phone if channel == "sms" else client.email) or ""
+    recipient = address_of(client, channel) or ""
     pay = pay_instructions(cfg, invoice)
     sms, email = reminder_text(business=business.name, invoice=invoice, balance_cents=balance_of(invoice), today=today, pay=pay)
     try:
         if channel == "sms":
             await get_sms_sender().send(recipient, sms)
+        elif channel == "whatsapp":
+            if not whatsapp.available():
+                return recipient, "WhatsApp is not switched on."
+            late = days_late(invoice.due_date, today)
+            when = (f"is due on {invoice.due_date.strftime('%d %b %Y')}" if late < 0 else "is due today") if late <= 0 else f"was due on {invoice.due_date.strftime('%d %b %Y')} and is {late} day{'s' if late != 1 else ''} overdue"
+            await whatsapp.send(
+                db, to=recipient, purpose="reminder", entity_type="invoice", entity_id=invoice.id,
+                params=[client.name, business.name, invoice.number, kes(balance_of(invoice)), when, pay or "Please ignore this if you have already paid."],
+            )  # fmt: skip
         else:
             subject = f"Payment reminder: invoice {invoice.number} from {business.name}"
             await get_report_sender("email").send(recipient, subject, f"{invoice.number}.pdf", await render_invoice_pdf(db, invoice), email)
-    except DeliveryError as e:
+    except (DeliveryError, whatsapp.WhatsAppError) as e:
         return recipient, str(e)
     except Exception:
         log.exception("Reminder for %s on %s failed", invoice.number, channel)
@@ -74,7 +88,7 @@ async def remind(
     a channel and is given up on after three failures; a manual one (offset None) always goes."""
     results: list[PaymentReminder] = []
     for channel in channels:
-        if not (client.phone if channel == "sms" else client.email):
+        if not address_of(client, channel):
             continue
         row = None
         if offset is not None:
@@ -111,7 +125,7 @@ async def remind_business(db: AsyncSession, today: date | None = None) -> int:
         client = clients.get(invoice.client_id)
         if client is None or balance_of(invoice) <= 0:
             continue
-        reachable = [ch for ch in cfg.reminder_channels if (client.phone if ch == "sms" else client.email)]
+        reachable = [ch for ch in cfg.reminder_channels if address_of(client, ch)]
         if not reachable:
             continue
         closed: dict[int, set[str]] = {}  # per step: the channels that are finished (sent, or given up on)

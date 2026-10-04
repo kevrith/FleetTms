@@ -130,7 +130,7 @@ async def ingest_photo(
         width=width, height=height, captured_at=captured_at, lat=lat, lng=lng, uploaded_by_user_id=principal.user.id,
         client_id=client_id, late=late,
     )  # fmt: skip
-    storage.save(key, data)
+    await storage.save(key, data, content_type)
     db.add(photo)
     await db.flush()
     return photo

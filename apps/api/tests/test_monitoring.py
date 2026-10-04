@@ -23,7 +23,7 @@ async def test_liveness_and_readiness_are_public_and_tell_nothing_about_customer
     assert res.status_code == 200
     body = res.json()
     assert body["ready"] is True and body["failing"] == []
-    assert set(body["checks"]) == {"database", "redis", "worker", "base_backup", "wal_archive"}
+    assert set(body["checks"]) == {"database", "redis", "storage", "worker", "base_backup", "wal_archive"}
     assert body["checks"]["base_backup"] == {"ok": True, "state": "not configured"}
     assert "@" not in json.dumps(body) and "postgres" not in json.dumps(body).lower()  # no addresses, no connection strings
 

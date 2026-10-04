@@ -1,7 +1,7 @@
 """Is the system able to do its job right now? This is what an uptime monitor asks (`GET /ready`), and what the on-call person looks at first.
 
 `/health` says the process is alive. `/ready` says everything it depends on is working: the database (and that it has all migrations),
-Redis, the background worker (it writes a heartbeat every minute), and the backups (a recent base backup, and the newest write-ahead log segment
+Redis, file storage (a test file is written, read back and removed), the background worker (it writes a heartbeat every minute), and the backups (a recent base backup, and the newest write-ahead log segment
 shipped within the recovery point target). A check that cannot be made on this deployment says "not configured" and does not fail it.
 It returns only yes or no and short reasons: no customer data, no addresses, no names."""
 
@@ -13,6 +13,7 @@ from pathlib import Path
 from redis.asyncio import Redis
 from sqlalchemy import text
 
+from app import storage
 from app.config import settings
 from app.db import get_sessionmaker
 
@@ -59,6 +60,14 @@ async def check_redis() -> dict:
         return {"ok": False, "reason": "Redis cannot be reached"}
     finally:
         await redis.aclose()
+
+
+async def check_storage() -> dict:
+    """Photos and data copies can be written and read back (the folder, or the bucket with the keys it was given)."""
+    result = await storage.probe()
+    if result["ok"]:
+        return {"ok": True, "backend": result["backend"]}
+    return {"ok": False, "reason": "files cannot be stored or read: " + result.get("error", "the test file did not come back")}
 
 
 async def check_worker() -> dict:
@@ -119,6 +128,7 @@ async def readiness() -> dict:
     checks = {
         "database": await check_database(),
         "redis": await check_redis(),
+        "storage": await check_storage(),
         "worker": await check_worker(),
         "base_backup": check_base_backup(),
         "wal_archive": await check_wal_archive(),

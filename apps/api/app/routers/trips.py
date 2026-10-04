@@ -6,8 +6,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit, tracking
+from app import audit, fraud, odometer_reader, ratelimit, tracking
 from app.clock import capture_time
+from app.config import settings
 from app.db import get_db
 from app.deps import Principal, error, require, require_any
 from app.invoicing import invoice_for_trip
@@ -290,6 +291,22 @@ async def read_trip(
     return await trip_out(db, await get_trip(db, principal, trip_id))
 
 
+class SuggestIn(BaseModel):
+    photo_id: uuid.UUID
+
+
+@router.post("/odometer/suggest")
+async def suggest_odometer(body: SuggestIn, principal: Principal = Depends(require_any("trips.own", "trips.manage")), db: AsyncSession = Depends(get_db)):
+    """What the odometer in a photo you have just taken says, so the number can be filled in for you to check. Only your own, unused odometer
+    photo, and a limited number a day. It is a suggestion: you confirm the number, and the trip does not depend on it."""
+    photo = (await db.execute(select(Photo).where(Photo.id == body.photo_id))).scalar_one_or_none()
+    if photo is None or photo.kind != PhotoKind.ODOMETER or photo.used_at is not None or photo.uploaded_by_user_id != principal.user.id:
+        raise error(status.HTTP_404_NOT_FOUND, "not_found", "That photo was not found.")
+    await ratelimit.limit_subject("odometer_suggest", str(principal.user.id), settings.odometer_suggestions_per_day, 86_400)
+    value = await odometer_reader.read_photo(photo)
+    return {"value": value, "readable": value is not None}
+
+
 # ---- Moving a trip along -------------------------------------------------------------------------
 
 
@@ -319,15 +336,29 @@ async def _record_reading(
         db, principal, body.photo_id, PhotoKind.ODOMETER, required=True, client_id=body.photo_client_id, near=at
     )
     assert photo is not None  # required=True
+    # What the photo says: the server's own reading when it can make one, else what the phone claims to have read.
+    seen_by_server = await odometer_reader.read_photo(photo)
+    auto_read = seen_by_server if seen_by_server is not None else body.auto_read_value
     reading = OdometerReading(
         trip_id=trip.id, vehicle_id=vehicle.id, phase=phase, photo_id=photo.id,
-        auto_read_value=body.auto_read_value, confirmed_value=body.value,
+        auto_read_value=auto_read, confirmed_value=body.value,
         flags=reading_flags(
-            body.value, body.auto_read_value, vehicle.odometer_km, has_location=photo.lat is not None and photo.lng is not None
+            body.value, auto_read, vehicle.odometer_km, has_location=photo.lat is not None and photo.lng is not None
         ),
         recorded_by_user_id=principal.user.id,
     )  # fmt: skip
     db.add(reading)
+    await db.flush()
+    if seen_by_server is not None and seen_by_server != body.value:
+        await fraud.raise_finding(
+            db,
+            fraud.Finding(
+                "odometer_photo_mismatch", "amber", f"odometer-photo:{reading.id}", f"{vehicle.registration}: the odometer photo says {seen_by_server:,} km, {body.value:,} km was typed",
+                "The number typed for this reading is not the number in the photo. A slip of the finger, or something to ask about.",
+                {"typed_km": body.value, "photo_km": seen_by_server, "phase": phase.value}, vehicle_id=vehicle.id, trip_id=trip.id,
+                driver_membership_id=trip.driver_membership_id, subject_type="odometer_reading", subject_id=str(reading.id),
+            ),
+        )  # fmt: skip
     return reading, photo
 
 
@@ -465,7 +496,7 @@ async def do_end_trip(db: AsyncSession, principal: Principal, trip_id: uuid.UUID
     # The vehicle's last known reading is now the start of this trip, so only a jump within the trip is flagged.
     reading, photo = await _record_reading(db, principal, trip, vehicle, ReadingPhase.END, body, at)
     reading.flags = reading_flags(
-        body.value, body.auto_read_value, start.confirmed_value,
+        body.value, reading.auto_read_value, start.confirmed_value,
         has_location=photo.lat is not None and photo.lng is not None,
     )  # fmt: skip
     trip.status = TripStatus.COMPLETED

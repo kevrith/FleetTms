@@ -4,7 +4,7 @@ that a production deployment is not running with development settings."""
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from app import ratelimit
+from app import ratelimit, storage
 from app.config import Settings, settings
 
 MAX_REQUEST_BYTES = 12 * 1024 * 1024  # a photo is at most 8 MB; the biggest JSON body (an offline sync batch) is far smaller
@@ -100,6 +100,10 @@ def production_problems(s: Settings, *, sms_is_stand_in: bool) -> list[str]:
         problems.append("RATE_LIMITS_ENABLED must be on.")
     if "fake" in (s.document_reader, s.ask_llm):
         problems.append("DOCUMENT_READER and ASK_LLM must not be the test stand-ins.")
+    if s.whatsapp_token and not (s.whatsapp_phone_number_id and s.whatsapp_app_secret and s.whatsapp_verify_token):
+        problems.append("WHATSAPP_TOKEN is set, so WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_APP_SECRET and WHATSAPP_VERIFY_TOKEN must be too: without them replies and delivery reports are refused.")
+    if problem := storage.config_problem(s):
+        problems.append(problem)
     if sms_is_stand_in:
         problems.append("Text messages still go to the in-memory stand-in: sign-in codes would never reach anyone.")
     return problems

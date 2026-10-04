@@ -28,8 +28,8 @@ async def owed_cents(db: AsyncSession) -> int:
 
 
 async def billed_cents(db: AsyncSession, start: date, end: date) -> int:
-    """What was invoiced between two dates (inclusive), before VAT: VAT is the taxman's money, not income."""
-    return int((await db.execute(select(func.coalesce(func.sum(Invoice.subtotal_cents), 0)).where(Invoice.issue_date >= start, Invoice.issue_date <= end, Invoice.status != "void"))).scalar_one())
+    """What was invoiced between two dates (inclusive), before VAT: VAT is the taxman's money, not income. Balances brought forward from the old system were invoiced there, so they are not income here."""
+    return int((await db.execute(select(func.coalesce(func.sum(Invoice.subtotal_cents), 0)).where(Invoice.issue_date >= start, Invoice.issue_date <= end, Invoice.status != "void", Invoice.kind != "opening"))).scalar_one())
 
 
 async def profit_vs_cash(db: AsyncSession, today: date) -> dict:

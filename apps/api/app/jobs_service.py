@@ -20,7 +20,9 @@ async def sync_job(db: AsyncSession, job_id: uuid.UUID | None) -> None:
     trips = (await db.execute(select(Trip).where(Trip.job_id == job.id, Trip.status != TripStatus.CANCELLED))).scalars().all()
     done = sum(1 for t in trips if t.status == TripStatus.COMPLETED)
     started = any(t.status in (TripStatus.IN_PROGRESS, TripStatus.DELIVERED, TripStatus.COMPLETED) for t in trips)
-    if done >= job.trips_planned:
+    from app.recurrence import has_active_schedule
+
+    if done >= job.trips_planned and not await has_active_schedule(db, job.id):  # work that comes round again is not finished
         job.status = JobStatus.COMPLETED
         job.completed_at = job.completed_at or now()
     elif started:

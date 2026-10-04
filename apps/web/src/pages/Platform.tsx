@@ -1,6 +1,7 @@
 import type {
   PlatformBusinessDetail,
   PlatformBusinessRow,
+  PlatformEtims,
   PlatformOverview,
 } from "@fleettms/types";
 import { useCallback, useEffect, useState } from "react";
@@ -371,6 +372,133 @@ function Detail() {
 }
 
 /** The platform admin console: how the businesses on the platform are doing as customers. */
+function KraInvoices() {
+  const [e, setE] = useState<PlatformEtims | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const load = useCallback(() => {
+    api
+      .platformEtims()
+      .then(setE)
+      .catch((err) => setError(errorMessage(err)));
+  }, []);
+  useEffect(load, [load]);
+
+  async function act(work: () => Promise<string | void>) {
+    setError(null);
+    setMessage(null);
+    try {
+      const done = await work();
+      if (done) setMessage(done);
+      load();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+  async function resolve(id: string) {
+    const note = window.prompt("How was it dealt with? (for example: entered on the KRA portal)");
+    if (!note) return;
+    const receipt = window.prompt("KRA receipt number, if you have it (optional)") ?? "";
+    await act(async () => {
+      await api.platformEtimsResolve(id, note, receipt.trim());
+    });
+  }
+
+  if (!e) return <ErrorBanner message={error} />;
+  return (
+    <>
+      <ErrorBanner message={error} />
+      {message && <p className="status ok">{message}</p>}
+      <Card title="FleetTms's own invoices to KRA">
+        {!e.enabled ? (
+          <p className="muted">
+            Not set up. Set PLATFORM_KRA_PIN and PLATFORM_ETIMS_DEVICE_SERIAL where the API runs,
+            then connect the device here. Until then paid invoices are not sent to KRA.
+          </p>
+        ) : (
+          <p>
+            Every paid subscription and text bundle is sent to KRA as a tax invoice
+            {e.vat_pct > 0
+              ? `, with ${e.vat_pct}% VAT taken out of the price`
+              : ", with no VAT"}. {e.submitted} sent, {e.pending} waiting, {e.needs_review} need a
+            person, {e.resolved} handled by hand.
+          </p>
+        )}
+        <p>
+          <button
+            className="btn"
+            type="button"
+            disabled={!e.enabled}
+            onClick={() =>
+              void act(async () => {
+                await api.platformEtimsConnect();
+                return "The device is registered with KRA.";
+              })
+            }
+          >
+            Connect the device
+          </button>{" "}
+          <button
+            className="btn"
+            type="button"
+            disabled={!e.enabled}
+            onClick={() =>
+              void act(async () => {
+                const r = await api.platformEtimsBackfill();
+                return `${r.queued} paid invoice(s) queued.`;
+              })
+            }
+          >
+            Queue invoices paid before this was set up
+          </button>
+        </p>
+      </Card>
+      <Card title="Invoices">
+        {e.invoices.length === 0 && <p className="muted">None yet.</p>}
+        <ul className="list">
+          {e.invoices.map((i) => (
+            <li key={i.id}>
+              <span>
+                {i.invoice_number} ({i.business}) {kes(i.total_cents)}
+                {!i.business_has_pin && <span className="muted"> no buyer PIN</span>}
+                {i.last_error && i.status !== "submitted" && (
+                  <span className="muted"> {i.last_error}</span>
+                )}
+              </span>
+              <span>
+                <span
+                  className={`status ${i.status === "needs_review" ? "bad" : i.status === "pending" ? "warn" : "ok"}`}
+                >
+                  {i.status_text}
+                  {i.receipt_no ? ` ${i.receipt_no}` : ""}
+                </span>{" "}
+                {(i.status === "pending" || i.status === "needs_review") && (
+                  <>
+                    <button
+                      className="btn"
+                      type="button"
+                      onClick={() =>
+                        void act(async () => {
+                          await api.platformEtimsRetry(i.id);
+                        })
+                      }
+                    >
+                      Try again
+                    </button>{" "}
+                    <button className="btn" type="button" onClick={() => void resolve(i.id)}>
+                      Handled by hand
+                    </button>
+                  </>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </Card>
+    </>
+  );
+}
+
 export default function Platform() {
   return (
     <>
@@ -381,6 +509,7 @@ export default function Platform() {
         </NavLink>
         <NavLink to="/platform/businesses">Businesses</NavLink>
         <NavLink to="/platform/partners">Partners</NavLink>
+        <NavLink to="/platform/kra">KRA invoices</NavLink>
         <NavLink to="/platform/usage">Usage</NavLink>
         <NavLink to="/platform/breaches">Data breaches</NavLink>
       </nav>
@@ -389,6 +518,7 @@ export default function Platform() {
         <Route path="businesses" element={<Businesses />} />
         <Route path="breaches" element={<Breaches />} />
         <Route path="partners" element={<Partners />} />
+        <Route path="kra" element={<KraInvoices />} />
         <Route path="usage" element={<UsageReport />} />
         <Route path=":id" element={<Detail />} />
       </Routes>

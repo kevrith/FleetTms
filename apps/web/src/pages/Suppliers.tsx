@@ -15,6 +15,24 @@ const STATUS: Record<string, string> = {
   paid: "Paid",
   cancelled: "Cancelled",
 };
+function whatsappText(o: PartsOrder): string {
+  const w = o.whatsapp;
+  if (!w?.status) return "";
+  if (w.reply === "confirm") return "WhatsApp: the supplier pressed Confirm";
+  if (w.reply === "decline")
+    return "WhatsApp: the supplier cannot supply this. Choose another supplier.";
+  if (w.status === "failed") return `WhatsApp: not delivered. ${w.error ?? ""}`.trim();
+  if (w.status === "read") return "WhatsApp: the supplier has read it";
+  if (w.status === "delivered") return "WhatsApp: delivered to the supplier's phone";
+  return "WhatsApp: sent";
+}
+
+function whatsappTone(o: PartsOrder): string {
+  const w = o.whatsapp;
+  if (w?.reply === "decline" || w?.status === "failed") return "bad";
+  return w?.reply === "confirm" || w?.status === "read" ? "ok" : "warn";
+}
+
 const NEXT: Record<string, [string, string][]> = {
   sent: [
     ["confirmed", "Supplier confirmed"],
@@ -212,10 +230,27 @@ function Orders() {
                 </li>
               ))}
             </ul>
+            {o.whatsapp?.status && <p className={`status ${whatsappTone(o)}`}>{whatsappText(o)}</p>}
             <p className="actions">
-              {(o.status === "draft" || o.status === "sent") && (
+              {(o.status === "draft" || o.status === "sent") && o.whatsapp?.automatic && (
                 <button
                   className="btn primary"
+                  onClick={() =>
+                    run(
+                      () => api.sendOrderOnWhatsApp(o.id),
+                      "Sent to the supplier on WhatsApp. You will see here when they get it and answer.",
+                    )
+                  }
+                >
+                  <MessageCircle size={16} />{" "}
+                  {o.whatsapp.status === "failed" || o.status === "sent"
+                    ? "Send on WhatsApp again"
+                    : "Send on WhatsApp"}
+                </button>
+              )}{" "}
+              {(o.status === "draft" || o.status === "sent") && (
+                <button
+                  className={o.whatsapp?.automatic ? "btn" : "btn primary"}
                   onClick={() =>
                     run(async () => {
                       const sent = await api.sendOrder(o.id);
@@ -224,7 +259,7 @@ function Orders() {
                   }
                 >
                   <MessageCircle size={16} />{" "}
-                  {o.status === "draft" ? "Send by WhatsApp" : "Open WhatsApp again"}
+                  {o.status === "draft" ? "Send by WhatsApp link" : "Open WhatsApp link again"}
                 </button>
               )}{" "}
               {(NEXT[o.status] ?? []).map(([to, label]) => (

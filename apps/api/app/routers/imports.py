@@ -1,4 +1,4 @@
-"""Excel import for vehicles and staff (masterplan 5.29).
+"""Excel import for vehicles, staff, clients, suppliers and what clients owed when the business started (masterplan 5.29).
 
 All or nothing: if any row has a problem, nothing is imported and every problem is listed with its row number.
 `dry_run=true` checks the file and rolls back either way.
@@ -20,13 +20,17 @@ from app import audit
 from app.db import get_db
 from app.deps import Principal, error, require
 from app.models import (
+    Client,
     ComplianceDocType,
     ComplianceDocument,
     Depot,
+    Invoice,
+    InvoiceLine,
     OwnershipType,
     Party,
     Role,
     StaffProfile,
+    Supplier,
     Vehicle,
 )
 from app.routers.documents import DocumentIn
@@ -56,7 +60,18 @@ VEHICLE_EXAMPLE = [
 ]  # fmt: skip
 STAFF_COLUMNS = ["name", "phone", "email", "roles", "depot", "licence_number", "licence_class", "licence_expiry"]
 STAFF_EXAMPLE = ["Peter Otieno", "0712345678", "", "driver", "Nairobi Yard", "DL-123456", "CE", "2027-06-30"]
-EXAMPLES = {"vehicles": (VEHICLE_COLUMNS, VEHICLE_EXAMPLE), "staff": (STAFF_COLUMNS, STAFF_EXAMPLE)}
+CLIENT_COLUMNS = ["name", "contact_name", "phone", "email", "kra_pin", "billing_method", "rate_kes", "payment_terms_days", "vat_pct"]
+CLIENT_EXAMPLE = ["Mwangi Cement Ltd", "Grace Mwangi", "0712345678", "accounts@mwangi.example.com", "P051234567Z", "per_tonne", 3000, 30, 16]
+SUPPLIER_COLUMNS = ["name", "phone", "email", "category", "notes"]
+SUPPLIER_EXAMPLE = ["Kiambu Spares", "0722345678", "", "spares", "Ask for Mr Kamau"]
+# What clients owed the business on the day it started on FleetTms: one row for each invoice still unpaid on the old system. They become
+# invoices (marked "balance brought forward") so the debtors list, the ageing and the reminders work from the first day, and payments match to them.
+BALANCE_COLUMNS = ["client", "invoice_number", "invoice_date", "due_date", "amount_kes", "note"]
+BALANCE_EXAMPLE = ["Mwangi Cement Ltd", "INV-2026-0412", "2026-09-01", "2026-10-01", 245000, "Cement to Nairobi, unpaid"]
+EXAMPLES = {
+    "vehicles": (VEHICLE_COLUMNS, VEHICLE_EXAMPLE), "staff": (STAFF_COLUMNS, STAFF_EXAMPLE), "clients": (CLIENT_COLUMNS, CLIENT_EXAMPLE),
+    "suppliers": (SUPPLIER_COLUMNS, SUPPLIER_EXAMPLE), "balances": (BALANCE_COLUMNS, BALANCE_EXAMPLE),
+}  # fmt: skip
 
 
 class RowError(Exception):
@@ -268,6 +283,103 @@ async def _staff_row(db: AsyncSession, actor: Principal, v: dict[str, Any]) -> s
     return token
 
 
+def _cents(raw: Any, column: str) -> int:
+    """Shillings as typed in the sheet (245000 or 245,000.50) to whole cents, refusing more than two decimals so nothing is silently rounded."""
+    value = _number(raw, column)
+    if value is None:
+        raise RowError("Enter an amount in shillings.", column)
+    cents = value * 100
+    if cents != cents.to_integral_value():
+        raise RowError("Use at most two decimals (cents).", column)
+    return int(cents)
+
+
+async def _client_row(db: AsyncSession, actor: Principal, v: dict[str, Any], seen: set[str]) -> None:
+    from app.routers.clients import ClientIn
+    from app.routers.clients import _clean as clean_client
+
+    name = str(v.get("name") or "").strip()
+    if not name:
+        raise RowError("Name the client.", "name")
+    key = name.lower()
+    if key in seen or (await db.execute(select(Client.id).where(func.lower(Client.name) == key))).first() is not None:
+        raise RowError("A client with this name already exists (or is twice in the file).", "name")
+    seen.add(key)
+    rate = _cents(v["rate_kes"], "rate_kes") if v.get("rate_kes") is not None else 0
+    terms = _integer(v.get("payment_terms_days"), "payment_terms_days")
+    method = _enum_value(v.get("billing_method")) or "per_trip"
+    vat = _number(v.get("vat_pct"), "vat_pct")
+    try:
+        body = ClientIn(
+            name=name, contact_name=v.get("contact_name"), phone=str(v["phone"]) if v.get("phone") is not None else None, email=v.get("email"),
+            kra_pin=v.get("kra_pin"), billing_method=method, rate_cents=rate, payment_terms_days=30 if terms is None else terms, vat_pct=vat or Decimal(0),
+        )  # fmt: skip
+    except ValidationError as exc:
+        raise _pydantic_errors(exc) from None
+    client = Client(**clean_client(body))
+    db.add(client)
+    await db.flush()
+    audit.record(db, actor_user_id=actor.user.id, action="client.added", entity_type="client", entity_id=client.id, after={"name": client.name}, note="Created by Excel import")
+
+
+async def _supplier_row(db: AsyncSession, actor: Principal, v: dict[str, Any], seen: set[str]) -> None:
+    from app.routers.suppliers import SupplierIn
+    from app.routers.suppliers import _clean as clean_supplier
+
+    name = str(v.get("name") or "").strip()
+    if not name:
+        raise RowError("Name the supplier.", "name")
+    key = name.lower()
+    if key in seen or (await db.execute(select(Supplier.id).where(func.lower(Supplier.name) == key))).first() is not None:
+        raise RowError("A supplier with this name already exists (or is twice in the file).", "name")
+    seen.add(key)
+    try:
+        body = SupplierIn(name=name, phone=str(v["phone"]) if v.get("phone") is not None else None, email=v.get("email"), category=v.get("category"), notes=v.get("notes"))
+    except ValidationError as exc:
+        raise _pydantic_errors(exc) from None
+    supplier = Supplier(**clean_supplier(body))
+    db.add(supplier)
+    await db.flush()
+    audit.record(db, actor_user_id=actor.user.id, action="supplier.added", entity_type="supplier", entity_id=supplier.id, after={"name": supplier.name}, note="Created by Excel import")
+
+
+async def _balance_row(db: AsyncSession, actor: Principal, v: dict[str, Any], seen: set[str]) -> None:
+    name = str(v.get("client") or "").strip()
+    if not name:
+        raise RowError("Name the client.", "client")
+    client = (await db.execute(select(Client).where(func.lower(Client.name) == name.lower()))).scalars().first()
+    if client is None:
+        raise RowError(f"No client called {name}. Import the clients first, with exactly the same name.", "client")
+    old_number = str(v.get("invoice_number") or "").strip()
+    if not old_number or len(old_number) > 17:
+        raise RowError("Give the old invoice number (up to 17 characters).", "invoice_number")
+    number = f"OB-{old_number}"
+    if number in seen or (await db.execute(select(Invoice.id).where(Invoice.number == number))).first() is not None:
+        raise RowError("This invoice number is already there (or twice in the file).", "invoice_number")
+    seen.add(number)
+    issued, due = _date(v.get("invoice_date"), "invoice_date"), _date(v.get("due_date"), "due_date")
+    if issued is None:
+        raise RowError("Give the invoice date.", "invoice_date")
+    if due is None:
+        due = issued
+    if due < issued:
+        raise RowError("The due date is before the invoice date.", "due_date")
+    cents = _cents(v.get("amount_kes"), "amount_kes")
+    if cents <= 0:
+        raise RowError("The amount still owed must be more than nothing.", "amount_kes")
+    note = str(v.get("note") or "").strip()
+    description = f"Balance brought forward: invoice {old_number}" + (f", {note}" if note else "")
+    invoice = Invoice(
+        number=number, client_id=client.id, kind="opening", issue_date=issued, due_date=due, status="issued", subtotal_cents=cents, vat_pct=Decimal(0), vat_cents=0, total_cents=cents,
+        created_by_user_id=actor.user.id,
+        lines=[InvoiceLine(description=description[:255], quantity=Decimal(1), unit_cents=cents, amount_cents=cents, sort_order=1)],
+    )  # fmt: skip
+    db.add(invoice)
+    await db.flush()
+    # No tax-authority submission and no income: it was invoiced, and counted, on the old system. It is only what is still owed.
+    audit.record(db, actor_user_id=actor.user.id, action="invoice.opening_balance", entity_type="invoice", entity_id=invoice.id, after={"number": number, "total_cents": cents, "client": client.name}, note="Created by Excel import")
+
+
 async def _run(kind: str, file: UploadFile, dry_run: bool, principal: Principal, db: AsyncSession) -> dict:
     content = await file.read(MAX_BYTES + 1)
     if len(content) > MAX_BYTES:
@@ -283,6 +395,12 @@ async def _run(kind: str, file: UploadFile, dry_run: bool, principal: Principal,
             async with db.begin_nested():  # a failed row undoes only itself, so later rows are still checked
                 if kind == "vehicles":
                     await _vehicle_row(db, principal, values, seen)
+                elif kind == "clients":
+                    await _client_row(db, principal, values, seen)
+                elif kind == "suppliers":
+                    await _supplier_row(db, principal, values, seen)
+                elif kind == "balances":
+                    await _balance_row(db, principal, values, seen)
                 else:
                     token = await _staff_row(db, principal, values)
                     if token:
@@ -344,3 +462,34 @@ async def import_staff(
     db: AsyncSession = Depends(get_db),
 ):
     return await _run("staff", file, dry_run, principal, db)
+
+
+@router.post("/clients")
+async def import_clients(
+    file: UploadFile,
+    dry_run: bool = Query(default=False),
+    principal: Principal = Depends(require("data.import", "clients.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    return await _run("clients", file, dry_run, principal, db)
+
+
+@router.post("/suppliers")
+async def import_suppliers(
+    file: UploadFile,
+    dry_run: bool = Query(default=False),
+    principal: Principal = Depends(require("data.import", "workshop.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    return await _run("suppliers", file, dry_run, principal, db)
+
+
+@router.post("/balances")
+async def import_balances(
+    file: UploadFile,
+    dry_run: bool = Query(default=False),
+    principal: Principal = Depends(require("data.import", "invoices.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """What clients still owed when the business started: one row for each unpaid invoice from the old system."""
+    return await _run("balances", file, dry_run, principal, db)
