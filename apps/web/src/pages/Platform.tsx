@@ -9,6 +9,8 @@ import { api } from "../api";
 import { kes, nairobiTime } from "../labels";
 import { Card, ErrorBanner, errorMessage, Field } from "../ui";
 import Breaches from "./Breaches";
+import Partners from "./Partners";
+import UsageReport from "./UsageReport";
 
 const STATE: Record<string, [string, string]> = {
   trialing: ["On trial", "warn"],
@@ -378,12 +380,16 @@ export default function Platform() {
           Overview
         </NavLink>
         <NavLink to="/platform/businesses">Businesses</NavLink>
+        <NavLink to="/platform/partners">Partners</NavLink>
+        <NavLink to="/platform/usage">Usage</NavLink>
         <NavLink to="/platform/breaches">Data breaches</NavLink>
       </nav>
       <Routes>
         <Route index element={<Overview />} />
         <Route path="businesses" element={<Businesses />} />
         <Route path="breaches" element={<Breaches />} />
+        <Route path="partners" element={<Partners />} />
+        <Route path="usage" element={<UsageReport />} />
         <Route path=":id" element={<Detail />} />
       </Routes>
     </>

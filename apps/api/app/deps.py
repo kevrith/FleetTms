@@ -136,6 +136,9 @@ async def current_principal(
                     "subscription_read_only",
                     "This account is read-only because the subscription has not been paid. Nothing has been lost: pay in Settings, Subscription and it works again at once.",
                 )
+    from app import analytics
+
+    await analytics.note(principal, request.url.path)  # a count of which part of the product a business uses; never who, never what
     return principal
 
 

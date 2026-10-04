@@ -62,6 +62,23 @@ class Settings(BaseSettings):
     audit_retention_days: int = 1826  # five years; the database refuses to delete a younger row whatever this says
     financial_retention_days: int = 1826  # after a business cancels, its financial records are kept this long, then it is erased
     former_staff_retention_days: int = 1826  # a person who has left keeps their staff details this long, then they are anonymised
+    # Text messages through Africa's Talking (https://developers.africastalking.com). Leave the username and key empty in development: messages
+    # then stay in memory (and the API refuses to start in production without them). AT_SANDBOX=true uses their test environment.
+    at_username: str = ""
+    at_api_key: str = ""
+    at_sender_id: str = ""  # a sender name registered for Kenya, such as FleetTms; empty uses their shared short code
+    at_sandbox: bool = False
+    # The partner programme (masterplan Section 9): tracker installers who bring in customers earn a share of what those customers pay.
+    # These are proposals to be decided, not agreements: the percentage is each partner's own once approved, and zero months means for as long as they pay.
+    partner_commission_pct: int = 20
+    partner_commission_months: int = 24
+    web_app_url: str = ""  # where the web app is, for the links we text to partners
+    # Product analytics (analytics.py): counts of which parts of the product each business uses, with no people and no content in them.
+    analytics_enabled: bool = True
+    # How customers reach us (shown in the apps and on the help pages). Leave empty until the channels exist.
+    support_whatsapp: str = ""  # a Kenyan number, like 0712 345 678
+    support_email: str = ""
+    support_hours: str = "Monday to Saturday, 8am to 6pm (Nairobi time)"
     # Monitoring (see readiness.py). Leave BACKUP_DIR empty where backups are not made on this machine: the check then says "not configured".
     backup_dir: str = ""  # the folder that holds base/ and wal/ (scripts/dr)
     backup_max_age_hours: int = 30  # a daily base backup older than this is a failure

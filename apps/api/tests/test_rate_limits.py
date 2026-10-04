@@ -159,3 +159,14 @@ def test_the_in_memory_sms_sender_counts_as_a_stand_in():
     from app.sms import MeteredSms
 
     assert isinstance(MeteredSms(FakeSmsSender()).inner, FakeSmsSender)
+
+
+async def test_how_to_reach_support_is_public_and_says_what_is_not_set_up_yet(client, monkeypatch):
+    res = await client.get("/contact")
+    assert res.status_code == 200
+    assert res.json() == {"whatsapp": None, "whatsapp_link": None, "email": None, "hours": settings.support_hours}
+    monkeypatch.setattr(settings, "support_whatsapp", "0712 345 678")
+    monkeypatch.setattr(settings, "support_email", "help@fleettms.example")
+    seen = (await client.get("/contact")).json()
+    assert seen["whatsapp"] == "+254712345678" and seen["email"] == "help@fleettms.example"
+    assert seen["whatsapp_link"].startswith("https://wa.me/254712345678?text=")

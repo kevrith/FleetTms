@@ -37,6 +37,9 @@ GLOBAL_TABLES = {
     "device_logins": "quick sign-in devices, looked up before anyone is signed in",
     "sessions": "a session can move between a person's businesses; it carries its own business id",
     "breach_incidents": "the platform's own register of data breaches, seen only by platform admins",
+    "partners": "the platform's own partner list; a partner sees only their own report",
+    "partner_commissions": "what partners have earned; kept after the business that paid it is gone",
+    "usage_counters": "counts of which parts of the product are used, keyed by a pseudonym: no person, no content",
 }
 
 
@@ -92,6 +95,10 @@ PUBLIC = {
     ("GET", "/plans"): "public prices",
     ("POST", "/hooks/traccar/{key}"): "a secret key in the address; wrong keys shut an address out",
     ("GET", "/track/{token}"): "an unguessable link that ends with the delivery; rate limited",
+    ("GET", "/contact"): "how to reach support: a number and an address that are meant to be public; rate limited",
+    ("POST", "/partners/apply"): "an application only: nothing is given out until a person approves it; five an hour per address",
+    ("GET", "/partners/code/{code}"): "returns only a partner's trading name; rate limited",
+    ("GET", "/partners/portal"): "a partner's private key in a header; sees only their own referrals; rate limited",
 }
 
 # Signed in but not tied to one permission, and why that is right.
@@ -200,6 +207,12 @@ def writes_to_the_audit_trail(route, module, auditing):
 # Routes that change something but write no audit entry of their own, and why that is enough.
 AUDIT_EXEMPT = {
     ("POST", "/ask/lookup"): "reads figures; changes nothing",
+    ("POST", "/partners/apply"): "the application is the record: it is the platform's own, with no business",
+    ("POST", "/platform/partners/{partner_id}/approve"): "the partner row records who approved it and when",
+    ("POST", "/platform/partners/{partner_id}/commission"): "the partner row holds the share; each commission keeps the share it was earned at",
+    ("POST", "/platform/partners/{partner_id}/payout"): "each commission records when it was paid and the payment's reference",
+    ("POST", "/platform/partners/{partner_id}/reissue-key"): "replaces a credential; only its hash is kept",
+    ("POST", "/platform/partners/{partner_id}/{action}"): "suspending or rejecting a partner: the platform's own list, no business involved",
     ("POST", "/platform/breaches"): "the register is the record: it is the platform's own, has no business, and keeps who made each entry and when",
     ("PATCH", "/platform/breaches/{breach_id}"): "the same",
     ("POST", "/auth/otp/request"): "asks for a code; the challenge row is the record and the sign-in that follows is audited",
@@ -295,7 +308,7 @@ SECRET_SHAPES = [
     re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}"),
     re.compile(r"\bxox[abp]-[A-Za-z0-9-]{20,}"),
     re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b"),
-    re.compile(r"postgres(ql)?(\+\w+)?://[^:/\s@]+:[^@\s${}<>]{4,}@"),
+    re.compile(r"postgres(ql)?(\+\w+)?://[^:/\s@]+:(?![A-Z_]+@)[^@\s${}<>]{4,}@"),
 ]
 ASSIGNED = re.compile(r"""(?i)\b(password|passwd|secret|api_?key|token|passkey|consumer_secret)\w*\s*[:=]\s*["']([A-Za-z0-9/+_\-]{16,})["']""")
 

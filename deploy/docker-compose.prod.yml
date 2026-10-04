@@ -1,0 +1,111 @@
+# FleetTms in production on one machine: the database (with write-ahead log archiving for point-in-time recovery), Redis, the API,
+# the background worker, and Caddy in front (web app, API, and TLS certificates).
+#
+#   cp deploy/.env.production.example deploy/.env.production      # then fill it in; it is never committed
+#   docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml up -d --build
+#
+# Only Caddy publishes ports. The database, Redis and the API are reachable only from inside this network.
+name: fleettms-prod  # not "fleettms": the development stack on a developer machine has that name, and the two must never be mixed up
+
+x-app-env: &app-env
+  env_file: [.env.production]
+  environment:
+    # One place for each password: these are built from the same variables the database and Redis start with.
+    DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+    ENVIRONMENT: ${ENVIRONMENT:-production}
+    TRUST_PROXY_HEADERS: "true"  # the API is reachable only through Caddy, which sets the client's address itself
+    BACKUP_DIR: /backup  # where the API looks (read-only) to tell /ready how old the newest backup is; the host's folder is mounted there
+
+services:
+  db:
+    image: timescale/timescaledb-ha:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
+    # The same settings as deploy/postgres/dr.conf. /backup must be a folder on another disk (or a mounted bucket) that the postgres user
+    # (uid 1000) may write to: see docs/disaster-recovery.md.
+    command: >
+      postgres -c wal_level=replica -c archive_mode=on -c archive_timeout=300 -c max_wal_senders=4
+      -c "archive_command=test ! -f /backup/wal/%f && cp %p /backup/wal/%f"
+    volumes:
+      - dbdata:/home/postgres/pgdata/data
+      - ${BACKUP_DIR:?set BACKUP_DIR}:/backup
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD}"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $${REDIS_PASSWORD} --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      retries: 20
+
+  migrate:
+    <<: *app-env
+    build: {context: ../apps/api, dockerfile: ../../deploy/api.Dockerfile}
+    image: fleettms-api
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    depends_on:
+      db: {condition: service_healthy}
+
+  api:
+    <<: *app-env
+    image: fleettms-api
+    restart: unless-stopped
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+    volumes: ["media:/data/media", "${BACKUP_DIR:?set BACKUP_DIR}:/backup:ro"]
+
+  worker:
+    <<: *app-env
+    image: fleettms-api
+    command: ["arq", "app.worker.WorkerSettings"]
+    restart: unless-stopped
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+    volumes: [media:/data/media]
+    # The worker serves no web page, so the image's own check (which asks port 8000) does not apply. It is well if it has written its
+    # heartbeat (every minute) recently: the same thing /ready looks at.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,sys,time,redis; v=redis.Redis.from_url(os.environ['REDIS_URL']).get('worker:heartbeat'); sys.exit(0 if v and time.time()-int(v) < 180 else 1)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 3
+
+  edge:
+    build:
+      context: ..
+      dockerfile: deploy/web.Dockerfile
+      args:
+        VITE_API_URL: ${API_ORIGIN:?set API_ORIGIN, for example https://api.example.com}
+    restart: unless-stopped
+    environment:
+      APP_HOST: ${APP_HOST:?set APP_HOST, for example app.example.com}
+      API_HOST: ${API_HOST:?set API_HOST, for example api.example.com}
+      API_ORIGIN: ${API_ORIGIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes: [caddy_data:/data, caddy_config:/config]
+    depends_on: [api]
+
+volumes:
+  dbdata:
+  redisdata:
+  media:
+  caddy_data:
+  caddy_config:

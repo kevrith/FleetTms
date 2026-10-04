@@ -1,4 +1,9 @@
 import type {
+  FunnelReport,
+  PartnerApplication,
+  PartnerPortal,
+  PartnerRow,
+  UsageReport,
   BreachIncident,
   BreachSeverity,
   DataRequestKind,
@@ -199,8 +204,14 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
   const doFetch = options.fetchImpl ?? fetch;
   let refreshing: Promise<boolean> | null = null;
 
-  async function send(method: string, path: string, body: unknown, accessToken?: string) {
-    const headers: Record<string, string> = {};
+  async function send(
+    method: string,
+    path: string,
+    body: unknown,
+    accessToken?: string,
+    extraHeaders?: Record<string, string>,
+  ) {
+    const headers: Record<string, string> = { ...extraHeaders };
     const isForm = typeof FormData !== "undefined" && body instanceof FormData;
     if (body !== undefined && !isForm) headers["Content-Type"] = "application/json";
     if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
@@ -1221,6 +1232,59 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
       post<DataSubjectRequest>(`/data-requests/${id}/complete`, { resolution }),
     refuseDataRequest: (id: string, reason: string) =>
       post<DataSubjectRequest>(`/data-requests/${id}/refuse`, { reason }),
+
+    contact: () =>
+      request<{
+        whatsapp: string | null;
+        whatsapp_link: string | null;
+        email: string | null;
+        hours: string;
+      }>("GET", "/contact", undefined, false),
+
+    // ---- partners: public, then the platform admin's side ----
+    applyAsPartner: (body: PartnerApplication) =>
+      request<{ id: string; status: string; message: string }>(
+        "POST",
+        "/partners/apply",
+        body,
+        false,
+      ),
+    partnerCodeOwner: (code: string) =>
+      request<{ partner: string }>(
+        "GET",
+        `/partners/code/${encodeURIComponent(code)}`,
+        undefined,
+        false,
+      ),
+    /** A partner's own report. The key goes in a header, never the address. */
+    partnerPortal: async (key: string): Promise<PartnerPortal> => {
+      const res = await send("GET", "/partners/portal", undefined, undefined, {
+        "X-Partner-Key": key,
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw toApiError(res.status, data);
+      return data as PartnerPortal;
+    },
+    partners: (state?: string) =>
+      get<PartnerRow[]>(`/platform/partners${state ? `?state=${state}` : ""}`),
+    approvePartner: (id: string, commissionPct?: number) =>
+      post<PartnerRow & { portal_key: string }>(`/platform/partners/${id}/approve`, {
+        commission_pct: commissionPct ?? null,
+      }),
+    partnerAction: (id: string, action: "suspend" | "reactivate" | "reject") =>
+      post<PartnerRow | { deleted: boolean }>(`/platform/partners/${id}/${action}`),
+    setPartnerShare: (id: string, pct: number) =>
+      post<PartnerRow>(`/platform/partners/${id}/commission`, { commission_pct: pct }),
+    payPartner: (id: string, reference: string) =>
+      post<{ paid_cents: number }>(`/platform/partners/${id}/payout`, { reference }),
+    reissuePartnerKey: (id: string) =>
+      post<{ portal_key: string }>(`/platform/partners/${id}/reissue-key`),
+    partnerCommissionsFile: () =>
+      request<Blob>("GET", "/platform/partners/commissions.csv", undefined, true, true),
+
+    // ---- product analytics (platform admins) ----
+    usageReport: (days = 30) => get<UsageReport>(`/platform/analytics/usage?days=${days}`),
+    funnelReport: (weeks = 12) => get<FunnelReport>(`/platform/analytics/funnel?weeks=${weeks}`),
 
     // ---- the breach register (platform admins) ----
     breaches: () => get<BreachIncident[]>("/platform/breaches"),

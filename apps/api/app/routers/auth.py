@@ -1,5 +1,5 @@
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from itertools import pairwise
 
 from fastapi import APIRouter, Depends, status
@@ -75,6 +75,7 @@ class SignupIn(BaseModel):
     accept_terms: bool
     accept_privacy: bool
     accept_dpa: bool
+    referral_code: str | None = Field(default=None, max_length=20)  # a partner's code, if one sent them; a wrong one is ignored, never a reason to refuse
 
 
 class LoginIn(BaseModel):
@@ -177,6 +178,12 @@ async def signup(body: SignupIn, db: AsyncSession = Depends(get_db)):
         )
 
     business = Business(name=body.business_name.strip())
+    if body.referral_code:
+        from app import partners
+
+        partner = await partners.by_code(db, body.referral_code)
+        if partner is not None:
+            business.referred_by_partner_id, business.referred_at = partner.id, datetime.now(UTC)
     user = User(name=body.name.strip(), email=email, phone=phone, password_hash=hash_password(body.password))
     db.add_all([business, user])
     await db.flush()

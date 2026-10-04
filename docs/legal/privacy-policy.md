@@ -12,3 +12,5 @@
 10. **Complaints.** You may complain to the Office of the Data Protection Commissioner (ODPC).
 11. **Cookies and analytics (web).** Privacy-respecting usage analytics without personal data. **[TO FILL]**
 12. **Changes.** We will tell you about material changes.
+
+**[Sprint 17 additions to fold into the text above, for the advocate to word.]** (a) Product analytics: we count which parts of the product a business uses, under a pseudonym, with no names, no personal data and no content; platform staff see counts only. (b) Partners: if a business signs up with a partner's code, we record which partner referred it; the partner sees the business's name, its status and its size, and nothing about its people or records. (c) Our public pages (front page, help, partner page) set no cookies and use no third-party trackers.

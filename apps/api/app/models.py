@@ -220,6 +220,8 @@ class Business(Base):
     complimentary: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))  # never billed: the pilot tenant, partners, gifts
     suspended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # the platform put the account on hold (it is read-only)
     wound_down_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 90 days after cancelling: personal data and images removed, legally kept records stay
+    referred_by_partner_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("partners.id", ondelete="SET NULL"), index=True)  # the installer who brought it in
+    referred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     suspended_reason: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -2149,3 +2151,58 @@ class BreachIncident(Base):
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Partner(Base):
+    """A business that brings FleetTms customers in, usually a GPS tracker installer, and earns a share of what they pay. Not tied to one
+    business: the platform's own list. A partner sees only the businesses they referred (name, state and size) and their own commission."""
+
+    __tablename__ = "partners"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(200))
+    contact_name: Mapped[str] = mapped_column(String(200))
+    phone: Mapped[str] = mapped_column(String(20))
+    email: Mapped[str | None] = mapped_column(String(320))
+    city: Mapped[str | None] = mapped_column(String(80))
+    kind: Mapped[str] = mapped_column(String(20), default="tracker_installer")
+    message: Mapped[str | None] = mapped_column(String(1000))  # what they wrote when they applied
+    status: Mapped[str] = mapped_column(String(12), default="pending", index=True)  # pending, approved or suspended
+    code: Mapped[str | None] = mapped_column(String(12), unique=True)  # what a new business types at sign-up
+    portal_key_hash: Mapped[str | None] = mapped_column(String(64), index=True)  # the key to their private report; only its hash is kept
+    commission_bp: Mapped[int] = mapped_column(Integer, default=2000)  # their share in hundredths of a percent: 2000 is 20 percent
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approved_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+
+class PartnerCommission(Base):
+    """What a partner has earned from one paid subscription invoice of a business they referred. It outlives the business, so it keeps the
+    business's name and the invoice number as they were."""
+
+    __tablename__ = "partner_commissions"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    partner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("partners.id", ondelete="CASCADE"), index=True)
+    business_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("businesses.id", ondelete="SET NULL"))
+    business_name: Mapped[str] = mapped_column(String(200))
+    invoice_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("subscription_invoices.id", ondelete="SET NULL"), unique=True)  # one commission per invoice
+    invoice_number: Mapped[str] = mapped_column(String(20))
+    basis_cents: Mapped[int] = mapped_column(BigInteger)  # what the business paid
+    pct_bp: Mapped[int] = mapped_column(Integer)  # the partner's share when it was earned
+    amount_cents: Mapped[int] = mapped_column(BigInteger)
+    status: Mapped[str] = mapped_column(String(8), default="accrued", index=True)  # accrued or paid
+    accrued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    payout_reference: Mapped[str | None] = mapped_column(String(60))
+
+
+class UsageCounter(Base):
+    """How many requests a business made to one part of the product on one day. The business is a pseudonym (a keyed hash), the part is the
+    first word of the address ("vehicles", "trips", "map"), and nothing else is kept: no person, no address, no record, no content."""
+
+    __tablename__ = "usage_counters"
+    __table_args__ = (UniqueConstraint("day", "feature", "business_key"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    feature: Mapped[str] = mapped_column(String(30))
+    business_key: Mapped[str] = mapped_column(String(16))
+    requests: Mapped[int] = mapped_column(Integer, default=0)

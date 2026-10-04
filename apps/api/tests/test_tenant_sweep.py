@@ -70,6 +70,8 @@ MAY_SKIP_THE_FILTER = {
     "tracker_ingest.py": "a tracker is found by its device id before its business is known",
     "tracking_jobs.py": "scheduled jobs that work across every business and then set the business for each row",
     "data_export.py": "deleting expired copies across businesses; the export itself runs inside one business",
+    "analytics.py": "the sign-up funnel counts which businesses have done what, across businesses: counts only, never records",
+    "partners.py": "a partner's report counts a referred business's subscription and vehicles across businesses: its name, state and size only",
     "retention.py": "the daily retention job works across every business, one at a time, and sets the business for each",
 }
 

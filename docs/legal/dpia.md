@@ -25,6 +25,8 @@ Open items for the advocate are marked **[ADVOCATE]**; facts we cannot know are 
 - **Fraud checks.** They look at the money and distance records a driver creates, not at the person. They flag; a person decides.
 - **Remote immobiliser.** Owner only, stationary vehicle only, a confirmation step, full audit trail. It affects equipment, not personal data.
 - **Plain-English questions and document reading (AI).** The question and the figures looked up to answer it, or a photographed receipt or certificate, go to a cloud AI service, for that business only. The provider is contractually barred from keeping it or training on it **[ADVOCATE]** (provider and terms to be named). A person always confirms what was read before it is kept, and the answers show their numbers.
+- **Partners.** A GPS tracker installer who has joined the partner programme can see only the name of each business they referred, how it stands (trial, paying, overdue) and its number of vehicles, plus their own commission. They see no staff, no records and no money of the business. The key to their report is held as a hash and shown to them once.
+- **Product analytics.** Counts of requests per part of the product per day, per business, under a pseudonym: no person, address, id, record or content. The sign-up funnel is worked out from what each business has done. Only platform admins see either. It can be switched off (`ANALYTICS_ENABLED`). **[ADVOCATE]** confirm that this needs only a line in the Privacy Policy.
 - **Lessor portal.** A lessor sees the lease, its statements, service history and inspection status of their own lorry, and trips only if the lease says so and the drivers have been told.
 
 ## 3. Necessity and proportionality

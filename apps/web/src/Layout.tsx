@@ -1,7 +1,7 @@
 import { ROLE_LABELS } from "@fleettms/business-rules";
 import type { PendingDocument } from "@fleettms/types";
 import type { SosAlert } from "@fleettms/types";
-import { Building, LogOut, Siren } from "lucide-react";
+import { Building, HelpCircle, LogOut, Siren } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { api } from "./api";
@@ -159,6 +159,9 @@ export default function Layout() {
           <span className="muted">{me.roles.map((r) => ROLE_LABELS[r]).join(", ")}</span>
         </p>
         <FeedbackButton />
+        <a className="btn" href="/help" target="_blank" rel="noreferrer">
+          <HelpCircle size={16} /> Help
+        </a>
         <button className="btn" onClick={signOut}>
           <LogOut size={16} /> Sign out
         </button>

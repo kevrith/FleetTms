@@ -1,0 +1,36 @@
+# Two addresses, each with its own certificate (Caddy gets and renews them). Set APP_HOST and API_HOST in the environment,
+# for example app.example.com and api.example.com. For a trial on one machine, use http://localhost:8080 and http://localhost:8081: a
+# name that starts with http:// is served without TLS.
+
+{$APP_HOST} {
+	root * /srv/app
+	encode gzip zstd
+	try_files {path} /index.html
+	file_server
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		# The app talks to its own API and nothing else. Map pictures come from OpenStreetMap's tile server; photos come from the API.
+		Content-Security-Policy "default-src 'self'; connect-src 'self' {$API_ORIGIN}; img-src 'self' data: blob: {$API_ORIGIN} https://*.tile.openstreetmap.org; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		# The page itself must not be cached, so a new release reaches people at once; the files with hashes in their names can be.
+		Cache-Control "no-cache"
+	}
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+}
+
+{$API_HOST} {
+	encode gzip
+	request_body {
+		max_size 12MB
+	}
+	# The API sets its own security headers; Caddy adds the client's address for the rate limits (TRUST_PROXY_HEADERS=true).
+	reverse_proxy api:8000 {
+		header_up X-Forwarded-For {remote_host}
+		health_uri /health
+		health_interval 15s
+	}
+}

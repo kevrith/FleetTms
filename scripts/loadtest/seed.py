@@ -36,7 +36,7 @@ def chunks(rows):
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--url", required=True, help="postgresql://user:password@host:port/database")
+    p.add_argument("--url", required=True, help="postgresql://USER:PASSWORD@HOST:PORT/DATABASE")
     p.add_argument("--vehicles", type=int, default=300)
     p.add_argument("--trips-per-vehicle", type=int, default=40)
     p.add_argument("--points", type=int, default=2_000_000)

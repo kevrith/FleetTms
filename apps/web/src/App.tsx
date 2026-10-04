@@ -8,6 +8,9 @@ import Layout from "./Layout";
 import { navItems } from "./nav";
 import ExpiringDocuments from "./pages/ExpiringDocuments";
 import AcceptInvite from "./pages/AcceptInvite";
+import Landing from "./pages/Landing";
+import Help from "./pages/Help";
+import PartnerPublic from "./pages/PartnerPublic";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Expenses from "./pages/Expenses";
@@ -89,7 +92,7 @@ function RequireAuth({ children }: { children: JSX.Element }) {
   const { me, loading } = useAuth();
   const { pathname } = useLocation();
   if (loading) return <p className="main">Loading...</p>;
-  if (!me) return <Navigate to="/login" replace />;
+  if (!me) return pathname === "/" ? <Landing /> : <Navigate to="/login" replace />;
   if (me.mfa_setup_required && pathname !== "/two-factor")
     return <Navigate to="/two-factor" replace />;
   return children;
@@ -101,6 +104,9 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
       <Route path="/accept-invite" element={<AcceptInvite />} />
+      <Route path="/help" element={<Help />} />
+      <Route path="/help/:slug" element={<Help />} />
+      <Route path="/partners" element={<PartnerPublic />} />
       <Route path="/t/:token" element={<Follow />} />
       <Route
         path="/two-factor"

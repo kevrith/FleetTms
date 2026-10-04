@@ -42,3 +42,28 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: ruff check .
       - run: pytest -q
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Python packages with known vulnerabilities (blocks)
+        run: |
+          pip install pip-audit
+          pip-audit -r apps/api/constraints.txt --no-deps --disable-pip
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      # The known findings are in the phone app's build tooling and are explained in docs/security-review.md, so this reports but does not block.
+      - name: Node packages with known vulnerabilities (reports)
+        run: pnpm audit --prod || true
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The API image builds
+        run: docker build -f deploy/api.Dockerfile -t fleettms-api apps/api
+      - name: The web and proxy image builds
+        run: docker build -f deploy/web.Dockerfile --build-arg VITE_API_URL=https://api.example.com -t fleettms-edge .

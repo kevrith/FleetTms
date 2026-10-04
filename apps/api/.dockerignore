@@ -1,0 +1,10 @@
+.venv
+__pycache__
+**/__pycache__
+.pytest_cache
+.ruff_cache
+media_store
+tests
+requirements-dev.txt
+.env
+.env.*

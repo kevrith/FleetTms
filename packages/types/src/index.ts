@@ -98,6 +98,8 @@ export interface SignupInput {
   accept_terms: boolean;
   accept_privacy: boolean;
   accept_dpa: boolean;
+  /** A partner's code, if one sent the business here. A wrong one is ignored. */
+  referral_code?: string | null;
 }
 
 export interface InviteInput {
@@ -2622,4 +2624,81 @@ export interface BreachIncident {
   odpc_hours_left: number | null;
   odpc_overdue: boolean;
   odpc_late: boolean;
+}
+
+export interface PartnerApplication {
+  name: string;
+  contact_name: string;
+  phone: string;
+  email?: string;
+  city?: string;
+  kind?: "tracker_installer" | "other";
+  message?: string;
+}
+
+/** A partner as the platform admin sees them. */
+export interface PartnerRow {
+  id: string;
+  name: string;
+  contact_name: string;
+  phone: string;
+  email: string | null;
+  city: string | null;
+  kind: string;
+  message: string | null;
+  status: "pending" | "approved" | "suspended";
+  code: string | null;
+  commission_pct: number;
+  created_at: string;
+  approved_at: string | null;
+  owed_cents: number;
+  paid_cents: number;
+  referred: number;
+  paying: number;
+}
+
+export interface PartnerCommissionRow {
+  id: string;
+  business: string;
+  invoice: string;
+  paid_by_business_cents: number;
+  share_pct: number;
+  amount_cents: number;
+  status: "accrued" | "paid";
+  accrued_at: string;
+  paid_at: string | null;
+  payout_reference: string | null;
+}
+
+/** What a partner sees with their private key: only the businesses they referred, and their own commission. */
+export interface PartnerPortal {
+  partner: {
+    name: string;
+    status: string;
+    code: string | null;
+    commission_pct: number;
+    commission_months: number;
+  };
+  totals: { owed_cents: number; paid_cents: number; referred: number; paying: number };
+  referrals: { business: string; referred_at: string; state: string; vehicles: number }[];
+  commissions: PartnerCommissionRow[];
+}
+
+export interface UsageReport {
+  days: number;
+  businesses_active: number;
+  features: { feature: string; businesses: number; requests: number }[];
+  daily_active_businesses: { day: string; businesses: number }[];
+}
+
+export interface FunnelReport {
+  weeks: number;
+  steps: {
+    step: string;
+    label: string;
+    businesses: number;
+    stuck: number;
+    share_pct: number | null;
+  }[];
+  cohorts: Record<string, number | string>[];
 }

@@ -1,6 +1,7 @@
 """Test harness: a dedicated database built from the real migrations, truncated between tests."""
 
 import os
+import re
 import secrets
 from pathlib import Path
 
@@ -21,6 +22,9 @@ TEST_DB = os.getenv("TEST_DB_NAME", "fleettms_test")  # a second session can use
 _dev_url = make_url(settings.database_url)
 settings.database_url = _dev_url.set(database=TEST_DB).render_as_string(hide_password=False)
 settings.jwt_secret = secrets.token_urlsafe(32)  # generated per run, never stored
+# A second session can also have its own Redis database (TEST_REDIS_DB=7): two sessions sharing one clear each other's rate-limit and usage counters.
+if os.getenv("TEST_REDIS_DB"):
+    settings.redis_url = re.sub(r"/\d+$", f"/{os.environ['TEST_REDIS_DB']}", settings.redis_url)
 
 
 def _create_database_if_missing() -> None:
@@ -47,7 +51,7 @@ async def _clean():
 
     engine = get_engine()
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE businesses, users, otp_challenges CASCADE"))
+        await conn.execute(text("TRUNCATE businesses, users, otp_challenges, usage_counters CASCADE"))
     from app.sms import get_sms_sender
 
     get_sms_sender().outbox.clear()

@@ -6,10 +6,12 @@
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "android": {
-      "package": "com.kastra.fleettms"
+      "package": "com.kastra.fleettms",
+      "versionCode": 1
     },
     "ios": {
-      "bundleIdentifier": "com.kastra.fleettms"
+      "bundleIdentifier": "com.kastra.fleettms",
+      "buildNumber": "1"
     },
     "plugins": [
       [
@@ -27,6 +29,9 @@
           "isAndroidForegroundServiceEnabled": true
         }
       ]
-    ]
+    ],
+    "runtimeVersion": {
+      "policy": "appVersion"
+    }
   }
 }

@@ -303,3 +303,53 @@ pre {
   overflow: auto;
   margin: 0;
 }
+
+.landing {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 16px;
+}
+.landing-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0 24px;
+}
+.landing-bar nav {
+  display: flex;
+  gap: 16px;
+}
+.hero {
+  padding: 24px 0 32px;
+}
+.hero h1 {
+  font-size: clamp(28px, 5vw, 44px);
+  line-height: 1.15;
+  margin-bottom: 12px;
+}
+.points,
+.price-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+.price {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 4px 0;
+}
+.landing-foot {
+  padding: 24px 0;
+  text-align: center;
+  color: var(--muted);
+}
+.help {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 16px;
+}
+.help input[type="search"],
+.help > input {
+  width: 100%;
+  margin: 8px 0 16px;
+}

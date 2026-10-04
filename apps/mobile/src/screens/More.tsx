@@ -7,6 +7,7 @@ import { clearQuick } from "../quick";
 import { useOffline } from "../offline/runtime";
 import { FeedbackCard } from "./Feedback";
 import { MyDataCard } from "./MyData";
+import { SupportCard } from "./Support";
 import { QuickSignInCard } from "./QuickSignIn";
 import { Body, Button, ErrorText, errorMessage, Screen, Title } from "../ui";
 
@@ -107,6 +108,7 @@ export default function MoreScreen() {
         <QuickSignInCard />
         <FeedbackCard />
         <MyDataCard />
+        <SupportCard />
         <Button kind="secondary" label="Sign out" onPress={leave} />
         <Button kind="danger" label="Sign out of all devices" onPress={signOutEverywhere} />
       </ScrollView>

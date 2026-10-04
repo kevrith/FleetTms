@@ -174,6 +174,13 @@ async def apply_paid(db: AsyncSession, invoice: SubscriptionInvoice, *, method: 
         sub.paid_until = max(sub.paid_until or invoice.period_end, invoice.period_end)
         sub.period = invoice.billing_period or sub.period
         sub.last_notice = None
+    await db.flush()
+    try:
+        from app import partners
+
+        await partners.accrue(db, invoice, now)  # the installer who brought this business in earns their share
+    except Exception:
+        log.exception("Partner commission could not be recorded for an invoice")
 
 
 async def payment_for_checkout(db: AsyncSession, checkout_id: str) -> SubscriptionPayment | None:

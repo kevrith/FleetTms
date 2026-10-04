@@ -1,13 +1,16 @@
 import { UserPlus } from "lucide-react";
-import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useState, type FormEvent } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { ErrorBanner, errorMessage, Field } from "../ui";
 
 export default function Signup() {
   const nav = useNavigate();
+  const [params] = useSearchParams();
   const { reload } = useAuth();
+  const [referral, setReferral] = useState(params.get("ref") ?? "");
+  const [partnerName, setPartnerName] = useState<string | null>(null);
   const [form, setForm] = useState({
     business_name: "",
     name: "",
@@ -21,6 +24,20 @@ export default function Signup() {
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) =>
     setForm({ ...form, [k]: e.target.value });
 
+  async function checkCode() {
+    setPartnerName(null);
+    if (referral.trim().length < 4) return;
+    try {
+      setPartnerName((await api.partnerCodeOwner(referral.trim())).partner);
+    } catch {
+      /* an unknown code is simply not used */
+    }
+  }
+  useEffect(() => {
+    void checkCode();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -29,6 +46,7 @@ export default function Signup() {
       await api.signup({
         ...form,
         phone: form.phone || null,
+        referral_code: referral.trim() || null,
         accept_terms: accepted,
         accept_privacy: accepted,
         accept_dpa: accepted,
@@ -82,6 +100,16 @@ export default function Signup() {
             autoComplete="tel"
           />
         </Field>
+        <Field label="Partner code (only if someone sent you)">
+          <input
+            value={referral}
+            onChange={(e) => setReferral(e.target.value)}
+            onBlur={checkCode}
+            maxLength={20}
+            autoCapitalize="characters"
+          />
+        </Field>
+        {partnerName && <p className="status ok">Thank you for coming through {partnerName}.</p>}
         <Field label="Password (at least 10 characters)">
           <input
             type="password"
