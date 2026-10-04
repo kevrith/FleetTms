@@ -5,15 +5,18 @@ from redis.asyncio import Redis
 from app.config import settings
 from app.db import database_is_up
 from app.deps import feature
+from app.http_security import RequestLimits, SecurityHeaders, check_production
 from app.routers import (
     ask,
     audit_log,
     auth,
     behaviour,
     beta,
+    breaches,
     clients,
     dashboard,
     data_exports,
+    data_requests,
     debtors,
     depots,
     devices,
@@ -68,7 +71,11 @@ from app.routers import (
     workshop,
 )
 
+check_production()  # a live deployment with development settings does not start
+
 app = FastAPI(title="FleetTms API", version=settings.version)
+app.add_middleware(SecurityHeaders)
+app.add_middleware(RequestLimits)
 
 app.add_middleware(
     CORSMiddleware,
@@ -82,7 +89,7 @@ GATED = {
     predictions: "predictions", fuel_sensor: "fuel_sensors", report_schedules: "scheduled_reports", ask: "ask",
 }  # fmt: skip  (a whole router that belongs to one plan)
 
-for module in (data_exports, ask, report_catalog, messages, platform_console, subscription, beta, document_readings, fraud, fuel_prices, fuel_sensor, predictions, scorecards, auth, users, depots, vehicles, staff, documents, imports, photos, inspections, trips, fuel, floats, devices, sync, expenses, reconciliation, workshop, dashboard, tyres, parts, incidents, sos, clients, quotes, jobs, invoices, payments, statements, debtors, etims, leases, finance, payroll, suppliers, profit, portal, locations, livemap, tracking_links, trackers, geofences, behaviour, immobiliser, report_schedules, audit_log, privacy, support):
+for module in (breaches, data_requests, data_exports, ask, report_catalog, messages, platform_console, subscription, beta, document_readings, fraud, fuel_prices, fuel_sensor, predictions, scorecards, auth, users, depots, vehicles, staff, documents, imports, photos, inspections, trips, fuel, floats, devices, sync, expenses, reconciliation, workshop, dashboard, tyres, parts, incidents, sos, clients, quotes, jobs, invoices, payments, statements, debtors, etims, leases, finance, payroll, suppliers, profit, portal, locations, livemap, tracking_links, trackers, geofences, behaviour, immobiliser, report_schedules, audit_log, privacy, support):
     app.include_router(module.router, dependencies=[Depends(feature(GATED[module]))] if module in GATED else None)
 
 
@@ -94,6 +101,17 @@ async def redis_is_up() -> bool:
         return False
     finally:
         await client.aclose()
+
+
+@app.get("/ready")
+async def ready():
+    """Everything the system depends on, for an uptime monitor: 200 when all is well, 503 with the reasons when not (readiness.py)."""
+    from fastapi.responses import JSONResponse
+
+    from app.readiness import readiness
+
+    result = await readiness()
+    return JSONResponse(result, status_code=200 if result["ready"] else 503)
 
 
 @app.get("/health")

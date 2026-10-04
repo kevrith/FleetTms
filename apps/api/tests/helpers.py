@@ -51,9 +51,9 @@ async def login(client, identifier, secret=None, business_id=None, password=PASS
     return await client.post("/auth/login", json=body)
 
 
-async def owner_session(client, business="Kamau Haulage", email="owner@example.com"):
+async def owner_session(client, business="Kamau Haulage", email="owner@example.com", phone=None):
     """Sign up a business and return (tokens, totp_secret) for a fully verified owner session."""
-    tokens = await signup(client, business=business, email=email)
+    tokens = await signup(client, business=business, email=email, phone=phone)
     secret = await enable_2fa(client, tokens)
     return tokens, secret
 

@@ -148,7 +148,8 @@ def photo_out(photo: Photo | None) -> dict | None:
         "lng": photo.lng,
         "late": photo.late,
         "client_id": photo.client_id,
-        "url": storage.signed_url(photo.storage_key),  # short-lived; fetch it again when it expires
+        "purged": photo.purged_at is not None,  # past its retention period: the record is kept, the picture is not
+        "url": None if photo.purged_at is not None else storage.signed_url(photo.storage_key),  # short-lived; fetch it again when it expires
     }
 
 

@@ -14,7 +14,7 @@ from collections import defaultdict
 from datetime import date, datetime
 from itertools import pairwise
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.floatcalc import day_bounds
@@ -69,15 +69,28 @@ def months_between(first: date, last: date) -> list[date]:
     return out
 
 
+def _chunks(ids, size: int = 5000):
+    """A long list of ids, in pieces small enough for one query's parameters."""
+    ids = list(ids)
+    for i in range(0, len(ids), size):
+        yield ids[i : i + size]
+
+
 async def trip_revenue(db: AsyncSession, trips: list[Trip]) -> tuple[dict[uuid.UUID, int], set[uuid.UUID], set[uuid.UUID]]:
     """What each delivered trip earned (before VAT): its invoice, or its share of the month's contract fee. Returns
     (revenue, trips whose revenue is an estimate, trips with no revenue yet)."""
     if not trips:
         return {}, set(), set()
     ids = [t.id for t in trips]
-    invoices = (await db.execute(select(Invoice).where(Invoice.status != "void"))).scalars().all()
-    by_trip = {i.trip_id: i for i in invoices if i.trip_id in ids}
-    jobs = {j.id: j for j in (await db.execute(select(Job).where(Job.id.in_({t.job_id for t in trips if t.job_id})))).scalars()}
+    job_ids = {t.job_id for t in trips if t.job_id}
+    jobs = {j.id: j for j in (await db.execute(select(Job).where(Job.id.in_(job_ids)))).scalars()} if job_ids else {}
+    # Only the invoices these trips can use: their own, and the monthly contract invoices of their jobs (not every invoice ever raised).
+    invoices: list[Invoice] = []
+    for piece in _chunks(ids):
+        invoices += (await db.execute(select(Invoice).where(Invoice.status != "void", Invoice.trip_id.in_(piece)))).scalars().all()
+    if job_ids:
+        invoices += (await db.execute(select(Invoice).where(Invoice.status != "void", Invoice.kind == "contract", Invoice.job_id.in_(job_ids)))).scalars().all()
+    by_trip = {i.trip_id: i for i in invoices if i.trip_id in set(ids)}
     revenue: dict[uuid.UUID, int] = {}
     estimated: set[uuid.UUID] = set()
     contract: dict[tuple[uuid.UUID, date], list[Trip]] = defaultdict(list)
@@ -137,15 +150,15 @@ async def build(db: AsyncSession, first_month: date, last_month: date) -> dict:
         return {o.kind for o in ownership.get(vehicle_id, []) if o.start_date <= last and (o.end_date is None or o.end_date >= first)}
 
     # ---- trips and their revenue ----
-    trips = [
-        t for t in (await db.execute(select(Trip).where(Trip.status.in_((TripStatus.DELIVERED, TripStatus.COMPLETED))))).scalars()
-        if (t.delivered_at or t.ended_at) and start <= (t.delivered_at or t.ended_at) < end
-    ]  # fmt: skip
+    when = func.coalesce(Trip.delivered_at, Trip.ended_at)  # a trip counts in the month it was delivered, else the month it ended
+    trips = list((await db.execute(select(Trip).where(Trip.status.in_((TripStatus.DELIVERED, TripStatus.COMPLETED)), when >= start, when < end))).scalars())
     revenue, estimated, unbilled = await trip_revenue(db, trips)
-    jobs = {j.id: j for j in (await db.execute(select(Job))).scalars()}
+    wanted_jobs = {t.job_id for t in trips if t.job_id}
+    jobs = {j.id: j for j in (await db.execute(select(Job).where(Job.id.in_(wanted_jobs)))).scalars()} if wanted_jobs else {}
     readings: dict[uuid.UUID, dict[str, int]] = defaultdict(dict)
-    for r in (await db.execute(select(OdometerReading))).scalars():
-        readings[r.trip_id][r.phase.value] = r.confirmed_value
+    for piece in _chunks(t.id for t in trips):
+        for r in (await db.execute(select(OdometerReading).where(OdometerReading.trip_id.in_(piece)))).scalars():
+            readings[r.trip_id][r.phase.value] = r.confirmed_value
 
     fig: dict[tuple[uuid.UUID, date], dict] = defaultdict(_new)
     trip_cost: dict[uuid.UUID, int] = defaultdict(int)

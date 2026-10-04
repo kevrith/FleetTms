@@ -219,6 +219,7 @@ class Business(Base):
     fuel_region: Mapped[str] = mapped_column(String(40), default="Nairobi", server_default=text("'Nairobi'"))  # whose EPRA pump price quotes start from
     complimentary: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))  # never billed: the pilot tenant, partners, gifts
     suspended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # the platform put the account on hold (it is read-only)
+    wound_down_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 90 days after cancelling: personal data and images removed, legally kept records stay
     suspended_reason: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -311,6 +312,8 @@ class Membership(TenantMixin, Base):
     # A lessor's portal login belongs to the lessor it is for, and sees only that lessor's leases.
     party_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("parties.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # when the person left; their details are anonymised after the retention period
+    anonymised_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     user: Mapped[User] = relationship(lazy="joined")
     roles: Mapped[list["RoleAssignment"]] = relationship(
@@ -332,6 +335,7 @@ class RoleAssignment(TenantMixin, Base):
 
 class AuditLog(TenantMixin, Base):
     __tablename__ = "audit_logs"
+    __table_args__ = (Index("ix_audit_logs_business_created", "business_id", text("created_at DESC")),)  # the audit screen: newest first, one business
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
     actor_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     action: Mapped[str] = mapped_column(String(80), index=True)
@@ -495,6 +499,7 @@ class Photo(TenantMixin, Base):
     # Chosen by the phone, so a photo queued offline and re-sent after a lost reply is stored once.
     client_id: Mapped[uuid.UUID | None] = mapped_column(index=True)
     late: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))  # synced after the fresh window
+    purged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # past its retention: the image is gone, the record of it stays
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -562,6 +567,7 @@ class Defect(TenantMixin, Base):
 
 class Trip(TenantMixin, Base):
     __tablename__ = "trips"
+    __table_args__ = (Index("ix_trips_business_started", "business_id", "started_at"), Index("ix_trips_business_ended", "business_id", "ended_at"))  # date ranges: dashboard, scorecards, reports
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
     vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True)
     driver_membership_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -617,6 +623,7 @@ class FuelEntry(TenantMixin, Base):
     __table_args__ = (
         UniqueConstraint("business_id", "client_id"),
         UniqueConstraint("business_id", "mpesa_code"),
+        Index("ix_fuel_entries_business_captured", "business_id", "captured_at"),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
     vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True)
@@ -683,6 +690,7 @@ class Expense(TenantMixin, Base):
     __table_args__ = (
         UniqueConstraint("business_id", "client_id"),
         UniqueConstraint("business_id", "mpesa_code"),
+        Index("ix_expenses_business_spent", "business_id", "spent_at"),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
     vehicle_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("vehicles.id", ondelete="SET NULL"), index=True)
@@ -1816,7 +1824,7 @@ class BehaviourEvent(TenantMixin, Base):
     """Speeding, harsh braking and the rest, with the driver who was on the trip when it happened."""
 
     __tablename__ = "behaviour_events"
-    __table_args__ = (UniqueConstraint("business_id", "vehicle_id", "kind", "at"), Index("ix_behaviour_vehicle_time", "vehicle_id", "at"))
+    __table_args__ = (UniqueConstraint("business_id", "vehicle_id", "kind", "at"), Index("ix_behaviour_vehicle_time", "vehicle_id", "at"), Index("ix_behaviour_driver_time", "driver_membership_id", "at"))
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
     vehicle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"))
     driver_membership_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("memberships.id", ondelete="SET NULL"), index=True)
@@ -2095,3 +2103,49 @@ class AskQuestion(TenantMixin, Base):
     lookups: Mapped[list] = mapped_column(JSONB, default=list)  # which lookups were run, with what
     provider: Mapped[str] = mapped_column(String(20))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class DataSubjectRequest(TenantMixin, Base):
+    """A person asking, under the Data Protection Act, to see, correct, take away, stop the use of, or delete what is held about them.
+    The business is the controller of its staff's data, so the request is answered by the business, with FleetTms providing the tools."""
+
+    __tablename__ = "data_subject_requests"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    membership_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("memberships.id", ondelete="SET NULL"), index=True)  # who it is about
+    requested_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    kind: Mapped[str] = mapped_column(String(12))  # access, correct, delete, object or portability
+    details: Mapped[str | None] = mapped_column(String(2000))
+    status: Mapped[str] = mapped_column(String(12), default="open", index=True)  # open, completed or refused
+    due_on: Mapped[date] = mapped_column(Date)
+    resolution: Mapped[str | None] = mapped_column(String(2000))  # what was done, or why it was refused
+    resolved_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class BreachIncident(Base):
+    """The register of personal data breaches (masterplan 11.2 item 8). It belongs to the platform, not to any one business, and is seen
+    only by platform admins. The Data Protection Commissioner must be told within 72 hours of FleetTms becoming aware of a breach
+    likely to put people at risk."""
+
+    __tablename__ = "breach_incidents"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    title: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text)
+    severity: Mapped[str] = mapped_column(String(8))  # low, medium, high or critical
+    discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))  # when we became aware: the 72 hours run from here
+    occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    businesses_affected: Mapped[list] = mapped_column(JSONB, default=list)  # business ids
+    people_affected: Mapped[int | None] = mapped_column(Integer)
+    data_involved: Mapped[str | None] = mapped_column(String(500))
+    risk_to_people: Mapped[bool] = mapped_column(Boolean, default=True)  # likely to put people at risk, so the Commissioner must be told
+    status: Mapped[str] = mapped_column(String(10), default="open", index=True)  # open, contained or closed
+    contained_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    odpc_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    businesses_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    people_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    root_cause: Mapped[str | None] = mapped_column(Text)
+    actions_taken: Mapped[str | None] = mapped_column(Text)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

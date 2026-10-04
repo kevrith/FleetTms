@@ -7,10 +7,10 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select, update
-from sqlalchemy.dialects.postgresql import distinct_on
+from sqlalchemy import Uuid, column, func, select, true, update, values
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app import behaviour, fraud, geofences
 from app.gps_rules import good_fix, path_distance_km, three_way
@@ -108,16 +108,18 @@ async def finalise(db: AsyncSession, trip: Trip) -> None:
 
 
 async def last_positions(db: AsyncSession, vehicle_ids: list[uuid.UUID], *, since: datetime | None = None) -> dict[uuid.UUID, LocationPoint]:
-    """The newest fix for each vehicle (looking back 30 days at most, which keeps the scan to the newest chunks)."""
+    """The newest fix for each vehicle (looking back 30 days at most). One index lookup per vehicle, so the cost follows the number of
+    vehicles and not the number of points: "newest row of each group" over a month of a busy fleet's points is millions of rows."""
     if not vehicle_ids:
         return {}
     since = since or datetime.now(UTC) - timedelta(days=30)
-    rows = (
-        await db.execute(
-            select(LocationPoint).ext(distinct_on(LocationPoint.vehicle_id)).where(LocationPoint.vehicle_id.in_(vehicle_ids), LocationPoint.recorded_at >= since)
-            .order_by(LocationPoint.vehicle_id, LocationPoint.recorded_at.desc())
-        )
-    ).scalars()  # fmt: skip
+    wanted = values(column("vehicle_id", Uuid), name="wanted").data([(v,) for v in vehicle_ids])
+    newest = (
+        select(LocationPoint).where(LocationPoint.vehicle_id == wanted.c.vehicle_id, LocationPoint.recorded_at >= since)
+        .order_by(LocationPoint.recorded_at.desc()).limit(1).lateral()
+    )  # fmt: skip
+    point = aliased(LocationPoint, newest)
+    rows = (await db.execute(select(point).select_from(wanted).join(point, true()))).scalars()
     return {p.vehicle_id: p for p in rows}
 
 

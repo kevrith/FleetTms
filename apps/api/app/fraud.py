@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from statistics import median
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import audit, fraud_rules, fuel_sensor_rules
@@ -177,13 +177,10 @@ async def _idle_hours(db: AsyncSession, trip_ids: list[uuid.UUID]) -> dict[uuid.
     return out
 
 
-async def _fuel_by_trip(db: AsyncSession, trips: list[Trip]) -> dict[uuid.UUID, float]:
+def attribute_fuel(entries: list[FuelEntry], trips: list[Trip]) -> dict[uuid.UUID, float]:
     """Litres bought for each trip: entries tied to it, and the vehicle's untied entries made while it was running."""
     out: dict[uuid.UUID, float] = defaultdict(float)
-    if not trips:
-        return out
     ids = {t.id for t in trips}
-    entries = (await db.execute(select(FuelEntry).where(FuelEntry.vehicle_id.in_({t.vehicle_id for t in trips})))).scalars().all()
     for e in entries:
         if e.trip_id in ids:
             out[e.trip_id] += float(e.litres)
@@ -195,12 +192,52 @@ async def _fuel_by_trip(db: AsyncSession, trips: list[Trip]) -> dict[uuid.UUID, 
     return out
 
 
-async def baseline_for(db: AsyncSession, trip: Trip, vehicle: Vehicle, t: Thresholds, *, exclude_self: bool = True) -> dict | None:
+async def _fuel_by_trip(db: AsyncSession, trips: list[Trip]) -> dict[uuid.UUID, float]:
+    if not trips:
+        return defaultdict(float)
+    entries = (await db.execute(select(FuelEntry).where(FuelEntry.vehicle_id.in_({t.vehicle_id for t in trips})))).scalars().all()
+    return attribute_fuel(entries, trips)
+
+
+async def vehicle_history(db: AsyncSession, vehicle_id: uuid.UUID) -> tuple[list[Trip], list[FuelEntry], dict[uuid.UUID, float]]:
+    """What a vehicle's normal fuel use is judged against: its 60 latest finished trips, every fuel entry it has, and the idling in those
+    trips. It does not depend on the trip being judged, so a caller judging many trips of one vehicle loads it once (see `baseline_for`)."""
+    others = (await db.execute(select(Trip).where(Trip.vehicle_id == vehicle_id, Trip.status.in_((TripStatus.DELIVERED, TripStatus.COMPLETED)), Trip.distance_km.is_not(None)).order_by(Trip.ended_at.desc()).limit(60))).scalars().all()
+    entries = (await db.execute(select(FuelEntry).where(FuelEntry.vehicle_id == vehicle_id))).scalars().all()
+    return list(others), list(entries), await _idle_hours(db, [o.id for o in others])
+
+
+async def preload_histories(db: AsyncSession, vehicle_ids: set[uuid.UUID]) -> dict:
+    """`vehicle_history` for many vehicles in four queries instead of three for each. Same contents: each vehicle's 60 latest finished trips."""
+    if not vehicle_ids:
+        return {}
+    ranked = (
+        select(Trip.id, func.row_number().over(partition_by=Trip.vehicle_id, order_by=Trip.ended_at.desc()).label("rank"))
+        .where(Trip.vehicle_id.in_(vehicle_ids), Trip.status.in_((TripStatus.DELIVERED, TripStatus.COMPLETED)), Trip.distance_km.is_not(None))
+        .subquery()
+    )
+    trips = (await db.execute(select(Trip).join(ranked, Trip.id == ranked.c.id).where(ranked.c.rank <= 60).order_by(Trip.ended_at.desc()))).scalars().all()
+    by_vehicle: dict[uuid.UUID, list[Trip]] = defaultdict(list)
+    for x in trips:
+        by_vehicle[x.vehicle_id].append(x)
+    entries: dict[uuid.UUID, list[FuelEntry]] = defaultdict(list)
+    for e in (await db.execute(select(FuelEntry).where(FuelEntry.vehicle_id.in_(vehicle_ids)))).scalars():
+        entries[e.vehicle_id].append(e)
+    idle = await _idle_hours(db, [x.id for x in trips])
+    return {v: (by_vehicle.get(v, []), entries.get(v, []), idle) for v in vehicle_ids}
+
+
+async def baseline_for(db: AsyncSession, trip: Trip, vehicle: Vehicle, t: Thresholds, *, exclude_self: bool = True, history: dict | None = None) -> dict | None:
     """The vehicle's normal litres per km for trips like this one. Tried in order: the same route and load band, the same load band
-    on any route, then the consumption entered for the vehicle. Returns {l_per_km, trips, source} or None."""
-    others = (await db.execute(select(Trip).where(Trip.vehicle_id == trip.vehicle_id, Trip.status.in_((TripStatus.DELIVERED, TripStatus.COMPLETED)), Trip.distance_km.is_not(None)).order_by(Trip.ended_at.desc()).limit(60))).scalars().all()
-    others = [o for o in others if not (exclude_self and o.id == trip.id)]
-    fuel, idle = await _fuel_by_trip(db, others), await _idle_hours(db, [o.id for o in others])
+    on any route, then the consumption entered for the vehicle. Returns {l_per_km, trips, source} or None. Pass the same `history` dict
+    for every trip judged in one request and each vehicle's history is read once instead of once per trip."""
+    if history is None:
+        history = {}
+    if trip.vehicle_id not in history:
+        history[trip.vehicle_id] = await vehicle_history(db, trip.vehicle_id)
+    all_others, entries, all_idle = history[trip.vehicle_id]
+    others = [o for o in all_others if not (exclude_self and o.id == trip.id)]
+    fuel, idle = attribute_fuel(entries, others), defaultdict(float, {o.id: all_idle.get(o.id, 0.0) for o in others})
     band, key = fraud_rules.load_band(trip.loaded_weight_kg), fraud_rules.route_key(trip.origin, trip.destination)
 
     def samples(rows: list[Trip]) -> list[dict]:

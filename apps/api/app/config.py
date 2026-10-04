@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     database_url: str = ""
     redis_url: str = "redis://localhost:6379/0"
     cors_origins: str = "http://localhost:5180"
+    # Rate limits (see ratelimit.py). Believe X-Forwarded-For only when a proxy you control sets it.
+    rate_limits_enabled: bool = True
+    trust_proxy_headers: bool = False
+    rate_limit_per_minute: int = 1200  # a backstop for every address, far above what a busy office does
 
     # Auth. jwt_secret must come from the environment; there is deliberately no default.
     jwt_secret: str = ""
@@ -53,6 +57,20 @@ class Settings(BaseSettings):
     public_web_url: str = "http://localhost:5180"  # where the web app is, for the links clients are sent
     going_dark_minutes: int = 15  # a lorry on a trip that has not reported for this long is "going dark"
     gps_retention_days: int = 365  # raw location points are deleted after this, once the trip totals are kept
+    # The rest of the retention policy (masterplan 11.3). Financial records are never deleted on a timer: the five years is a minimum.
+    photo_retention_days: int = 730  # odometer and receipt photos, unless tied to an open dispute or alert
+    audit_retention_days: int = 1826  # five years; the database refuses to delete a younger row whatever this says
+    financial_retention_days: int = 1826  # after a business cancels, its financial records are kept this long, then it is erased
+    former_staff_retention_days: int = 1826  # a person who has left keeps their staff details this long, then they are anonymised
+    # Monitoring (see readiness.py). Leave BACKUP_DIR empty where backups are not made on this machine: the check then says "not configured".
+    backup_dir: str = ""  # the folder that holds base/ and wal/ (scripts/dr)
+    backup_max_age_hours: int = 30  # a daily base backup older than this is a failure
+    wal_max_age_minutes: int = 15  # the newest archived WAL segment (recovery point target), checked on the database
+    worker_heartbeat_max_seconds: int = 180
+    alert_emails: str = ""  # who the uptime checker emails when the system is down (comma separated); needs the SMTP settings above
+    alert_webhook_url: str = ""  # or a chat webhook that accepts {"text": ...} (Slack, Teams, Mattermost)
+    dsar_due_days: int = 30  # how long a person's data protection request may stay open; to be confirmed with the advocate
+    cancelled_grace_days: int = 90  # a cancelled business is read-only this long for export, then its personal data is removed
     tracking_link_days: int = 7  # how long a client tracking link lives at most (it also ends when the trip is delivered)
     max_points_per_batch: int = 500
 

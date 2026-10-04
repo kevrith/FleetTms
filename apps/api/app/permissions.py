@@ -51,6 +51,7 @@ ALL = {
     "alerts.view",
     "alerts.settings",
     "messages.send",
+    "privacy.manage",  # answering the data protection requests of the business's own people
 }
 
 ROLE_PERMISSIONS: dict[Role, set[str]] = {

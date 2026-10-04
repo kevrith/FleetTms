@@ -26,7 +26,7 @@ from app.reminders import NAIROBI
 from app.tenancy import current_business_id
 
 log = logging.getLogger(__name__)
-READ_ONLY_OK = ("/auth/", "/subscription", "/data-exports", "/privacy", "/documents/accept", "/sos", "/me/sos", "/feedback", "/platform/")  # still allowed when read-only
+READ_ONLY_OK = ("/auth/", "/subscription", "/data-exports", "/data-requests", "/me/data-requests", "/privacy", "/documents/accept", "/sos", "/me/sos", "/feedback", "/platform/")  # still allowed when read-only
 
 
 def now_utc() -> datetime:
@@ -65,6 +65,9 @@ async def access_for(db: AsyncSession, business_id: uuid.UUID, now: datetime | N
     sub = await subscription_of(db)
     trial_end = sub.trial_ends_at if sub else business.created_at + timedelta(days=plan_rules.TRIAL_DAYS)
     out = plan_rules.access_state(complimentary=business.complimentary, trial_ends_at=trial_end, paid_until=sub.paid_until if sub else None, now=now, cancelled=bool(sub and sub.cancelled_at))
+    if sub is not None and sub.cancelled_at is not None:
+        # A cancelled account is read-only for the data-export period, free accounts included.
+        out = {**out, "state": "read_only", "writable": False, "days_left": 0}
     return {**out, "complimentary": business.complimentary, "suspended": False}
 
 

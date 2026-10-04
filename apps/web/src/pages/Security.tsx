@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { Card, ErrorBanner, errorMessage, Field } from "../ui";
+import MyDataCard from "./MyData";
 
 export default function Security() {
   const nav = useNavigate();
@@ -121,6 +122,7 @@ export default function Security() {
           </ul>
         </Card>
       )}
+      {me?.business && <MyDataCard />}
     </>
   );
 }

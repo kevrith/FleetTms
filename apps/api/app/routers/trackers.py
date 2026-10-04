@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit, subscriptions, tracker_ingest
+from app import audit, ratelimit, subscriptions, tracker_ingest
 from app.config import settings
 from app.db import get_db
 from app.deps import Principal, error, require, require_any
@@ -128,7 +128,7 @@ async def update_tracker(tracker_id: uuid.UUID, body: TrackerIn, principal: Prin
 # ---- what Traccar posts ------------------------------------------------------------------------------------------------
 
 
-@router.post("/hooks/traccar/{key}")
+@router.post("/hooks/traccar/{key}", dependencies=[Depends(ratelimit.hook_guard)])
 async def traccar_forward(key: str, request: Request, db: AsyncSession = Depends(get_db)):
     """Traccar's forwarder: one position or one event per post. The secret in the address says it is our Traccar. A device nobody has
     registered is acknowledged and ignored, so Traccar does not keep retrying it."""

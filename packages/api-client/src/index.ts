@@ -1,4 +1,9 @@
 import type {
+  BreachIncident,
+  BreachSeverity,
+  DataRequestKind,
+  DataRequestSummary,
+  DataSubjectRequest,
   AuditEntry,
   AccessInfo,
   AskAnswer,
@@ -1191,6 +1196,48 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
     dataExport: (id: string) => get<DataExportInfo>(`/data-exports/${id}`),
     dataExportFile: (id: string) =>
       request<Blob>("GET", `/data-exports/${id}/download`, undefined, true, true),
+
+    // ---- cancelling, and people's rights over their own data ----
+    cancelSubscription: (reason?: string) =>
+      post<SubscriptionStatus>("/subscription/cancel", { reason: reason ?? null }),
+    reactivateSubscription: () => post<SubscriptionStatus>("/subscription/reactivate"),
+    myDataRequests: () => get<DataSubjectRequest[]>("/me/data-requests"),
+    askAboutMyData: (kind: DataRequestKind, details?: string) =>
+      post<DataSubjectRequest>("/me/data-requests", { kind, details: details ?? null }),
+    dataRequests: (state?: string) =>
+      get<DataSubjectRequest[]>(`/data-requests${state ? `?state=${state}` : ""}`),
+    dataRequestSummary: () => get<DataRequestSummary>("/data-requests/summary"),
+    logDataRequest: (membershipId: string, kind: DataRequestKind, details?: string) =>
+      post<DataSubjectRequest>("/data-requests", {
+        membership_id: membershipId,
+        kind,
+        details: details ?? null,
+      }),
+    dataRequestFile: (id: string) =>
+      request<Blob>("GET", `/data-requests/${id}/export`, undefined, true, true),
+    applyDeletion: (id: string) =>
+      post<{ removed: boolean; anonymous: boolean }>(`/data-requests/${id}/apply-deletion`),
+    completeDataRequest: (id: string, resolution: string) =>
+      post<DataSubjectRequest>(`/data-requests/${id}/complete`, { resolution }),
+    refuseDataRequest: (id: string, reason: string) =>
+      post<DataSubjectRequest>(`/data-requests/${id}/refuse`, { reason }),
+
+    // ---- the breach register (platform admins) ----
+    breaches: () => get<BreachIncident[]>("/platform/breaches"),
+    recordBreach: (body: {
+      title: string;
+      description: string;
+      severity: BreachSeverity;
+      discovered_at?: string;
+      businesses_affected?: string[];
+      people_affected?: number | null;
+      data_involved?: string | null;
+      risk_to_people?: boolean;
+    }) => post<BreachIncident>("/platform/breaches", body),
+    updateBreach: (id: string, body: Record<string, unknown>) =>
+      request<BreachIncident>("PATCH", `/platform/breaches/${id}`, body),
+    notifyBreach: (id: string, who: "odpc" | "businesses" | "people", message?: string) =>
+      post<BreachIncident>(`/platform/breaches/${id}/notify`, { who, message: message ?? null }),
 
     // ---- the platform console ----
     platformOverview: () => get<PlatformOverview>("/platform/overview"),

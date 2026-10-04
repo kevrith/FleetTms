@@ -6,7 +6,7 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import fraud, fraud_rules, scorecard_rules
@@ -31,28 +31,56 @@ ON_TIME_START = timedelta(minutes=30)  # starting within this of the scheduled t
 MAX_DAYS = 366
 
 
-async def card(db: AsyncSession, member: Membership, trips: list[Trip], start: datetime, end: datetime, vehicles: dict[uuid.UUID, Vehicle], t: fraud_rules.Thresholds) -> dict:
+class Loaded:
+    """Everything the cards need, read in a few queries for all drivers at once. A card used to read its own driver's rows one
+    query at a time, which is thirteen thousand queries for a fleet of three hundred drivers."""
+
+    def __init__(self, vehicles: dict[uuid.UUID, Vehicle], t: fraud_rules.Thresholds) -> None:
+        self.vehicles, self.t = vehicles, t
+        self.behaviour: dict[uuid.UUID, Counter] = defaultdict(Counter)
+        self.alerts: dict[uuid.UUID, list[FraudAlert]] = defaultdict(list)
+        self.inspections: dict[uuid.UUID, InspectionStatus] = {}
+        self.fuel: dict[uuid.UUID, float] = {}
+        self.idle: dict[uuid.UUID, float] = {}
+        self.history: dict = {}  # each vehicle's own fuel history, read once (fraud.baseline_for)
+
+
+async def load_all(db: AsyncSession, by_driver: dict[uuid.UUID, list[Trip]], vehicles: dict[uuid.UUID, Vehicle], t: fraud_rules.Thresholds, start: datetime, end: datetime) -> Loaded:
+    loaded = Loaded(vehicles, t)
+    rows = await db.execute(select(BehaviourEvent.driver_membership_id, BehaviourEvent.kind, func.count()).where(BehaviourEvent.driver_membership_id.in_(list(by_driver)), BehaviourEvent.at >= start, BehaviourEvent.at < end).group_by(BehaviourEvent.driver_membership_id, BehaviourEvent.kind))
+    for driver, kind, n in rows:
+        loaded.behaviour[driver][kind] = n
+    for a in (await db.execute(select(FraudAlert).where(FraudAlert.driver_membership_id.in_(list(by_driver)), FraudAlert.occurred_at >= start, FraudAlert.occurred_at < end))).scalars():
+        loaded.alerts[a.driver_membership_id].append(a)
+    every = [x for trips in by_driver.values() for x in trips]
+    inspection_ids = [x.inspection_id for x in every if x.inspection_id]
+    if inspection_ids:
+        loaded.inspections = {i.id: i.status for i in (await db.execute(select(Inspection).where(Inspection.id.in_(inspection_ids)))).scalars()}
+    done = [x for x in every if x.status in (TripStatus.DELIVERED, TripStatus.COMPLETED) and x.ended_at is not None]
+    loaded.fuel, loaded.idle = await fraud._fuel_by_trip(db, done), await fraud._idle_hours(db, [x.id for x in done])
+    loaded.history = await fraud.preload_histories(db, {x.vehicle_id for x in done if loaded.fuel.get(x.id)})
+    return loaded
+
+
+async def card(db: AsyncSession, member: Membership, trips: list[Trip], loaded: Loaded) -> dict:
+    t, vehicles = loaded.t, loaded.vehicles
     km = sum(fraud.best_km(x) or 0 for x in trips)
-    counts: Counter = Counter()
-    for e in (await db.execute(select(BehaviourEvent).where(BehaviourEvent.driver_membership_id == member.id, BehaviourEvent.at >= start, BehaviourEvent.at < end))).scalars():
-        counts[e.kind] += 1
+    counts: Counter = loaded.behaviour.get(member.id, Counter())
     variances: list[float] = []
     done = [x for x in trips if x.status in (TripStatus.DELIVERED, TripStatus.COMPLETED) and x.ended_at is not None]
-    fuel, idle = await fraud._fuel_by_trip(db, done), await fraud._idle_hours(db, [x.id for x in done])
     for x in done:
         kms = fraud.best_km(x)
-        if fuel.get(x.id) and kms and x.vehicle_id in vehicles:
-            baseline = await fraud.baseline_for(db, x, vehicles[x.vehicle_id], t)
+        if loaded.fuel.get(x.id) and kms and x.vehicle_id in vehicles:
+            baseline = await fraud.baseline_for(db, x, vehicles[x.vehicle_id], t, history=loaded.history)
             if baseline:
-                v = fraud_rules.fuel_check(litres=fuel[x.id], km=kms, idle_hours=idle[x.id], l_per_km=baseline["l_per_km"], t=t)
+                v = fraud_rules.fuel_check(litres=loaded.fuel[x.id], km=kms, idle_hours=loaded.idle.get(x.id, 0.0), l_per_km=baseline["l_per_km"], t=t)
                 if v["variance_pct"] is not None:
                     variances.append(v["variance_pct"])
     timed = [x for x in trips if x.started_at and x.scheduled_for]
     on_time = sum(1 for x in timed if x.started_at <= x.scheduled_for + ON_TIME_START)
-    inspections = {i.id: i.status for i in (await db.execute(select(Inspection).where(Inspection.id.in_([x.inspection_id for x in trips if x.inspection_id])))).scalars()}
-    clean = sum(1 for x in trips if inspections.get(x.inspection_id) == InspectionStatus.PASSED)
-    defects = sum(1 for x in trips if inspections.get(x.inspection_id) == InspectionStatus.PASSED_WITH_DEFECTS)
-    raised = (await db.execute(select(FraudAlert).where(FraudAlert.driver_membership_id == member.id, FraudAlert.occurred_at >= start, FraudAlert.occurred_at < end))).scalars().all()
+    clean = sum(1 for x in trips if loaded.inspections.get(x.inspection_id) == InspectionStatus.PASSED)
+    defects = sum(1 for x in trips if loaded.inspections.get(x.inspection_id) == InspectionStatus.PASSED_WITH_DEFECTS)
+    raised = loaded.alerts.get(member.id, [])
     confirmed, still_open = sum(a.status == "confirmed" for a in raised), sum(a.status == "open" for a in raised)
     parts = {
         "safety": scorecard_rules.safety_score(dict(counts), km), "fuel": scorecard_rules.fuel_score(variances), "punctuality": scorecard_rules.punctuality_score(on_time, len(timed)),
@@ -84,7 +112,9 @@ async def scorecards(start: date | None = None, end: date | None = None, princip
         if x.vehicle_id in vehicles:
             by_driver[x.driver_membership_id].append(x)
     members = {m.id: m for m in (await db.execute(select(Membership))).scalars()}
-    cards = [await card(db, members[d], trips, begin, finish, vehicles, t) for d, trips in by_driver.items() if d in members]
+    by_driver = {d: trips for d, trips in by_driver.items() if d in members}
+    loaded = await load_all(db, by_driver, vehicles, t, begin, finish) if by_driver else None
+    cards = [await card(db, members[d], trips, loaded) for d, trips in by_driver.items()]
     cards.sort(key=lambda c: (-(c["overall"] if c["overall"] is not None else -1), c["name"]))
     return {"from": start, "to": end, "drivers": cards, "weights": scorecard_rules.WEIGHTS}
 

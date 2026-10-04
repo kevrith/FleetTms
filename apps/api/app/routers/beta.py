@@ -94,12 +94,14 @@ async def first_job(body: FirstJobIn, principal: Principal = Depends(require("bu
         client = Client(name=name, billing_method=BillingMethod(body.billing_method), rate_cents=body.rate_cents)
         db.add(client)
         await db.flush()
+        audit.record(db, actor_user_id=principal.user.id, action="client.added", entity_type="client", entity_id=client.id, after={"name": client.name}, note="Created by the setup guide")
     route_name = f"{body.pickup.strip()} to {body.dropoff.strip()}"
     route = (await db.execute(select(SavedRoute).where(SavedRoute.client_id == client.id, SavedRoute.name == route_name))).scalars().first()
     if route is None:
         route = SavedRoute(client_id=client.id, name=route_name, pickup=body.pickup.strip(), dropoff=body.dropoff.strip(), distance_km=body.distance_km)
         db.add(route)
         await db.flush()
+        audit.record(db, actor_user_id=principal.user.id, action="route.added", entity_type="saved_route", entity_id=route.id, after={"name": route.name}, note="Created by the setup guide")
     job = await jobs_router.create_job(
         jobs_router.JobIn(client_id=client.id, route_id=route.id, cargo_description=body.cargo_description, weight_tonnes=Decimal(str(body.weight_tonnes)), trips=body.trips, billing_method=BillingMethod(body.billing_method), rate_cents=body.rate_cents),
         principal, db,

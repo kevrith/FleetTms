@@ -137,9 +137,16 @@ async def recalculate(run_id: uuid.UUID, principal: Principal = Depends(require_
     run = await _run(db, run_id)
     if run.status != "draft":
         raise error(status.HTTP_409_CONFLICT, "locked", "Only a draft payroll run can be recalculated.")
+    before = _totals(run)
     await _fill(db, run)
+    audit.record(db, actor_user_id=principal.user.id, action="payroll.run_recalculated", entity_type="payroll_run", entity_id=run.id, before=before, after=_totals(run))
     await db.commit()
     return await run_out(db, run, detail=True)
+
+
+def _totals(run) -> dict:
+    """What a draft run adds up to, for the audit trail: how many people and the money going out."""
+    return {"people": len(run.lines), "gross_cents": sum(x.gross_cents for x in run.lines), "advances_cents": sum(x.advances_cents for x in run.lines), "fines_cents": sum(x.fines_cents for x in run.lines)}
 
 
 @router.post("/payroll/runs/{run_id}/approve")

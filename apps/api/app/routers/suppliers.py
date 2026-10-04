@@ -206,9 +206,11 @@ async def update_order(order_id: uuid.UUID, body: OrderIn, principal: Principal 
     if o.status != "draft":
         raise error(status.HTTP_409_CONFLICT, "locked", "Only a draft order can be changed.")
     supplier = await _supplier(db, body.supplier_id)
+    before = {"supplier_id": str(o.supplier_id), "lines": len(o.lines)}
     o.supplier_id, o.notes, o.expected_on = supplier.id, body.notes, body.expected_on
     _lines(o, body.lines)
     await db.flush()
+    audit.record(db, actor_user_id=principal.user.id, action="order.updated", entity_type="parts_order", entity_id=o.id, before=before, after={"supplier_id": str(supplier.id), "lines": len(body.lines)})
     await db.commit()
     return order_out(o, supplier)
 

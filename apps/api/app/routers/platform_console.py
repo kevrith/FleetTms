@@ -16,7 +16,15 @@ from app import audit, plan_rules, subscriptions
 from app.config import settings
 from app.db import database_is_up, get_db
 from app.deps import Principal, error, platform_admin
-from app.models import Business, Membership, Subscription, SubscriptionInvoice, User, Vehicle
+from app.models import (
+    BreachIncident,
+    Business,
+    Membership,
+    Subscription,
+    SubscriptionInvoice,
+    User,
+    Vehicle,
+)
 from app.tenancy import current_business_id
 
 router = APIRouter(tags=["platform"])
@@ -94,7 +102,10 @@ async def overview(principal: Principal = Depends(platform_admin), db: AsyncSess
         if f["access"]["state"] in ("active", "grace") and not f["business"].complimentary:
             mrr += f["monthly_cents"]
     unpaid = (await db.execute(_all(select(func.count()).select_from(SubscriptionInvoice).where(SubscriptionInvoice.status == "issued")))).scalar_one()
-    return {"businesses": len(facts), "by_state": dict(by_state), "vehicles": sum(plans.values()), "vehicles_by_plan": dict(plans), "mrr_cents": mrr, "open_invoices": int(unpaid)}
+    from app.routers.breaches import out as breach_out
+
+    breaches = [breach_out(b) for b in (await db.execute(select(BreachIncident).where(BreachIncident.status != "closed"))).scalars()]
+    return {"breaches_open": len(breaches), "breaches_overdue": sum(1 for b in breaches if b["odpc_overdue"]), "businesses": len(facts), "by_state": dict(by_state), "vehicles": sum(plans.values()), "vehicles_by_plan": dict(plans), "mrr_cents": mrr, "open_invoices": int(unpaid)}
 
 
 @router.get("/platform/customers")

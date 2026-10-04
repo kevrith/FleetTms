@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit
+from app import audit, ratelimit
 from app.config import settings
 from app.db import get_db
 from app.deps import Principal, error, feature, require_any
@@ -107,7 +107,7 @@ def _gone(code: str, message: str) -> JSONResponse:
     return JSONResponse(status_code=status.HTTP_410_GONE, content={"detail": {"code": code, "message": message}})
 
 
-@router.get("/track/{token}")
+@router.get("/track/{token}", dependencies=[Depends(ratelimit.limit("track", 120, 60))])
 async def follow(token: str, db: AsyncSession = Depends(get_db)):
     """The client's view of one delivery. Unknown links look the same as wrong ones; ended links say why they ended."""
     link = (await db.execute(select(TrackingLink).where(TrackingLink.token_hash == sha256(token)).execution_options(skip_tenant=True))).scalar_one_or_none()

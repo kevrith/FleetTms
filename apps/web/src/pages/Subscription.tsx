@@ -95,6 +95,33 @@ export default function SubscriptionPage() {
     { period: s.period, payroll_employees: s.payroll_enabled ? s.payroll_employees : 0 },
   );
   const owing = s.open_invoice;
+  async function cancel() {
+    const reason = window.prompt(
+      "Why are you leaving? (optional) Your account becomes read-only now. You can still take all your data out.",
+    );
+    if (reason === null) return;
+    if (
+      !window.confirm(
+        "Cancel the subscription? After 90 days your people's personal details and all photos are deleted. The records the law requires you to keep stay for their own period.",
+      )
+    )
+      return;
+    try {
+      setS(await api.cancelSubscription(reason.trim() || undefined));
+      setMessage("The subscription is cancelled. Nothing is deleted for 90 days.");
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+  async function reactivate() {
+    try {
+      setS(await api.reactivateSubscription());
+      setMessage("The cancellation is taken back.");
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+
   return (
     <>
       <ErrorBanner message={error} />
@@ -371,6 +398,38 @@ export default function SubscriptionPage() {
             </li>
           ))}
         </ul>
+      </Card>
+      <Card title="Cancel">
+        {s.cancelled_at ? (
+          <>
+            <p>
+              The subscription was cancelled on {nairobiTime(s.cancelled_at)}. The account is
+              read-only. On{" "}
+              <strong>{s.data_removed_on ? nairobiTime(s.data_removed_on) : "the 90th day"}</strong>{" "}
+              your people's personal details, photos and tracking are deleted. Take a full copy of
+              your data under Your data before then.
+            </p>
+            <p className="actions">
+              <button className="btn" type="button" onClick={reactivate}>
+                Take the cancellation back
+              </button>
+            </p>
+          </>
+        ) : (
+          <>
+            <p>
+              Ending the subscription makes the account read-only straight away. You can still take
+              all your data out for 90 days, then personal details, photos and tracking are deleted.
+              Records the law requires you to keep (invoices, payments, payroll, expenses) are kept
+              for their own period.
+            </p>
+            <p className="actions">
+              <button className="btn danger" type="button" onClick={cancel}>
+                Cancel the subscription
+              </button>
+            </p>
+          </>
+        )}
       </Card>
     </>
   );

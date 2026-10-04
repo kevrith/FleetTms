@@ -9,7 +9,7 @@ from typing import Protocol
 import httpx
 
 from app.config import settings
-from app.phone import mask_phone
+from app.phone import mask_email, mask_phone
 
 log = logging.getLogger(__name__)
 GRAPH = "https://graph.facebook.com/v21.0"
@@ -35,7 +35,7 @@ class FakeSender:
         if self.fail_with:
             raise DeliveryError(self.fail_with)
         self.outbox.append({"recipient": recipient, "subject": subject, "filename": filename, "pdf": pdf, "body": body, "mime": mime})
-        log.info("Fake %s report sent to %s", self.channel, mask_phone(recipient) if self.channel == "whatsapp" else recipient)
+        log.info("Fake %s report sent to %s", self.channel, mask_phone(recipient) if self.channel == "whatsapp" else mask_email(recipient))
 
 
 class SmtpSender:

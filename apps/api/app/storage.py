@@ -34,6 +34,18 @@ def save(key: str, data: bytes) -> None:
     path.write_bytes(data)
 
 
+def delete(key: str) -> bool:
+    """Removes a stored file. True if there was one to remove."""
+    try:
+        path = _safe_path(key)
+    except ValueError:
+        return False
+    if path.is_file():
+        path.unlink()
+        return True
+    return False
+
+
 def read_path(key: str) -> Path | None:
     try:
         path = _safe_path(key)

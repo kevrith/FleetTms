@@ -16,3 +16,9 @@ def normalize_phone(raw: str) -> str | None:
 
 def mask_phone(phone: str) -> str:
     return phone[:5] + "****" + phone[-2:]
+
+
+def mask_email(email: str) -> str:
+    """kamau@example.com becomes k****@example.com: enough to recognise in a log, not enough to use."""
+    name, _, domain = email.partition("@")
+    return f"{name[:1]}****@{domain}" if domain else "****"

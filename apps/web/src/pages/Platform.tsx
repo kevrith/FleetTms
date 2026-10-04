@@ -8,6 +8,7 @@ import { NavLink, Route, Routes, useNavigate, useParams } from "react-router-dom
 import { api } from "../api";
 import { kes, nairobiTime } from "../labels";
 import { Card, ErrorBanner, errorMessage, Field } from "../ui";
+import Breaches from "./Breaches";
 
 const STATE: Record<string, [string, string]> = {
   trialing: ["On trial", "warn"],
@@ -59,6 +60,17 @@ function Overview() {
               ))}
             </ul>
           </Card>
+          {(o.breaches_open ?? 0) > 0 && (
+            <Card title="Data breaches">
+              <p>
+                {o.breaches_open} open.{" "}
+                <span className={`status ${(o.breaches_overdue ?? 0) > 0 ? "bad" : "ok"}`}>
+                  {o.breaches_overdue ?? 0} past the Commissioner's 72 hours
+                </span>{" "}
+                <NavLink to="/platform/breaches">Open the register</NavLink>
+              </p>
+            </Card>
+          )}
           <Card title="Vehicles by plan">
             <ul className="list">
               {Object.entries(o.vehicles_by_plan).map(([k, n]) => (
@@ -366,10 +378,12 @@ export default function Platform() {
           Overview
         </NavLink>
         <NavLink to="/platform/businesses">Businesses</NavLink>
+        <NavLink to="/platform/breaches">Data breaches</NavLink>
       </nav>
       <Routes>
         <Route index element={<Overview />} />
         <Route path="businesses" element={<Businesses />} />
+        <Route path="breaches" element={<Breaches />} />
         <Route path=":id" element={<Detail />} />
       </Routes>
     </>

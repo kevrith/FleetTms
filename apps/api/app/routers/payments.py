@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit, daraja
+from app import audit, daraja, ratelimit
 from app.config import settings as app_settings
 from app.db import get_db
 from app.deps import Principal, error, require, require_any
@@ -110,7 +110,7 @@ async def _business_for_hook(db: AsyncSession, business_id: uuid.UUID, key: str)
     return business
 
 
-@router.post("/hooks/c2b/{business_id}/{key}/validation")
+@router.post("/hooks/c2b/{business_id}/{key}/validation", dependencies=[Depends(ratelimit.hook_guard)])
 async def c2b_validation(business_id: uuid.UUID, key: str, db: AsyncSession = Depends(get_db)):
     """Safaricom asks whether to accept a payment. We always accept: an odd account number goes to the office's queue
     rather than bouncing the client's money."""
@@ -118,7 +118,7 @@ async def c2b_validation(business_id: uuid.UUID, key: str, db: AsyncSession = De
     return ACCEPTED
 
 
-@router.post("/hooks/c2b/{business_id}/{key}/confirmation")
+@router.post("/hooks/c2b/{business_id}/{key}/confirmation", dependencies=[Depends(ratelimit.hook_guard)])
 async def c2b_confirmation(business_id: uuid.UUID, key: str, request: Request, db: AsyncSession = Depends(get_db)):
     await _business_for_hook(db, business_id, key)
     try:

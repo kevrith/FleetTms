@@ -55,6 +55,31 @@ async def _clean():
 
 
 @pytest.fixture(autouse=True)
+def _rate_limits_off_by_default():
+    """Tests sign in from one address hundreds of times; the ones about rate limits switch them on with `rate_limits`."""
+    settings.rate_limits_enabled = False
+    yield
+    settings.rate_limits_enabled = True
+
+
+@pytest.fixture
+def rate_limits():
+    """Rate limits on, with their counters cleared before and after so one test's hits never count against another's."""
+    import redis
+
+    def clear():
+        r = redis.Redis.from_url(settings.redis_url)
+        for key in r.scan_iter("rl:*"):
+            r.delete(key)
+        r.close()
+
+    clear()
+    settings.rate_limits_enabled = True
+    yield
+    clear()
+
+
+@pytest.fixture(autouse=True)
 def _billing_off_by_default():
     """Most tests are about something else, and a business that has just signed up is on a trial: plan limits and read-only mode are
     switched on only by the tests about them (the `billing` fixture)."""

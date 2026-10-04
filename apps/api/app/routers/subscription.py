@@ -2,7 +2,7 @@
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Request, status
@@ -10,7 +10,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit, plan_rules, platform_mpesa, subscriptions
+from app import audit, plan_rules, platform_mpesa, ratelimit, subscriptions
+from app.config import settings
 from app.db import get_db
 from app.deps import Principal, current_principal, error, require
 from app.models import (
@@ -82,6 +83,7 @@ async def status_of(db: AsyncSession, business_id: uuid.UUID) -> dict:
         "quote": await subscriptions.current_quote(db, sub, employees), "annual_quote": await subscriptions.current_quote(db, sub, employees, "annual"), "custom_monthly_cents": sub.custom_monthly_cents,
         "open_invoice": invoice_out(open_one) if (open_one := next((i for i in invoices if i.status == "issued" and i.kind == "subscription"), None)) else None,
         "invoices": [invoice_out(i) for i in invoices], "sms": await subscriptions.sms_account(db),
+        "cancelled_at": sub.cancelled_at, "data_removed_on": sub.cancelled_at + timedelta(days=settings.cancelled_grace_days) if sub.cancelled_at else None,
     }  # fmt: skip
 
 
@@ -90,6 +92,42 @@ async def my_subscription(principal: Principal = Depends(require("business.manag
     out = await status_of(db, principal.business_id)
     await db.commit()  # a business from before subscriptions existed has its trial recorded the first time it looks
     return out
+
+
+class CancelIn(BaseModel):
+    reason: str | None = Field(default=None, max_length=500)
+
+
+@router.post("/subscription/cancel")
+async def cancel_subscription(body: CancelIn, principal: Principal = Depends(require("business.manage")), db: AsyncSession = Depends(get_db)):
+    """The owner ends the subscription. The account turns read-only at once and everything can still be exported; after the
+    grace period (90 days) personal data and images are removed, and the records the law requires are kept for their own period."""
+    from app.models import Business
+
+    business = await db.get(Business, principal.business_id)
+    sub = await subscriptions.get_or_start(db, business)
+    if sub.cancelled_at is not None:
+        raise error(status.HTTP_409_CONFLICT, "already_cancelled", "This subscription is already cancelled.")
+    sub.cancelled_at = datetime.now(UTC)
+    audit.record(db, actor_user_id=principal.user.id, action="subscription.cancelled", entity_type="business", entity_id=business.id, note=body.reason)
+    await db.commit()
+    return await status_of(db, principal.business_id)
+
+
+@router.post("/subscription/reactivate")
+async def reactivate_subscription(principal: Principal = Depends(require("business.manage")), db: AsyncSession = Depends(get_db)):
+    """Takes the cancellation back, while the data is still there. Whether the account can then be changed depends on whether it is
+    paid up, as at any other time."""
+    from app.models import Business
+
+    business = await db.get(Business, principal.business_id)
+    sub = await subscriptions.get_or_start(db, business)
+    if sub.cancelled_at is None:
+        raise error(status.HTTP_409_CONFLICT, "not_cancelled", "This subscription is not cancelled.")
+    sub.cancelled_at = None
+    audit.record(db, actor_user_id=principal.user.id, action="subscription.reactivated", entity_type="business", entity_id=business.id)
+    await db.commit()
+    return await status_of(db, principal.business_id)
 
 
 @router.get("/subscription/banner")
@@ -205,7 +243,7 @@ async def invoice_status(invoice_id: uuid.UUID, principal: Principal = Depends(r
     return {**invoice_out(invoice), "last_payment": {"status": last.status, "note": last.result_note} if last else None}
 
 
-@router.post("/hooks/subscription-pay/{key}")
+@router.post("/hooks/subscription-pay/{key}", dependencies=[Depends(ratelimit.hook_guard)])
 async def payment_callback(key: str, request: Request, db: AsyncSession = Depends(get_db)):
     """Safaricom's answer to a payment request. The secret in the address says it is Safaricom; the checkout id must be one of ours and
     the amount must be the invoice's, or nothing is credited. Always answers 200: Safaricom retries anything else."""

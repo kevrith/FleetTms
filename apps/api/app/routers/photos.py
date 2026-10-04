@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Form, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import storage
+from app import ratelimit, storage
 from app.config import settings
 from app.db import get_db
 from app.deps import Principal, error, require_any
@@ -39,7 +39,7 @@ async def upload_photo(
     return photo_out(photo)
 
 
-@router.get("/media/{token}")
+@router.get("/media/{token}", dependencies=[Depends(ratelimit.limit("media", 300, 60))])
 async def view_media(token: str):
     """Serves a photo to anyone holding a genuine, unexpired link. Links are only issued to people allowed to see it."""
     key = storage.key_from_token(token)

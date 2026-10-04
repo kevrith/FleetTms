@@ -125,12 +125,15 @@ async def add_part(body: PartIn, principal: Principal = Depends(require_any(*WRI
 @router.put("/parts/{part_id}")
 async def update_part(part_id: uuid.UUID, body: PartIn, principal: Principal = Depends(require_any(*WRITE)), db: AsyncSession = Depends(get_db)):
     part = await _part(db, part_id)
+    fields = list(body.model_dump())
+    before = audit.snapshot(part, fields)
     for field, value in body.model_dump().items():
         setattr(part, field, value.strip() if field == "name" else value)
     try:
         await db.flush()
     except IntegrityError:
         raise error(status.HTTP_409_CONFLICT, "duplicate_part", "A part with that name already exists.") from None
+    audit.record(db, actor_user_id=principal.user.id, action="part.updated", entity_type="part", entity_id=part.id, before=before, after=audit.snapshot(part, fields))
     await db.commit()
     return part_out(part)
 

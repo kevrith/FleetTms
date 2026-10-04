@@ -7,7 +7,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit, subscriptions
+from app import audit, ratelimit, subscriptions
 from app.auth_service import (
     check_sms_challenge,
     has_two_factor,
@@ -152,7 +152,7 @@ def _choose_business(companies: dict, wanted: uuid.UUID | None) -> uuid.UUID | N
 # ---- sign up -----------------------------------------------------------------------------------
 
 
-@router.post("/signup", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
+@router.post("/signup", response_model=TokenOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(ratelimit.limit("signup", 5, 3600))])
 async def signup(body: SignupIn, db: AsyncSession = Depends(get_db)):
     if not (body.accept_terms and body.accept_privacy and body.accept_dpa):
         raise error(
@@ -221,7 +221,7 @@ async def _find_user(db: AsyncSession, identifier: str) -> User | None:
     return (await db.execute(stmt)).scalar_one_or_none()
 
 
-@router.post("/login", response_model=TokenOut)
+@router.post("/login", response_model=TokenOut, dependencies=[Depends(ratelimit.limit("login", 20, 60))])
 async def login(body: LoginIn, db: AsyncSession = Depends(get_db)):
     user = await _find_user(db, body.identifier)
     moment = now()
@@ -346,11 +346,13 @@ async def sms_two_factor_confirm(
 # ---- driver login: phone + one-time code -------------------------------------------------------
 
 
-@router.post("/otp/request")
+@router.post("/otp/request", dependencies=[Depends(ratelimit.limit("otp_request", 10, 60))])
 async def otp_request(body: OtpRequestIn, db: AsyncSession = Depends(get_db)):
     phone = normalize_phone(body.phone)
     if phone is None:
         raise _bad_phone()
+    # Whoever the number belongs to, it cannot be flooded with texts, and this applies before we look the number up.
+    await ratelimit.limit_subject("otp_phone", phone, 5, 3600)
     reply = {"message": "If this number is registered, a code has been sent."}
 
     user = (await db.execute(select(User).where(User.phone == phone))).scalar_one_or_none()
@@ -383,7 +385,7 @@ async def otp_request(body: OtpRequestIn, db: AsyncSession = Depends(get_db)):
     return reply
 
 
-@router.post("/otp/verify", response_model=TokenOut)
+@router.post("/otp/verify", response_model=TokenOut, dependencies=[Depends(ratelimit.limit("otp_verify", 20, 60))])
 async def otp_verify(body: OtpVerifyIn, db: AsyncSession = Depends(get_db)):
     phone = normalize_phone(body.phone)
     if phone is None:
@@ -474,7 +476,7 @@ async def quick_login_enable(
     return {"device_secret": secret}
 
 
-@router.post("/quick-login", response_model=TokenOut)
+@router.post("/quick-login", response_model=TokenOut, dependencies=[Depends(ratelimit.limit("quick_login", 20, 60))])
 async def quick_login(body: QuickLoginIn, db: AsyncSession = Depends(get_db)):
     phone = normalize_phone(body.phone)
     if phone is None:
@@ -555,7 +557,7 @@ async def quick_login_disable(
 # ---- sessions ----------------------------------------------------------------------------------
 
 
-@router.post("/refresh", response_model=TokenOut)
+@router.post("/refresh", response_model=TokenOut, dependencies=[Depends(ratelimit.limit("refresh", 60, 60))])
 async def refresh(body: RefreshIn, db: AsyncSession = Depends(get_db)):
     expired = error(status.HTTP_401_UNAUTHORIZED, "not_authenticated", "Please sign in again.")
     parts = split_refresh_token(body.refresh_token)
@@ -663,7 +665,7 @@ async def me(principal: Principal = Depends(principal_unverified), db: AsyncSess
     }
 
 
-@router.post("/accept-invite", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/accept-invite", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(ratelimit.limit("accept_invite", 20, 60))])
 async def accept_invite(body: AcceptInviteIn, db: AsyncSession = Depends(get_db)):
     user = (
         await db.execute(select(User).where(User.invite_token_hash == sha256(body.token)))
@@ -673,4 +675,11 @@ async def accept_invite(body: AcceptInviteIn, db: AsyncSession = Depends(get_db)
     user.password_hash = hash_password(body.password)
     user.invite_token_hash = None
     user.invite_expires_at = None
+    # Setting a password is a change to who can get in, so it is written into the audit trail of each business the person belongs to.
+    memberships = (await db.execute(select(Membership).where(Membership.user_id == user.id).execution_options(skip_tenant=True))).scalars().all()
+    for membership in memberships:
+        current_business_id.set(membership.business_id)
+        audit.record(db, actor_user_id=user.id, action="auth.invite_accepted", entity_type="user", entity_id=user.id)
+        await db.flush()
+    current_business_id.set(None)
     await db.commit()

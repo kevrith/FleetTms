@@ -119,9 +119,9 @@ async def test_the_alert_history_lists_every_alert_and_how_often_each_check_fire
 async def test_the_scorecard_report_matches_the_scorecards(client):
     f = await seeded(client)
     await drive(client, f, litres=305, km=1000, phone_km=1000)
-    today = nairobi_today().isoformat()
-    report = await run(client, f.owner, "scorecards", start=today, end=today)
-    page = (await client.get("/scorecards", params={"start": today, "end": today}, headers=bearer(f.owner))).json()["drivers"][0]
+    today, yesterday = nairobi_today().isoformat(), (nairobi_today() - timedelta(days=1)).isoformat()  # the trip started 20 hours ago: yesterday, early in the day
+    report = await run(client, f.owner, "scorecards", start=yesterday, end=today)
+    page = (await client.get("/scorecards", params={"start": yesterday, "end": today}, headers=bearer(f.owner))).json()["drivers"][0]
     [row] = section(report, "Drivers")["rows"]
     assert row[0] == "driver user" and row[1] == page["trips"] and row[8] == page["overall"] and row[3] == page["safety"]
 

@@ -2224,8 +2224,8 @@ export interface OnboardingItem {
 }
 
 export interface Onboarding {
-  dismissed: boolean;
   has_sample_data?: boolean;
+  dismissed: boolean;
   done: number;
   total: number;
   items: OnboardingItem[];
@@ -2401,6 +2401,9 @@ export interface SubscriptionInvoice {
 
 export interface SubscriptionStatus {
   access: AccessInfo;
+  /** Set when the owner has cancelled: the account is read-only and its personal data is removed on `data_removed_on`. */
+  cancelled_at?: string | null;
+  data_removed_on?: string | null;
   trial_ends_at: string;
   paid_until: string | null;
   period: "monthly" | "annual";
@@ -2558,10 +2561,65 @@ export interface PlatformBusinessDetail extends PlatformBusinessRow {
 }
 
 export interface PlatformOverview {
+  breaches_open?: number;
+  breaches_overdue?: number;
   businesses: number;
   by_state: Record<string, number>;
   vehicles: number;
   vehicles_by_plan: Record<string, number>;
   mrr_cents: number;
   open_invoices: number;
+}
+
+export type DataRequestKind = "access" | "correct" | "delete" | "object" | "portability";
+
+/** A person's data protection request to their employer, with the date it must be answered by. */
+export interface DataSubjectRequest {
+  id: string;
+  kind: DataRequestKind;
+  details: string | null;
+  status: "open" | "completed" | "refused";
+  due_on: string;
+  resolution: string | null;
+  created_at: string;
+  resolved_at: string | null;
+  membership_id: string | null;
+  person: string | null;
+  overdue: boolean;
+  days_left: number | null;
+}
+
+export interface DataRequestSummary {
+  open: number;
+  overdue: number;
+  answer_within_days: number;
+}
+
+export type BreachSeverity = "low" | "medium" | "high" | "critical";
+
+/** An entry in the platform's register of personal data breaches, with its 72-hour deadline. */
+export interface BreachIncident {
+  id: string;
+  title: string;
+  description: string;
+  severity: BreachSeverity;
+  status: "open" | "contained" | "closed";
+  discovered_at: string;
+  occurred_at: string | null;
+  businesses_affected: string[];
+  people_affected: number | null;
+  data_involved: string | null;
+  risk_to_people: boolean;
+  contained_at: string | null;
+  odpc_notified_at: string | null;
+  businesses_notified_at: string | null;
+  people_notified_at: string | null;
+  root_cause: string | null;
+  actions_taken: string | null;
+  created_at: string;
+  updated_at: string;
+  odpc_deadline: string | null;
+  odpc_hours_left: number | null;
+  odpc_overdue: boolean;
+  odpc_late: boolean;
 }
