@@ -1,7 +1,7 @@
 import type { Part, WorkOrder } from "@fleettms/types";
 import { formatKes } from "@fleettms/business-rules";
 import { useCallback, useEffect, useState } from "react";
-import { RefreshControl, ScrollView, Text, View } from "react-native";
+import { Image, RefreshControl, ScrollView, Text, View } from "react-native";
 import { api } from "../api";
 import { Body, Button, ErrorText, errorMessage, Screen, Title, useTheme } from "../ui";
 
@@ -69,6 +69,15 @@ function WorkOrderCard({
       {open && (
         <>
           {wo.description ? <Body>{wo.description}</Body> : null}
+          {wo.photos?.map((p) => (
+            <Image
+              key={p.id}
+              accessibilityLabel="Sent by the driver"
+              source={{ uri: api.mediaUrl(p.url) }}
+              style={{ width: "100%", height: 220, borderRadius: 10 }}
+              resizeMode="cover"
+            />
+          ))}
           {store.map((p) => (
             <View key={p.id} style={{ gap: 6 }}>
               <Body>

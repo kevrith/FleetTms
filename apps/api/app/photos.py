@@ -136,6 +136,13 @@ async def ingest_photo(
     return photo
 
 
+async def photos_by_id(db: AsyncSession, ids: list[str]) -> dict[uuid.UUID, Photo]:
+    """The photos with these ids (as stored on a record), keyed by id."""
+    if not ids:
+        return {}
+    return {p.id: p for p in (await db.execute(select(Photo).where(Photo.id.in_([uuid.UUID(i) for i in ids])))).scalars()}
+
+
 def photo_out(photo: Photo | None) -> dict | None:
     if photo is None:
         return None

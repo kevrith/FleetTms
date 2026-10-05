@@ -242,6 +242,7 @@ export type PhotoKind =
   | "defect"
   | "receipt"
   | "incident"
+  | "repair"
   | "pod_cargo"
   | "delivery_note"
   | "damage"
@@ -636,6 +637,8 @@ export interface WorkOrder {
   unfitted_parts: number;
   /** Only on the list endpoint. */
   registration?: string | null;
+  /** Pictures the driver sent with a request. On the list and single-order endpoints only. */
+  photos?: PhotoRef[];
   odometer_km: number | null;
   opened_at: string;
   completed_at: string | null;
@@ -965,6 +968,32 @@ export interface SosAlert {
   resolved_at: string | null;
   note: string | null;
   map_url: string | null;
+}
+
+export type RepairKind = "tyre" | "engine" | "brakes" | "electrical" | "body" | "other";
+
+/** A repair or tyre request the crew raised, and where the workshop has got to with it. */
+export interface RepairRequest {
+  id: string;
+  title: string;
+  description: string | null;
+  priority: "urgent" | "high" | "normal" | "low";
+  status: "open" | "in_progress" | "waiting_parts" | "done" | "cancelled";
+  registration: string | null;
+  opened_at: string;
+  completed_at: string | null;
+  photos: PhotoRef[];
+}
+
+/** One month of the caller's own pay, once the owner has approved the payroll run. */
+export interface MyPayLine {
+  month: string;
+  status: "approved" | "paid";
+  paid_on: string | null;
+  gross_cents: number;
+  advances_cents: number;
+  fines_cents: number;
+  net_cents: number;
 }
 
 /** Positions that have a recorded tyre on the driver's vehicle. The serials are deliberately not included. */

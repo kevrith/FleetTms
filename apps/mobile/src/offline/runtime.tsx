@@ -5,7 +5,13 @@ import {
   normalizeMpesaCode,
   overloadKg,
 } from "@fleettms/business-rules";
-import type { DeviceReport, DocumentReading, ExpenseCategory, IncidentType } from "@fleettms/types";
+import type {
+  DeviceReport,
+  DocumentReading,
+  ExpenseCategory,
+  IncidentType,
+  RepairKind,
+} from "@fleettms/types";
 import NetInfo from "@react-native-community/netinfo";
 import Constants from "expo-constants";
 import * as Crypto from "expo-crypto";
@@ -171,6 +177,14 @@ export interface IncidentFormInput {
   lat: number | null;
   lng: number | null;
 }
+export interface RepairFormInput {
+  kind: RepairKind;
+  /** Which tyre, when the request is about a tyre. */
+  position: string | null;
+  canDrive: boolean;
+  description: string;
+  photo: LocalPhoto | null;
+}
 export interface FuelFormInput {
   vehicleId: string;
   tripId: string | null;
@@ -197,6 +211,8 @@ interface Offline {
     tyreSerials?: { position: string; serial: string }[],
   ) => Promise<"passed" | "passed_with_defects" | "blocked">;
   reportIncident: (input: IncidentFormInput) => Promise<void>;
+  /** Asks the workshop to see to the vehicle. Queued like everything else, so it works with no signal. */
+  requestRepair: (input: RepairFormInput) => Promise<void>;
   /** Weighs the load: the cargo photo and, from the weighbridge ticket, its weight. Done before the lorry leaves if possible. */
   recordLoading: (
     photo: LocalPhoto,
@@ -380,6 +396,23 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
             lng: input.lng,
             occurred_at: at,
             trip_id: tripId ?? null,
+            photo_client_ids: input.photo ? [input.photo.clientId] : [],
+          },
+        });
+      },
+
+      async requestRepair(input) {
+        const at = nowIso();
+        await queueAndSync({
+          type: "repair.request",
+          capturedAt: at,
+          photoIds: input.photo ? [input.photo.clientId] : [],
+          payload: {
+            kind: input.kind,
+            position: input.kind === "tyre" ? input.position : null,
+            can_drive: input.canDrive,
+            description: input.description.trim() || null,
+            occurred_at: at,
             photo_client_ids: input.photo ? [input.photo.clientId] : [],
           },
         });

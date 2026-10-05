@@ -106,6 +106,7 @@ class PhotoKind(enum.StrEnum):
     DEFECT = "defect"
     RECEIPT = "receipt"
     INCIDENT = "incident"
+    REPAIR = "repair"  # the part a driver wants the workshop to look at
     POD_CARGO = "pod_cargo"  # the cargo offloaded at the client
     DELIVERY_NOTE = "delivery_note"  # the signed delivery note
     DAMAGE = "damage"
@@ -826,6 +827,7 @@ class WorkOrder(TenantMixin, Base):
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    photo_ids: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))  # photos from the driver who asked
 
     parts: Mapped[list["WorkOrderPart"]] = relationship(lazy="selectin", cascade="all, delete-orphan")
 

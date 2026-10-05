@@ -178,7 +178,9 @@ import type {
   Availability,
   VehicleBrief,
   MySos,
+  MyPayLine,
   MyTyrePositions,
+  RepairRequest,
 } from "@fleettms/types";
 
 /** Where tokens live. Web uses localStorage, mobile uses the secure keystore. */
@@ -472,6 +474,9 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
       return get<Trip[]>(`/trips${qs ? `?${qs}` : ""}`);
     },
     myTrips: () => get<Trip[]>("/me/trips"),
+    myTripHistory: () => get<Trip[]>("/me/trip-history"),
+    myPay: () => get<MyPayLine[]>("/me/pay"),
+    myRepairRequests: () => get<RepairRequest[]>("/me/repair-requests"),
     trip: (id: string) => get<Trip>(`/trips/${id}`),
     createTrip: (input: TripInput) => post<Trip>("/trips", input),
     startTrip: (id: string, reading: ReadingInput) => post<Trip>(`/trips/${id}/start`, reading),

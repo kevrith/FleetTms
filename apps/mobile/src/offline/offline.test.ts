@@ -239,6 +239,39 @@ describe("sync engine", () => {
     });
   });
 
+  it("keeps a repair request and its photo made with no signal and sends both, with the time it was made, when there is one", async () => {
+    const { store, server, engine, goOffline, goOnline } = await setup();
+    const photo = await store.addPhoto(bytes("jpeg"), {
+      kind: "repair",
+      capturedAt: "2026-10-02T11:00:00Z",
+      lat: -1.3,
+      lng: 36.9,
+    });
+    await store.enqueue({
+      type: "repair.request",
+      payload: {
+        kind: "tyre",
+        position: "steer_left",
+        can_drive: false,
+        occurred_at: "2026-10-02T11:00:00Z",
+        photo_client_ids: [photo.clientId],
+      },
+      capturedAt: "2026-10-02T11:00:00Z",
+      photoIds: [photo.clientId],
+    });
+    goOffline();
+    expect((await engine.run()).status).toBe("offline");
+    expect(store.get().queue).toHaveLength(1);
+    expect(server.photos.has(photo.clientId)).toBe(false);
+    goOnline();
+    expect(await engine.run()).toMatchObject({ status: "done", applied: 1 });
+    expect(server.photos.has(photo.clientId)).toBe(true);
+    expect(server.syncCalls[0]![0]).toMatchObject({
+      type: "repair.request",
+      payload: { kind: "tyre", position: "steer_left", occurred_at: "2026-10-02T11:00:00Z" },
+    });
+  });
+
   it("is safe to run again: a second run sends nothing new", async () => {
     const { store, server, engine } = await setup();
     await queueMorning(store);

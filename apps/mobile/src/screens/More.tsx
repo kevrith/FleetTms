@@ -6,6 +6,7 @@ import { useAuth } from "../auth";
 import { clearQuick } from "../quick";
 import { useOffline } from "../offline/runtime";
 import { FeedbackCard } from "./Feedback";
+import { HistoryCard } from "./History";
 import { MyDataCard } from "./MyData";
 import { SupportCard } from "./Support";
 import { QuickSignInCard } from "./QuickSignIn";
@@ -105,6 +106,7 @@ export default function MoreScreen() {
           </>
         )}
 
+        {view === "driver" && <HistoryCard />}
         <QuickSignInCard />
         <FeedbackCard />
         <MyDataCard />

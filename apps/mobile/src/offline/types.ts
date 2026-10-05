@@ -20,6 +20,7 @@ export type ActionType =
   | "expense.add"
   | "reconciliation.submit"
   | "incident.report"
+  | "repair.request"
   | "sos.send";
 
 /** A photo taken on the phone, kept encrypted until it has been uploaded. */

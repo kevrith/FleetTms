@@ -7,6 +7,7 @@ import { useAuth } from "../auth";
 import { Body, Screen, Title, useTheme } from "../ui";
 import { useOffline } from "../offline/runtime";
 import { HelpCard } from "./Help";
+import { RepairCard } from "./Repairs";
 import { AttentionList, SyncBadge } from "./SyncStatus";
 import TripPanel from "./TripPanel";
 
@@ -57,6 +58,7 @@ function DriverHome() {
       <Title>Hello, {me?.user.name.split(" ")[0]}</Title>
       <SyncBadge />
       <HelpCard />
+      <RepairCard />
       <AttentionList />
       <MyVehicleCard />
       <FloatCard />

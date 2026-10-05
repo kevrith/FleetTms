@@ -12,6 +12,7 @@ import LoginScreen from "./screens/Login";
 import ExpensesScreen from "./screens/Expenses";
 import FleetScreen from "./screens/Fleet";
 import MessagesScreen from "./screens/Messages";
+import MoneyScreen from "./screens/Money";
 import MoreScreen from "./screens/More";
 import NoticesScreen from "./screens/Notices";
 import TripPanel from "./screens/TripPanel";
@@ -54,6 +55,8 @@ const OWNER_TABS: TabDef[] = [
   { name: "More", icon: "menu-outline", component: MoreScreen },
 ];
 
+const MONEY_TAB: TabDef = { name: "Money", icon: "wallet-outline", component: MoneyScreen };
+
 const WORKSHOP_TAB: TabDef = {
   name: "Workshop",
   icon: "construct-outline",
@@ -93,7 +96,7 @@ function Tabs({ tabs }: { tabs: TabDef[] }) {
     <Tab.Navigator
       screenOptions={{
         tabBarStyle: { height: tapTarget + 12 },
-        tabBarLabelStyle: { fontSize: 13 },
+        tabBarLabelStyle: { fontSize: tabs.length > 5 ? 11 : 13 }, // six tabs leave each label little room
       }}
     >
       {tabs.map(({ name, icon, component }) => (
@@ -126,9 +129,13 @@ function Gate() {
   // Re-keyed by view so switching Owner/Driver rebuilds the tabs.
   const can = (p: string) => me.permissions.includes(p);
   const workshopOnly = can("workshop.manage") && !can("vehicles.view");
-  const office = can("workshop.manage")
-    ? [...OWNER_TABS.slice(0, -1), WORKSHOP_TAB, ...OWNER_TABS.slice(-1)]
-    : OWNER_TABS;
+  const money = ["expenses.approve_limit", "reconciliations.approve", "floats.manage"].some(can);
+  const office = [
+    ...OWNER_TABS.slice(0, -1),
+    ...(money ? [MONEY_TAB] : []),
+    ...(can("workshop.manage") ? [WORKSHOP_TAB] : []),
+    ...OWNER_TABS.slice(-1),
+  ];
   const withMap = can("livemap.view")
     ? [
         ...office.slice(0, -1),

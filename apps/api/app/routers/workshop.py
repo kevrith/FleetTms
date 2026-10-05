@@ -25,6 +25,7 @@ from app.models import (
     WorkOrderSource,
     WorkOrderStatus,
 )
+from app.photos import photo_out, photos_by_id
 from app.reminders import NAIROBI, nairobi_today
 from app.routers.vehicles import get_vehicle
 from app.service_rules import service_due
@@ -99,6 +100,11 @@ def work_order_out(wo: WorkOrder) -> dict:
     }  # fmt: skip
 
 
+def _photos(wo: WorkOrder, photos: dict) -> list[dict]:
+    """The pictures the driver sent with a request, as short-lived viewing links."""
+    return [photo_out(photos[uuid.UUID(i)]) for i in wo.photo_ids if uuid.UUID(i) in photos]
+
+
 async def work_order_from_defect(db: AsyncSession, defect: Defect, vehicle: Vehicle, user_id: uuid.UUID | None) -> WorkOrder:
     """Every defect found in an inspection becomes a work order at once (masterplan 5.19)."""
     wo = WorkOrder(
@@ -149,12 +155,15 @@ async def list_work_orders(
     if vehicle_id:
         query = query.where(WorkOrder.vehicle_id == vehicle_id)
     plates = {v.id: v.registration for v in (await db.execute(select(Vehicle))).scalars()}
-    return [work_order_out(w) | {"registration": plates.get(w.vehicle_id)} for w in (await db.execute(query)).scalars()]
+    orders = list((await db.execute(query)).scalars())
+    photos = await photos_by_id(db, [i for w in orders for i in w.photo_ids])
+    return [work_order_out(w) | {"registration": plates.get(w.vehicle_id)} | {"photos": _photos(w, photos)} for w in orders]
 
 
 @router.get("/work-orders/{wo_id}")
 async def read_work_order(wo_id: uuid.UUID, principal: Principal = Depends(require_any(*READ)), db: AsyncSession = Depends(get_db)):
-    return work_order_out(await _get_wo(db, principal, wo_id))
+    wo = await _get_wo(db, principal, wo_id)
+    return work_order_out(wo) | {"photos": _photos(wo, await photos_by_id(db, wo.photo_ids))}
 
 
 @router.post("/work-orders", status_code=status.HTTP_201_CREATED)

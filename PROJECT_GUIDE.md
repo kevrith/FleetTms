@@ -316,6 +316,14 @@ on the dev machine.
   `.pf`); the older Partners, Breaches and Usage pages are reused inside it. A support session ends with the banner in `Layout.tsx`. Tested: 30 API tests in
   `tests/test_platform_admin.py`, and every page opened in a headless browser with no console errors (not clicked through by a person).
 
+- **What the phone can do (driver and owner).** Driver: Home has SOS, Report a problem and *Request a repair* (`screens/Repairs.tsx`; the `repair.request`
+  offline action runs `routers/me.py` `do_request_repair`, which opens a manual work order on the person's crewed vehicle, urgent when they say do not drive,
+  high for brakes and tyres, normal otherwise; an optional photo of kind `repair` is stored in `WorkOrder.photo_ids`, migration 0029, and comes back as `photos` on `GET /work-orders` and `/work-orders/{id}`, shown on the web Workshop page and the phone's work order card); More has *My trips and my pay* (`screens/History.tsx`, online only: `GET /me/trip-history`, `GET /me/pay`,
+  which returns only the caller's own lines for approved or paid payroll runs, never a draft). Owner, manager and supervisor: a *Money* tab
+  (`screens/Money.tsx`, shown with `expenses.approve_limit`, `reconciliations.approve` or `floats.manage`) to decide over-limit expenses, approve or send
+  back a driver's day, and record a float (`money.ts` checks the form with the server's rules). Everything else for the owner (dispatch, clients, invoices,
+  payroll, reports, settings) stays on the web app. Unverified: the new screens have not been run on the emulator.
+
 ## Testing against a real phone/emulator
 
 - API tests use a separate `fleettms_test` database that they create and migrate themselves.

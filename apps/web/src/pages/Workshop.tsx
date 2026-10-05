@@ -101,6 +101,15 @@ function WorkOrderPanel({
         </span>
       </p>
       {wo.description && <p className="muted">{wo.description}</p>}
+      {wo.photos && wo.photos.length > 0 && (
+        <p>
+          {wo.photos.map((p) => (
+            <a key={p.id} href={api.mediaUrl(p.url)} target="_blank" rel="noreferrer">
+              <img src={api.mediaUrl(p.url)} alt="Sent by the driver" height={80} />
+            </a>
+          ))}
+        </p>
+      )}
       {manage && !closed && (
         <>
           <div className="form-grid">

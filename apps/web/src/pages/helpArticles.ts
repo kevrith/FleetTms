@@ -47,6 +47,7 @@ export const helpArticles: HelpArticle[] = [
     body: [
       "Drivers record fuel (litres, price, total, a photo of the receipt and the M-Pesa code) and expenses such as tolls and parking. On the phone, a fuel receipt photo can fill in the form for you; you check it and confirm.",
       "Money given to a driver in advance is a float. What they spend comes out of it, and at the end of the day they reconcile what is left.",
+      "Owners and managers can do the daily money on the phone too: the Money tab lists expenses that went over a limit and the drivers' end-of-day reports to approve or send back, and records a float you have sent by M-Pesa.",
       "You can set spending limits. An expense over the limit waits for approval. The system also notices a claim that is much bigger than usual for that route, an M-Pesa code used twice, and a receipt photo submitted twice.",
       "These are flags to look at, not accusations. Each one shows the numbers behind it.",
     ],
@@ -116,11 +117,13 @@ export const helpArticles: HelpArticle[] = [
   {
     slug: "drivers-app",
     title: "For drivers: the phone app",
-    summary: "Signing in, working offline, messages and your privacy.",
+    summary: "Signing in, working offline, repairs, your pay and your privacy.",
     body: [
       "Sign in with your phone number and the code we text you. If you set a PIN, you can use it for quick sign-in on your own phone.",
       "The app works without signal. Your work is saved on the phone and sent when you are back online; a badge shows how much is waiting. Do not sign out with unsent work: the app will warn you.",
       "Messages from the office appear under Messages with a number showing how many are new.",
+      "Something wrong with the vehicle that is not an emergency? On Home, choose Request a repair, say what it is (and which tyre), whether you can keep driving, and add a photo of the part. The workshop sees it at once, and Home shows how it is getting on. It works without signal too. For an accident or breakdown use Report a problem, and for danger use SOS.",
+      "Under More, My trips and my pay shows the trips you have finished and, once your owner has approved a month, what you were paid, with any advances or fines taken off. You need a connection for this.",
       "Your phone's position is recorded only while a trip is running, a notification shows while it is on, and it stops when you end the trip. Under More, My data and my rights, you can ask your employer to show you, correct or delete what they hold about you.",
     ],
   },

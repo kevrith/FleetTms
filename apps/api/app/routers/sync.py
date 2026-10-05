@@ -25,6 +25,7 @@ from app.routers.expenses import ExpenseIn, do_add_expense
 from app.routers.fuel import FuelIn, do_add_fuel
 from app.routers.incidents import IncidentIn, do_report_incident
 from app.routers.inspections import InspectionIn, do_submit_inspection
+from app.routers.me import RepairIn, do_request_repair
 from app.routers.reconciliation import SubmitIn, do_submit_reconciliation
 from app.routers.sos import SosIn, do_send_sos
 from app.routers.trips import (
@@ -92,6 +93,11 @@ async def _sos(db: AsyncSession, who: Principal, p: dict) -> dict:
     return {"id": str(alert.id), "status": alert.status}
 
 
+async def _repair(db: AsyncSession, who: Principal, p: dict) -> dict:
+    wo = await do_request_repair(db, who, RepairIn.model_validate(p))
+    return {"id": str(wo.id), "priority": wo.priority.value}
+
+
 HANDLERS = {
     "sos.send": _sos,
     "incident.report": _incident,
@@ -103,6 +109,7 @@ HANDLERS = {
     "fuel.add": _fuel,
     "expense.add": _expense,
     "reconciliation.submit": _reconciliation,
+    "repair.request": _repair,
 }
 
 
