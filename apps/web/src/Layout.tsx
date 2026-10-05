@@ -25,6 +25,26 @@ const DOC_SUMMARY: Record<string, string> = {
     "can see the lorry's position, and location points are deleted after 12 months.",
 };
 
+/** Shown while a platform admin is inside a customer's account with its owner's permission: it is read-only and logged, and this ends it. */
+function SupportBanner() {
+  const { reload } = useAuth();
+  const nav = useNavigate();
+  async function leave() {
+    await api.platformLeaveSupport();
+    await reload();
+    nav("/platform");
+  }
+  return (
+    <p className="banner warn" role="status">
+      <Building size={18} /> You are inside this company with its owner's permission. It is
+      read-only and every entry is logged.{" "}
+      <button className="btn" onClick={() => void leave()}>
+        Leave
+      </button>
+    </p>
+  );
+}
+
 /** Shown on every page to people who respond to SOS alerts, so an alert is seen within seconds. */
 function SosBanner() {
   const [alerts, setAlerts] = useState<SosAlert[]>([]);
@@ -167,6 +187,7 @@ export default function Layout() {
         </button>
       </nav>
       <main className="main">
+        {me.support_access && <SupportBanner />}
         <SubscriptionBanner />
         {me.permissions.includes("sos.respond") && <SosBanner />}
         <ErrorBanner message={error} />

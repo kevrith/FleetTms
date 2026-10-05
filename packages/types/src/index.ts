@@ -2594,6 +2594,234 @@ export interface PlatformOverview {
   open_invoices: number;
 }
 
+export interface PlatformKpis {
+  mrr_cents: number;
+  arr_cents: number;
+  paying: number;
+  arpa_cents: number;
+  businesses: number;
+  vehicles: number;
+  new_30d: number;
+  churned_30d: number;
+  collected_30d_cents: number;
+  outstanding_cents: number;
+  overdue_cents: number;
+  trial_conversion_pct: number | null;
+  past_trial: number;
+  converted: number;
+}
+
+export interface PlatformAnalytics {
+  kpis: PlatformKpis;
+  states: Record<string, number>;
+  vehicles_by_plan: Record<string, number>;
+  revenue: { month: string; subscription_cents: number; sms_cents: number; invoices: number }[];
+  signups: { month: string; count: number }[];
+  cancellations: { month: string; count: number }[];
+  payment_methods: Record<string, number>;
+  top_customers: {
+    id: string;
+    name: string;
+    monthly_cents: number;
+    vehicles: number;
+    period: string;
+  }[];
+}
+
+export interface PlatformAttentionItem {
+  key: string;
+  label: string;
+  count: number;
+  severity: "red" | "amber" | "blue";
+  link: string;
+}
+
+export interface PlatformRenewalRow {
+  id: string;
+  name: string;
+  state: AccessStateName;
+  category: "overdue" | "trial" | "renewing" | "suspended";
+  ends_at: string;
+  days_left: number;
+  period: "monthly" | "annual";
+  monthly_cents: number;
+  vehicles: number;
+  cancelled: boolean;
+  owner: { name: string; email: string | null; phone: string | null } | null;
+  open_invoice: { id: string; number: string; total_cents: number; due_date: string } | null;
+}
+
+export interface PlatformRenewals {
+  window: number;
+  rows: PlatformRenewalRow[];
+  totals: {
+    overdue: number;
+    trial: number;
+    renewing: number;
+    expected_cents: number;
+    at_risk_cents: number;
+  };
+}
+
+export interface PlatformInvoiceRow {
+  id: string;
+  number: string;
+  business_id: string;
+  business: string | null;
+  kind: "subscription" | "sms_bundle";
+  status: "issued" | "paid" | "void";
+  total_cents: number;
+  billing_period: string | null;
+  sms_messages: number | null;
+  period_start: string | null;
+  period_end: string | null;
+  due_date: string;
+  created_at: string;
+  paid_at: string | null;
+  payment_method: string | null;
+  reference: string | null;
+  overdue: boolean;
+  tax_invoice: string | null;
+}
+
+export interface PlatformInvoicePage {
+  total: number;
+  page: number;
+  page_size: number;
+  pages: number;
+  sums: Record<string, { cents: number; count: number }>;
+  rows: PlatformInvoiceRow[];
+}
+
+export interface PlatformInvoiceFilter {
+  status?: string;
+  kind?: string;
+  q?: string;
+  business_id?: string;
+  start?: string;
+  end?: string;
+  page?: number;
+  page_size?: number;
+}
+
+export interface PlatformSubscriptionDetail {
+  business: PlatformBusinessRow;
+  access: AccessInfo;
+  complimentary: boolean;
+  suspended: boolean;
+  suspended_reason: string | null;
+  subscription: {
+    trial_ends_at: string;
+    paid_until: string | null;
+    period: "monthly" | "annual";
+    payroll_enabled: boolean;
+    custom_monthly_cents: number | null;
+    cancelled_at: string | null;
+    data_removed_on: string | null;
+    created_at: string;
+  };
+  quote: SubscriptionQuoteView;
+  annual_quote: SubscriptionQuoteView;
+  payroll_employees: number;
+  vehicles: {
+    vehicle_id: string;
+    registration: string;
+    plan: PlanName;
+    effective_plan: PlanName;
+  }[];
+  invoices: PlatformInvoiceRow[];
+  payments: {
+    id: string;
+    invoice_id: string;
+    method: "mpesa" | "card";
+    status: "pending" | "paid" | "failed";
+    amount_cents: number;
+    note: string | null;
+    created_at: string;
+    answered_at: string | null;
+  }[];
+  sms: { credits: number; sent_total: number; sent_this_month: number; low: boolean };
+  support_grant: { active: boolean; expires_at: string | null };
+}
+
+export interface SubscriptionEdit {
+  reason: string;
+  period?: "monthly" | "annual";
+  payroll_enabled?: boolean;
+  paid_until?: string | null;
+  trial_ends_at?: string;
+  custom_monthly_cents?: number | null;
+}
+
+export interface PlatformNote {
+  id: string;
+  business_id: string;
+  body: string;
+  pinned: boolean;
+  author: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlatformAdmin {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  active: boolean;
+  created_at: string;
+  you?: boolean;
+}
+
+export interface PlatformAuditRow {
+  id: string;
+  at: string;
+  source: "customer" | "platform";
+  action: string;
+  actor: string | null;
+  business_id: string | null;
+  business: string | null;
+  entity_type: string;
+  entity_id: string | null;
+  note: string | null;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+}
+
+export interface PlatformAuditPage {
+  total: number;
+  page: number;
+  page_size: number;
+  pages: number;
+  rows: PlatformAuditRow[];
+}
+
+export interface PlatformFeedbackItem {
+  id: string;
+  kind: "problem" | "idea" | "praise";
+  message: string;
+  page: string | null;
+  app: string | null;
+  from: string | null;
+  business: string | null;
+  created_at: string;
+  status: "new" | "read" | "resolved";
+  handled_note: string | null;
+  handled_at: string | null;
+}
+
+export interface PlatformSystem {
+  ready: boolean;
+  failing: string[];
+  checks: Record<string, { ok: boolean; reason?: string; state?: string; backend?: string }>;
+  version: string;
+  environment: string;
+  checked_at: string;
+  queue: { waiting: number | null; worker_heartbeat_seconds: number | null };
+  integrations: Record<string, string | boolean>;
+  stuck: Record<string, number>;
+}
+
 export interface PlatformEtimsInvoice {
   id: string;
   invoice_number: string;

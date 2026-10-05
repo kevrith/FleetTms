@@ -1817,7 +1817,7 @@ class TrackerAlert(TenantMixin, Base):
     details: Mapped[dict] = mapped_column(JSONB, default=dict)
     status: Mapped[str] = mapped_column(String(12), default="open", index=True)  # open, explained, confirmed or resolved
     note: Mapped[str | None] = mapped_column(String(500))
-    handled_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    handled_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL", name="fk_feedback_handled_by_user_id"))
     handled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     notified: Mapped[int] = mapped_column(Integer, default=0)  # how many people were texted
@@ -1898,7 +1898,7 @@ class FraudAlert(TenantMixin, Base):
     trust_level: Mapped[str | None] = mapped_column(String(6))  # the vehicle's trust level when it was raised
     status: Mapped[str] = mapped_column(String(12), default="open", index=True)  # open, explained or confirmed
     note: Mapped[str | None] = mapped_column(String(500))
-    handled_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    handled_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL", name="fk_feedback_handled_by_user_id"))
     handled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     notified: Mapped[int] = mapped_column(Integer, default=0)  # how many people were told by text or email
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)  # when it happened, not when we noticed
@@ -1942,6 +1942,10 @@ class Feedback(TenantMixin, Base):
     page: Mapped[str | None] = mapped_column(String(200))  # where in the app they were
     app: Mapped[str | None] = mapped_column(String(10))  # web or mobile
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    status: Mapped[str] = mapped_column(String(10), default="new", server_default="new", index=True)  # new, read or resolved: the platform's inbox
+    handled_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL", name="fk_feedback_handled_by_user_id"))
+    handled_note: Mapped[str | None] = mapped_column(String(500))
+    handled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 # ---- Premium: learned models and document reading (Sprint 14) ----------------------------------------------------------
@@ -2062,6 +2066,34 @@ class WhatsAppMessage(TenantMixin, Base):
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     replied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PlatformNote(Base):
+    """An internal note the platform keeps about a customer (a call, a promise, a risk). Never shown to the business."""
+
+    __tablename__ = "platform_notes"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    business_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("businesses.id", ondelete="CASCADE"), index=True)
+    author_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    body: Mapped[str] = mapped_column(String(2000))
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class PlatformAction(Base):
+    """What a platform admin did that belongs to no business's own audit trail: customer notes, who may run the console, the inbox. What
+    changes a customer's account is written to that business's trail instead, so its owner can see it."""
+
+    __tablename__ = "platform_actions"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    action: Mapped[str] = mapped_column(String(80), index=True)
+    business_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("businesses.id", ondelete="SET NULL"), index=True)
+    entity_type: Mapped[str] = mapped_column(String(40))
+    entity_id: Mapped[str | None] = mapped_column(String(64))
+    detail: Mapped[dict | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
 class PlatformEtimsSubmission(Base):

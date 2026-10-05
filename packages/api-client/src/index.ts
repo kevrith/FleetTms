@@ -23,8 +23,21 @@ import type {
   PlansInfo,
   PlatformBusinessDetail,
   PlatformBusinessRow,
+  PlatformAdmin,
+  PlatformAnalytics,
+  PlatformAttentionItem,
+  PlatformAuditPage,
   PlatformEtims,
   PlatformEtimsInvoice,
+  PlatformFeedbackItem,
+  PlatformInvoiceFilter,
+  PlatformInvoicePage,
+  PlatformInvoiceRow,
+  PlatformNote,
+  PlatformRenewals,
+  PlatformSubscriptionDetail,
+  PlatformSystem,
+  SubscriptionEdit,
   PlatformOverview,
   ReportData,
   SentMessage,
@@ -280,6 +293,14 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
   }
 
   const get = <T>(path: string) => request<T>("GET", path);
+  /** `?a=1&b=2` from an object, leaving out whatever is empty. */
+  const queryString = (values: object) => {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(values))
+      if (v !== undefined && v !== "" && v !== null) p.set(k, String(v));
+    const text = p.toString();
+    return text ? `?${text}` : "";
+  };
   const post = <T>(path: string, body?: unknown) => request<T>("POST", path, body ?? {});
 
   return {
@@ -1337,9 +1358,13 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
     // ---- the platform console ----
     platformOverview: () => get<PlatformOverview>("/platform/overview"),
     platformHealth: () =>
-      get<{ database: boolean; redis: boolean; version: string; checked_at: string }>(
-        "/platform/health",
-      ),
+      get<{
+        database: boolean;
+        redis: boolean;
+        version: string;
+        environment: string;
+        checked_at: string;
+      }>("/platform/health"),
     platformBusinesses: (state?: string, q?: string) => {
       const p = new URLSearchParams();
       if (state) p.set("state", state);
@@ -1353,12 +1378,93 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
       action: "extend-trial" | "complimentary" | "suspend" | "unsuspend" | "custom-price",
       body: Record<string, unknown> = {},
     ) => post<PlatformBusinessRow>(`/platform/businesses/${id}/${action}`, body),
-    platformMarkPaid: (invoiceId: string, reference: string) =>
+    platformMarkPaid: (
+      invoiceId: string,
+      reference: string,
+      method: "bank" | "manual" | "card" = "bank",
+    ) =>
       post<{ id: string; status: string }>(`/platform/invoices/${invoiceId}/mark-paid`, {
-        method: "bank",
+        method,
         reference,
       }),
 
+    // ---- the platform console: customers, subscriptions, money, people, status ----
+    platformAnalytics: (months = 12) =>
+      get<PlatformAnalytics>(`/platform/analytics?months=${months}`),
+    platformAttention: () => get<PlatformAttentionItem[]>("/platform/attention"),
+    platformRenewals: (window = 30, category = "all") =>
+      get<PlatformRenewals>(`/platform/renewals?window=${window}&category=${category}`),
+    platformSubscription: (id: string) =>
+      get<PlatformSubscriptionDetail>(`/platform/businesses/${id}/subscription`),
+    platformEditSubscription: (id: string, body: SubscriptionEdit) =>
+      request<PlatformSubscriptionDetail>("PUT", `/platform/businesses/${id}/subscription`, body),
+    platformAdvance: (id: string, months: number, days: number, reason: string) =>
+      post<PlatformSubscriptionDetail>(`/platform/businesses/${id}/subscription/advance`, {
+        months,
+        days,
+        reason,
+      }),
+    platformCancel: (id: string, reason: string) =>
+      post<PlatformSubscriptionDetail>(`/platform/businesses/${id}/subscription/cancel`, {
+        reason,
+      }),
+    platformReactivate: (id: string, reason: string) =>
+      post<PlatformSubscriptionDetail>(`/platform/businesses/${id}/subscription/reactivate`, {
+        reason,
+      }),
+    platformVehiclePlan: (id: string, vehicleId: string, plan: PlanName, reason: string) =>
+      request<PlatformSubscriptionDetail>(
+        "PUT",
+        `/platform/businesses/${id}/vehicles/${vehicleId}/plan`,
+        { plan, reason },
+      ),
+    platformRaiseInvoice: (
+      id: string,
+      body: {
+        kind?: "subscription" | "sms_bundle";
+        messages?: number;
+        total_cents?: number;
+        reason: string;
+      },
+    ) => post<PlatformInvoiceRow>(`/platform/businesses/${id}/invoices`, body),
+    platformVoidInvoice: (invoiceId: string, reason: string) =>
+      post<PlatformInvoiceRow>(`/platform/invoices/${invoiceId}/void`, { reason }),
+    platformRemind: (id: string) =>
+      post<{ sent: number; notice: string }>(`/platform/businesses/${id}/remind`, {}),
+    platformEditBusiness: (
+      id: string,
+      body: { name?: string; kra_pin?: string | null; reason: string },
+    ) => request<PlatformBusinessRow>("PUT", `/platform/businesses/${id}`, body),
+    platformInvoices: (f: PlatformInvoiceFilter = {}) =>
+      get<PlatformInvoicePage>(`/platform/invoices${queryString(f)}`),
+    platformDownload: (path: string) => request<Blob>("GET", path, undefined, true, true),
+    platformNotes: (id: string) => get<PlatformNote[]>(`/platform/businesses/${id}/notes`),
+    platformAddNote: (id: string, body: string, pinned = false) =>
+      post<PlatformNote>(`/platform/businesses/${id}/notes`, { body, pinned }),
+    platformEditNote: (noteId: string, body: { body?: string; pinned?: boolean }) =>
+      request<PlatformNote>("PUT", `/platform/notes/${noteId}`, body),
+    platformDeleteNote: (noteId: string) => request<void>("DELETE", `/platform/notes/${noteId}`),
+    platformAdmins: () => get<PlatformAdmin[]>("/platform/admins"),
+    platformAddAdmin: (email: string) => post<PlatformAdmin>("/platform/admins", { email }),
+    platformRemoveAdmin: (userId: string) => request<void>("DELETE", `/platform/admins/${userId}`),
+    platformAudit: (f: {
+      source?: string;
+      action?: string;
+      business_id?: string;
+      days?: number;
+      page?: number;
+      page_size?: number;
+    }) => get<PlatformAuditPage>(`/platform/audit${queryString(f)}`),
+    platformFeedback: () => get<PlatformFeedbackItem[]>("/platform/feedback"),
+    platformHandleFeedback: (id: string, status: "new" | "read" | "resolved", note?: string) =>
+      request<{ id: string; status: string }>("PUT", `/platform/feedback/${id}`, {
+        status,
+        note: note ?? null,
+      }),
+    platformSystem: () => get<PlatformSystem>("/platform/system"),
+    platformEnterSupport: (businessId: string) =>
+      post<{ business_id: string }>(`/platform/support/${businessId}/enter`, {}),
+    platformLeaveSupport: () => request<void>("POST", "/platform/support/leave", {}),
     platformEtims: () => get<PlatformEtims>("/platform/etims"),
     platformEtimsConnect: () => post<{ connected: boolean }>("/platform/etims/connect", {}),
     platformEtimsBackfill: () => post<{ queued: number }>("/platform/etims/backfill", {}),

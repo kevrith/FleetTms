@@ -117,6 +117,14 @@ export default function App() {
         }
       />
       <Route
+        path="/platform/*"
+        element={
+          <RequireAuth>
+            <Platform />
+          </RequireAuth>
+        }
+      />
+      <Route
         element={
           <RequireAuth>
             <Layout />
@@ -137,7 +145,6 @@ export default function App() {
         <Route path="/ask" element={<Ask />} />
         <Route path="/messages" element={<Messages />} />
         <Route path="/start" element={<Start />} />
-        <Route path="/platform/*" element={<Platform />} />
         <Route path="/trips/:id" element={<TripDetail />} />
         <Route path="/staff/*" element={<StaffArea />} />
         <Route path="/leases/*" element={<Leases />} />

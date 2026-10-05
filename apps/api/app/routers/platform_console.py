@@ -333,4 +333,4 @@ async def health(principal: Principal = Depends(platform_admin)):
         await client.aclose()
     except Exception:  # noqa: BLE001
         redis_ok = False
-    return {"database": await database_is_up(), "redis": redis_ok, "version": settings.version, "checked_at": datetime.now(UTC)}
+    return {"database": await database_is_up(), "redis": redis_ok, "version": settings.version, "environment": settings.environment, "checked_at": datetime.now(UTC)}

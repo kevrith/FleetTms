@@ -306,6 +306,16 @@ on the dev machine.
   `subscriptions.settle_card_payment`, which is idempotent; see `docs/card-payments.md`. Migrations 0024 to 0027. Unverified: real bucket, KRA's sandbox
   with the platform's device, Meta, Paystack, a real odometer photo, the new screens in a browser.
 
+- **The Platform Admin console** (`/platform`, platform admins only; own frame, outside the business app's layout). Backend: `routers/platform_console.py`
+  (customers, trial, free account, hold, agreed price, mark paid, KRA invoices) and `routers/platform_ops.py` (analytics, attention list, renewals, one
+  customer's subscription: edit dates, advance, cancel, reactivate, change a vehicle's plan, raise or void an invoice, remind now; the invoice ledger and
+  CSV exports, notes, who may run the console, the audit trail, the feedback inbox, system status). Rule: what changes a customer's account is written to
+  *that customer's* audit trail with the old and new value and a required reason (the owner sees it); what belongs to no customer (notes, admins, inbox)
+  goes to `PlatformAction` (global tables `platform_notes`, `platform_actions`). Always set the business with `in_business()` before writing tenant rows.
+  Web: `apps/web/src/platform/` (`PlatformShell`, `kit.tsx` tables, dialogs and toasts, `charts.tsx` SVG charts, one file per page; `platform.css` scoped under
+  `.pf`); the older Partners, Breaches and Usage pages are reused inside it. A support session ends with the banner in `Layout.tsx`. Tested: 30 API tests in
+  `tests/test_platform_admin.py`, and every page opened in a headless browser with no console errors (not clicked through by a person).
+
 ## Testing against a real phone/emulator
 
 - API tests use a separate `fleettms_test` database that they create and migrate themselves.

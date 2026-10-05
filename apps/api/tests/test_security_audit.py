@@ -40,6 +40,8 @@ GLOBAL_TABLES = {
     "partners": "the platform's own partner list; a partner sees only their own report",
     "partner_commissions": "what partners have earned; kept after the business that paid it is gone",
     "platform_etims_submissions": "FleetTms's own invoices to its customers on their way to KRA: the platform is the seller; a business sees only the state of its own invoice",
+    "platform_notes": "the platform's own notes about a customer, seen only by platform admins and never by the business",
+    "platform_actions": "the platform's own log of what its admins did that belongs to no customer's trail (notes, who runs the console, the inbox)",
     "usage_counters": "counts of which parts of the product are used, keyed by a pseudonym: no person, no content",
 }
 
@@ -217,6 +219,12 @@ AUDIT_EXEMPT = {
     ("POST", "/platform/partners/{partner_id}/payout"): "each commission records when it was paid and the payment's reference",
     ("POST", "/platform/partners/{partner_id}/reissue-key"): "replaces a credential; only its hash is kept",
     ("POST", "/platform/partners/{partner_id}/{action}"): "suspending or rejecting a partner: the platform's own list, no business involved",
+    ("POST", "/platform/businesses/{business_id}/notes"): "written to the platform's own log (platform_actions); a note is internal and never in a business's trail",
+    ("PUT", "/platform/notes/{note_id}"): "the same",
+    ("DELETE", "/platform/notes/{note_id}"): "the same",
+    ("POST", "/platform/admins"): "written to the platform's own log (admin.granted): who runs the console belongs to no business",
+    ("DELETE", "/platform/admins/{user_id}"): "the same (admin.revoked)",
+    ("PUT", "/platform/feedback/{feedback_id}"): "written to the platform's own log (feedback.read, feedback.resolved) and the feedback row keeps who handled it and when",
     ("POST", "/platform/breaches"): "the register is the record: it is the platform's own, has no business, and keeps who made each entry and when",
     ("PATCH", "/platform/breaches/{breach_id}"): "the same",
     ("POST", "/auth/otp/request"): "asks for a code; the challenge row is the record and the sign-in that follows is audited",

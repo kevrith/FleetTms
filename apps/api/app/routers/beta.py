@@ -176,7 +176,7 @@ async def send_feedback(body: FeedbackIn, principal: Principal = Depends(current
 
 
 def _feedback_out(f: Feedback, names: dict[uuid.UUID, str], business: str | None = None) -> dict:
-    return {"id": f.id, "kind": f.kind, "message": f.message, "page": f.page, "app": f.app, "from": names.get(f.user_id), "business": business, "created_at": f.created_at}
+    return {"id": f.id, "kind": f.kind, "message": f.message, "page": f.page, "app": f.app, "from": names.get(f.user_id), "business": business, "created_at": f.created_at, "status": f.status, "handled_note": f.handled_note, "handled_at": f.handled_at}
 
 
 @router.get("/feedback")
