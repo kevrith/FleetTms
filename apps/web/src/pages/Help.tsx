@@ -1,8 +1,9 @@
-import { Mail, MessageCircle } from "lucide-react";
+import { ChevronRight, Mail, MessageCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
 import { helpArticles } from "./helpArticles";
+import PublicShell from "./PublicShell";
 
 interface Contact {
   whatsapp: string | null;
@@ -61,23 +62,26 @@ export default function Help() {
       : helpArticles;
   }, [query]);
   return (
-    <main className="help">
-      <p>
-        <Link to="/">FleetTms</Link> / <Link to="/help">Help</Link>
-      </p>
+    <PublicShell
+      title={article ? article.title : "How can we help?"}
+      intro={article ? undefined : "Short guides for owners, office staff and drivers."}
+      crumbs={
+        article ? [{ label: "Help", to: "/help" }, { label: article.title }] : [{ label: "Help" }]
+      }
+    >
       {article ? (
         <>
-          <h1>{article.title}</h1>
-          {article.body.map((p) => (
-            <p key={p}>{p}</p>
-          ))}
+          <div className="lp-article">
+            {article.body.map((p) => (
+              <p key={p}>{p}</p>
+            ))}
+          </div>
           <p>
             <Link to="/help">All help articles</Link>
           </p>
         </>
       ) : (
         <>
-          <h1>Help</h1>
           <input
             aria-label="Search the help pages"
             placeholder="Search, for example fuel or M-Pesa"
@@ -87,19 +91,20 @@ export default function Help() {
           {shown.length === 0 && (
             <p className="muted">Nothing matches that. Try another word, or contact us below.</p>
           )}
-          <ul className="list">
+          <ul className="lp-articles">
             {shown.map((a) => (
               <li key={a.slug}>
-                <span>
-                  <Link to={`/help/${a.slug}`}>{a.title}</Link>{" "}
-                  <span className="muted">{a.summary}</span>
-                </span>
+                <Link to={`/help/${a.slug}`}>
+                  <strong>{a.title}</strong>
+                  <span>{a.summary}</span>
+                </Link>
+                <ChevronRight size={18} aria-hidden="true" />
               </li>
             ))}
           </ul>
         </>
       )}
       <ContactCard />
-    </main>
+    </PublicShell>
   );
 }

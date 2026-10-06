@@ -141,7 +141,10 @@ export default function Layout() {
   return (
     <div className="shell">
       <nav className="nav">
-        <h1>FleetTms</h1>
+        <h1 className="brand-lockup">
+          <img src="/logo.png" alt="" width={32} height={32} />
+          FleetTms
+        </h1>
         {me.companies.length > 1 ? (
           <label className="switcher">
             <Building size={16} />

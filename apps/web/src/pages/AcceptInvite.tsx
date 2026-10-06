@@ -3,6 +3,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { ErrorBanner, errorMessage, Field } from "../ui";
+import PublicShell from "./PublicShell";
 
 export default function AcceptInvite() {
   const [params] = useSearchParams();
@@ -22,8 +23,9 @@ export default function AcceptInvite() {
   }
 
   return (
-    <main className="auth-page">
+    <PublicShell layout="form">
       <form className="card auth-card" onSubmit={submit}>
+        <img className="auth-logo" src="/logo.png" alt="FleetTms" width={64} height={64} />
         <h1>Welcome to FleetTms</h1>
         {done ? (
           <p>
@@ -49,6 +51,6 @@ export default function AcceptInvite() {
           </>
         )}
       </form>
-    </main>
+    </PublicShell>
   );
 }

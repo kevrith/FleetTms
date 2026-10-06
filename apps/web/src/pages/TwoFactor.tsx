@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { ErrorBanner, errorMessage, Field } from "../ui";
+import PublicShell from "./PublicShell";
 
 type Method = "totp" | "sms";
 
@@ -43,7 +44,7 @@ export default function TwoFactor() {
   }
 
   return (
-    <main className="auth-page">
+    <PublicShell layout="form">
       <form className="card auth-card" onSubmit={confirm}>
         <h1>Set up two-step verification</h1>
         <p>
@@ -114,6 +115,6 @@ export default function TwoFactor() {
           </>
         )}
       </form>
-    </main>
+    </PublicShell>
   );
 }

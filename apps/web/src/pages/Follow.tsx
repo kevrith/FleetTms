@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api";
 import { MapView } from "../MapView";
+import PublicShell from "./PublicShell";
 
 /** The page a client opens from the link they were sent. No sign-in, nothing but this delivery. */
 export default function Follow() {
@@ -32,7 +33,7 @@ export default function Follow() {
   }, [load]);
   const arrival = d?.expected_arrival ? new Date(d.expected_arrival) : null;
   return (
-    <main className="main" style={{ maxWidth: 640, margin: "0 auto", padding: 16 }}>
+    <PublicShell>
       {gone && (
         <section className="card">
           <h2>Delivery tracking</h2>
@@ -103,6 +104,6 @@ export default function Follow() {
           )}
         </>
       )}
-    </main>
+    </PublicShell>
   );
 }

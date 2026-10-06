@@ -1,9 +1,9 @@
 import type { PartnerPortal } from "@fleettms/types";
 import { useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
 import { api } from "../api";
 import { kes, nairobiTime } from "../labels";
 import { Card, ErrorBanner, errorMessage, Field } from "../ui";
+import PublicShell from "./PublicShell";
 
 const STATE: Record<string, string> = {
   trialing: "On trial",
@@ -59,14 +59,18 @@ export default function PartnerPublic() {
     }
   }
   return (
-    <main className="help">
-      <p>
-        <Link to="/">FleetTms</Link> / Partners
-      </p>
+    <PublicShell
+      title={report ? report.partner.name : "Become a FleetTms partner"}
+      intro={
+        report
+          ? undefined
+          : "If you fit GPS trackers or fuel sensors for transport businesses, you can bring them to FleetTms and earn a share of what they pay for as long as the arrangement runs. Tell us about your business and we will call you."
+      }
+      crumbs={[{ label: "Partners" }]}
+    >
       <ErrorBanner message={error} />
       {report ? (
         <>
-          <h1>{report.partner.name}</h1>
           <Card title="Your code">
             <p>
               Give customers the code <strong>{report.partner.code}</strong> to type when they sign
@@ -131,12 +135,6 @@ export default function PartnerPublic() {
         </>
       ) : (
         <>
-          <h1>Become a FleetTms partner</h1>
-          <p>
-            If you fit GPS trackers or fuel sensors for transport businesses, you can bring them to
-            FleetTms and earn a share of what they pay for as long as the arrangement runs. Tell us
-            about your business and we will call you.
-          </p>
           {sent ? (
             <p className="banner ok">Thank you. We have your details and will call you.</p>
           ) : (
@@ -199,6 +197,6 @@ export default function PartnerPublic() {
           </Card>
         </>
       )}
-    </main>
+    </PublicShell>
   );
 }

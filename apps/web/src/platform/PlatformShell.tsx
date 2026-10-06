@@ -13,7 +13,6 @@ import {
   Search,
   ShieldAlert,
   ShieldCheck,
-  Truck,
   Users,
   UserCog,
 } from "lucide-react";
@@ -157,9 +156,7 @@ export default function PlatformShell({ children }: { children: ReactNode }) {
       <div className="pf">
         <aside className="pf-side">
           <div className="pf-brand">
-            <span className="pf-brand-mark">
-              <Truck size={18} />
-            </span>
+            <img className="pf-brand-mark" src="/logo.png" alt="" width={32} height={32} />
             <span>
               FleetTms
               <small>Platform console</small>

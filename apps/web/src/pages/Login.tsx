@@ -5,6 +5,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { ErrorBanner, errorMessage, Field } from "../ui";
+import PublicShell from "./PublicShell";
 
 export default function Login() {
   const nav = useNavigate();
@@ -45,8 +46,9 @@ export default function Login() {
   }
 
   return (
-    <main className="auth-page">
+    <PublicShell layout="form">
       <form className="card auth-card" onSubmit={submit}>
+        <img className="auth-logo" src="/logo.png" alt="FleetTms" width={64} height={64} />
         <h1>Sign in to FleetTms</h1>
         <ErrorBanner message={error} />
         <Field label="Email or phone number">
@@ -92,6 +94,6 @@ export default function Login() {
           New to FleetTms? <Link to="/signup">Create your business account</Link>
         </p>
       </form>
-    </main>
+    </PublicShell>
   );
 }

@@ -4,6 +4,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { ErrorBanner, errorMessage, Field } from "../ui";
+import PublicShell from "./PublicShell";
 
 export default function Signup() {
   const nav = useNavigate();
@@ -61,8 +62,9 @@ export default function Signup() {
   }
 
   return (
-    <main className="auth-page">
+    <PublicShell layout="form">
       <form className="card auth-card" onSubmit={submit}>
+        <img className="auth-logo" src="/logo.png" alt="FleetTms" width={64} height={64} />
         <h1>Create your business account</h1>
         <ErrorBanner message={error} />
         <Field label="Business name">
@@ -138,6 +140,6 @@ export default function Signup() {
           Already have an account? <Link to="/login">Sign in</Link>
         </p>
       </form>
-    </main>
+    </PublicShell>
   );
 }

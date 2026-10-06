@@ -1,15 +1,15 @@
 /* The Platform Admin console: its own shell, tables, charts and dialogs. Everything is scoped under .pf so the business app is untouched. */
 .pf {
-  --pf-bg: #f3f5f9;
+  --pf-bg: #f6f8fb;
   --pf-panel: #ffffff;
   --pf-raised: #f8fafc;
-  --pf-border: #e3e7ee;
+  --pf-border: #d9dee7;
   --pf-text: #0f172a;
   --pf-muted: #64748b;
   --pf-side: #0b1220;
   --pf-side-hover: #172033;
   --pf-side-text: #aab4c5;
-  --pf-accent: #2563eb;
+  --pf-accent: #1d4ed8;
   --pf-accent-soft: #e8efff;
   --pf-ok: #0f9d58;
   --pf-ok-soft: #e3f6ec;
@@ -29,15 +29,15 @@
 }
 @media (prefers-color-scheme: dark) {
   .pf {
-    --pf-bg: #0a0f1a;
+    --pf-bg: #0a101d;
     --pf-panel: #111a2b;
     --pf-raised: #16213a;
     --pf-border: #223049;
     --pf-text: #e6ebf5;
     --pf-muted: #93a1b8;
-    --pf-side: #070b14;
+    --pf-side: #080d18;
     --pf-side-hover: #121b2e;
-    --pf-accent: #5b8dff;
+    --pf-accent: #5b8def;
     --pf-accent-soft: #172a52;
     --pf-ok: #34d399;
     --pf-ok-soft: #0f2c22;
@@ -95,11 +95,7 @@
 .pf-brand-mark {
   width: 32px;
   height: 32px;
-  border-radius: 9px;
-  background: linear-gradient(135deg, #2563eb, #7c3aed);
-  display: grid;
-  place-items: center;
-  color: #fff;
+  object-fit: contain;
 }
 .pf-group {
   margin: 14px 10px 6px;
