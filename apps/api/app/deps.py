@@ -8,6 +8,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import email_verification
 from app.config import settings
 from app.db import get_db
 from app.models import AuthSession, Membership, MembershipStatus, Role, SupportGrant, User
@@ -118,6 +119,8 @@ WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 async def current_principal(
     request: Request, principal: Principal = Depends(principal_unverified), db: AsyncSession = Depends(get_db)
 ) -> Principal:
+    if email_verification.pending(principal.user):
+        raise error(status.HTTP_403_FORBIDDEN, "email_not_verified", "Confirm your email address to continue. We sent you a link.")
     if not principal.mfa_verified:
         raise error(
             status.HTTP_403_FORBIDDEN,

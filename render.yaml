@@ -32,6 +32,8 @@ services:
         sync: false # the same Vercel address
       - key: PUBLIC_API_URL
         sync: false # this service's address, https://fleettms-api.onrender.com
+      - key: GOOGLE_CLIENT_ID
+        sync: false # not secret: the OAuth client id from Google Cloud (docs/hosting-vercel-render.md); leave empty to switch Google sign-in off
       - key: TRUST_PROXY_HEADERS
         value: "true" # Render's proxy sets X-Forwarded-For; without this every user shares one rate-limit address
       # Photos go to a private Cloudflare R2 bucket: free instances have no disk, so local files would be lost on every restart.

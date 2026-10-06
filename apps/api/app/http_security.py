@@ -104,6 +104,8 @@ def production_problems(s: Settings, *, sms_is_stand_in: bool) -> list[str]:
         problems.append("WHATSAPP_TOKEN is set, so WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_APP_SECRET and WHATSAPP_VERIFY_TOKEN must be too: without them replies and delivery reports are refused.")
     if problem := storage.config_problem(s):
         problems.append(problem)
+    if s.require_email_verification and not s.smtp_host:
+        problems.append("Sign-ups must confirm their email address, so SMTP_HOST (and the other SMTP settings) must be set; the confirmation link cannot be sent without them.")
     if sms_is_stand_in:
         problems.append("Text messages still go to the in-memory stand-in: sign-in codes would never reach anyone.")
     return problems

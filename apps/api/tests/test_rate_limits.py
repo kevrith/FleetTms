@@ -114,6 +114,7 @@ async def test_a_request_that_says_it_is_huge_is_refused_before_it_is_read(clien
 GOOD = {
     "environment": "production", "jwt_secret": secrets.token_urlsafe(40), "cors_origins": "https://app.example.com", "public_api_url": "https://api.example.com",
     "enforce_plans": True, "enforce_billing": True, "rate_limits_enabled": True, "document_reader": "", "ask_llm": "",
+    "smtp_host": "smtp.example.com", "require_email_verification": True,
 }  # fmt: skip
 
 
@@ -124,6 +125,11 @@ def problems(**changes):
 
 def test_a_properly_set_up_production_deployment_has_no_problems():
     assert problems() == []
+
+
+def test_production_will_not_start_when_sign_ups_must_confirm_their_email_but_no_mail_can_be_sent():
+    assert any("SMTP_HOST" in p for p in problems(smtp_host=""))
+    assert problems(smtp_host="", require_email_verification=False) == []
 
 
 @pytest.mark.parametrize(

@@ -8,6 +8,7 @@ import Layout from "./Layout";
 import { navItems } from "./nav";
 import ExpiringDocuments from "./pages/ExpiringDocuments";
 import AcceptInvite from "./pages/AcceptInvite";
+import VerifyEmail from "./pages/VerifyEmail";
 import Landing from "./pages/Landing";
 import Help from "./pages/Help";
 import PartnerPublic from "./pages/PartnerPublic";
@@ -87,12 +88,14 @@ function Placeholder() {
   return <h2>{item?.label ?? "Page not found"} (coming soon)</h2>;
 }
 
-/** Sends signed-out visitors to sign-in, and people who still owe two-step setup to that screen. */
+/** Sends signed-out visitors to sign-in, people who have not yet confirmed their email to that screen, and people who still owe two-step setup to theirs. */
 function RequireAuth({ children }: { children: JSX.Element }) {
   const { me, loading } = useAuth();
   const { pathname } = useLocation();
   if (loading) return <p className="main">Loading...</p>;
   if (!me) return pathname === "/" ? <Landing /> : <Navigate to="/login" replace />;
+  if (me.email_verification_pending && pathname !== "/verify-email")
+    return <Navigate to="/verify-email" replace />;
   if (me.mfa_setup_required && pathname !== "/two-factor")
     return <Navigate to="/two-factor" replace />;
   return children;
@@ -104,6 +107,7 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
       <Route path="/accept-invite" element={<AcceptInvite />} />
+      <Route path="/verify-email" element={<VerifyEmail />} />
       <Route path="/help" element={<Help />} />
       <Route path="/help/:slug" element={<Help />} />
       <Route path="/partners" element={<PartnerPublic />} />

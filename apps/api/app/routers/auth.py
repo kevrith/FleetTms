@@ -7,7 +7,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit, ratelimit, subscriptions
+from app import audit, email_verification, google_auth, ratelimit, subscriptions
 from app.auth_service import (
     check_sms_challenge,
     has_two_factor,
@@ -36,6 +36,7 @@ from app.models import (
     RoleAssignment,
     User,
 )
+from app.notify import send_verification_email
 from app.permissions import permissions_for
 from app.phone import normalize_phone
 from app.security import (
@@ -129,6 +130,25 @@ class TotpCodeIn(BaseModel):
     code: str
 
 
+class VerifyEmailIn(BaseModel):
+    token: str = Field(min_length=20, max_length=200)
+
+
+class GoogleIn(BaseModel):
+    credential: str = Field(min_length=20, max_length=4000)  # the token from the Google button
+    # Only when creating an account with Google (the sign-up page): the same details the email sign-up asks for.
+    business_name: str | None = Field(default=None, min_length=2, max_length=200)
+    accept_terms: bool = False
+    accept_privacy: bool = False
+    accept_dpa: bool = False
+    referral_code: str | None = Field(default=None, max_length=20)
+    # An existing account with two-step verification still needs its second step after Google.
+    totp_code: str | None = None
+    sms_code: str | None = None
+    business_id: uuid.UUID | None = None
+    device_label: str | None = None
+
+
 class AcceptInviteIn(BaseModel):
     token: str
     password: str = Field(min_length=10, max_length=200)
@@ -151,6 +171,41 @@ def _choose_business(companies: dict, wanted: uuid.UUID | None) -> uuid.UUID | N
 
 
 # ---- sign up -----------------------------------------------------------------------------------
+
+
+async def _start_business(db: AsyncSession, user: User, business_name: str, referral_code: str | None) -> Business:
+    """A new business with this person as its owner: the 14-day trial, the accepted legal documents and the audit entry. The caller commits."""
+    business = Business(name=business_name.strip())
+    if referral_code:
+        from app import partners
+
+        partner = await partners.by_code(db, referral_code)
+        if partner is not None:
+            business.referred_by_partner_id, business.referred_at = partner.id, datetime.now(UTC)
+    db.add_all([business, user])
+    await db.flush()
+
+    current_business_id.set(business.id)
+    await subscriptions.start_trial(db, business)  # 14 days of Standard, no payment details
+    membership = Membership(user_id=user.id)
+    db.add(membership)
+    await db.flush()
+    db.add(RoleAssignment(membership_id=membership.id, role=Role.OWNER))
+    for doc, version in (
+        (Document.TERMS, settings.terms_version),
+        (Document.PRIVACY, settings.privacy_version),
+        (Document.DPA, settings.dpa_version),
+    ):
+        db.add(PolicyAcceptance(user_id=user.id, document=doc, version=version))
+    audit.record(
+        db,
+        actor_user_id=user.id,
+        action="business.created",
+        entity_type="business",
+        entity_id=business.id,
+        after={"name": business.name},
+    )
+    return business
 
 
 @router.post("/signup", response_model=TokenOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(ratelimit.limit("signup", 5, 3600))])
@@ -177,38 +232,115 @@ async def signup(body: SignupIn, db: AsyncSession = Depends(get_db)):
             "An account with these details already exists. Sign in instead.",
         )
 
-    business = Business(name=body.business_name.strip())
-    if body.referral_code:
-        from app import partners
-
-        partner = await partners.by_code(db, body.referral_code)
-        if partner is not None:
-            business.referred_by_partner_id, business.referred_at = partner.id, datetime.now(UTC)
     user = User(name=body.name.strip(), email=email, phone=phone, password_hash=hash_password(body.password))
-    db.add_all([business, user])
-    await db.flush()
-
-    current_business_id.set(business.id)
-    await subscriptions.start_trial(db, business)  # 14 days of Standard, no payment details
-    membership = Membership(user_id=user.id)
-    db.add(membership)
-    await db.flush()
-    db.add(RoleAssignment(membership_id=membership.id, role=Role.OWNER))
-    for doc, version in (
-        (Document.TERMS, settings.terms_version),
-        (Document.PRIVACY, settings.privacy_version),
-        (Document.DPA, settings.dpa_version),
-    ):
-        db.add(PolicyAcceptance(user_id=user.id, document=doc, version=version))
-    audit.record(
-        db,
-        actor_user_id=user.id,
-        action="business.created",
-        entity_type="business",
-        entity_id=business.id,
-        after={"name": business.name},
-    )
+    business = await _start_business(db, user, body.business_name, body.referral_code)
+    token = email_verification.issue(user) if email_verification.required() else None
     tokens = await issue_session(db, user, business.id, {Role.OWNER}, mfa_verified=False)
+    await db.commit()
+    if token:
+        await send_verification_email(to=email, name=user.name, token=token)  # after the commit, so the link finds its token
+    return tokens
+
+
+# ---- confirming the email address ---------------------------------------------------------------
+
+
+@router.post("/email/verify", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(ratelimit.limit("email_verify", 20, 60))])
+async def verify_email(body: VerifyEmailIn, db: AsyncSession = Depends(get_db)):
+    """The link in the sign-up email. It needs no sign-in: the secret in it is the proof."""
+    if await email_verification.confirm(db, body.token) is None:
+        raise error(status.HTTP_400_BAD_REQUEST, "invalid_link", "This link is invalid or has expired. Sign in and ask for a new one.")
+    await db.commit()
+
+
+@router.post("/email/resend", status_code=status.HTTP_204_NO_CONTENT)
+async def resend_verification(principal: Principal = Depends(principal_unverified), db: AsyncSession = Depends(get_db)):
+    user = principal.user
+    if not user.email or user.email_verified_at is not None:
+        return
+    await ratelimit.limit_subject("email_resend", str(user.id), 3, 3600)
+    token = email_verification.issue(user)
+    await db.commit()
+    await send_verification_email(to=user.email, name=user.name, token=token)
+
+
+# ---- Google ------------------------------------------------------------------------------------
+
+
+@router.get("/providers")
+async def providers():
+    """What the sign-in pages can offer. The Google client id is public by design (it is in the page of every site that uses Google sign-in)."""
+    return {"google_client_id": settings.google_client_id or None}
+
+
+@router.post("/google", response_model=TokenOut, dependencies=[Depends(ratelimit.limit("google", 20, 60))])
+async def google_sign_in(body: GoogleIn, db: AsyncSession = Depends(get_db)):
+    """Sign in, or create a business account, with Google. Google has already checked the address, so it counts as confirmed."""
+    if not settings.google_client_id:
+        raise error(status.HTTP_404_NOT_FOUND, "google_not_configured", "Sign in with Google is not switched on.")
+    try:
+        claims = await google_auth.verify_id_token(body.credential)
+    except google_auth.GoogleTokenError as e:
+        raise error(status.HTTP_401_UNAUTHORIZED, "invalid_google_token", str(e)) from e
+    email, sub = claims["email"].lower(), claims["sub"]
+    moment = now()
+
+    user = (await db.execute(select(User).where(or_(User.google_sub == sub, User.email == email)))).scalars().first()
+    if user is None:
+        if not body.business_name:
+            raise error(status.HTTP_404_NOT_FOUND, "no_account", "No FleetTms account uses that Google email. Create your account first.")
+        if not (body.accept_terms and body.accept_privacy and body.accept_dpa):
+            raise error(422, "terms_not_accepted", "You must accept the Terms, Privacy Policy and Data Processing Agreement.")
+        name = (claims.get("name") or email.split("@")[0]).strip()
+        user = User(name=name if len(name) >= 2 else email, email=email, google_sub=sub, email_verified_at=moment)
+        business = await _start_business(db, user, body.business_name, body.referral_code)
+        tokens = await issue_session(db, user, business.id, {Role.OWNER}, mfa_verified=False, device_label=body.device_label)
+        await db.commit()
+        return tokens
+
+    if not user.is_active or (user.google_sub and user.google_sub != sub):
+        raise error(status.HTTP_401_UNAUTHORIZED, "invalid_credentials", "This account cannot sign in with that Google account.")
+    if user.locked_until and user.locked_until > moment:
+        raise error(status.HTTP_429_TOO_MANY_REQUESTS, "account_locked", "Too many failed attempts. Try again in a few minutes.")
+    if user.email_verified_at is None:
+        # Google has just proved this person owns the address. Whoever opened the account without proving it must not keep a way in:
+        # drop the password and any open invitation (the owner can set a new one, or keep using Google).
+        email_verification.mark_verified(user)
+        user.password_hash = None
+        user.invite_token_hash, user.invite_expires_at = None, None
+    user.google_sub = sub
+
+    wrong_code = False
+    if user.totp_enabled:
+        if not body.totp_code:
+            raise error(status.HTTP_401_UNAUTHORIZED, "two_factor_required", "Enter the 6-digit code from your authenticator app.")
+        wrong_code = not verify_totp(user.totp_secret, body.totp_code)
+    elif user.sms_2fa_enabled and user.phone:
+        if not body.sms_code:
+            await send_sms_challenge(db, user.phone, "second_step")
+            await db.commit()
+            raise error(status.HTTP_401_UNAUTHORIZED, "sms_code_required", "We sent a 6-digit code to your phone. Enter it to finish signing in.")
+        wrong_code = not await check_sms_challenge(db, user.phone, "second_step", body.sms_code)
+    if wrong_code:
+        user.failed_attempts += 1
+        if user.failed_attempts >= settings.max_failed_logins:
+            user.locked_until = moment + timedelta(minutes=settings.lockout_minutes)
+            user.failed_attempts = 0
+        await db.commit()
+        raise error(status.HTTP_401_UNAUTHORIZED, "invalid_credentials", INVALID_LOGIN)
+
+    user.failed_attempts = 0
+    user.locked_until = None
+    companies = await memberships_of(db, user.id)
+    if not companies and not user.is_platform_admin:
+        raise error(status.HTTP_403_FORBIDDEN, "no_access", "Your access to this company has been removed.")
+    business_id = _choose_business(companies, body.business_id)
+    roles = _roles_for(companies, business_id)
+    verified = has_two_factor(user) or not requires_mfa(user, roles)
+    tokens = await issue_session(db, user, business_id, roles, mfa_verified=verified, device_label=body.device_label)
+    if business_id is not None:
+        current_business_id.set(business_id)
+        audit.record(db, actor_user_id=user.id, action="auth.login", entity_type="user", entity_id=user.id)
     await db.commit()
     return tokens
 
@@ -667,6 +799,8 @@ async def me(principal: Principal = Depends(principal_unverified), db: AsyncSess
         "is_platform_super": user.is_platform_super,
         "support_access": principal.support,
         "mfa_setup_required": not principal.mfa_verified,
+        "email_verified": user.email_verified_at is not None,
+        "email_verification_pending": email_verification.pending(user),
         "two_factor_enabled": has_two_factor(user),
         "two_factor_method": "sms" if user.sms_2fa_enabled else "totp" if user.totp_enabled else None,
         "pending_documents": pending,
@@ -683,6 +817,8 @@ async def accept_invite(body: AcceptInviteIn, db: AsyncSession = Depends(get_db)
     user.password_hash = hash_password(body.password)
     user.invite_token_hash = None
     user.invite_expires_at = None
+    if user.email:
+        email_verification.mark_verified(user)  # the link only reached them by email
     # Setting a password is a change to who can get in, so it is written into the audit trail of each business the person belongs to.
     memberships = (await db.execute(select(Membership).where(Membership.user_id == user.id).execution_options(skip_tenant=True))).scalars().all()
     for membership in memberships:

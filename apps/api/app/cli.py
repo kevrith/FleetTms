@@ -8,6 +8,7 @@ that can add or remove other platform admins. make-super-admin raises someone wh
 import asyncio
 import os
 import sys
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 
@@ -32,6 +33,7 @@ async def create_platform_admin() -> None:
                 password_hash=hash_password(password),
                 is_platform_admin=True,
                 is_platform_super=True,
+                email_verified_at=datetime.now(UTC),
             )
         )
         await db.commit()

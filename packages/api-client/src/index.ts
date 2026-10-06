@@ -18,6 +18,7 @@ import type {
   CatalogReport,
   DataExportInfo,
   FirstJobInput,
+  GoogleSignInInput,
   InboxMessage,
   PlanName,
   PlansInfo,
@@ -319,6 +320,13 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
       business_id?: string;
       device_label?: string;
     }) => startSession(await request<TokenResponse>("POST", "/auth/login", input, false)),
+    /** What the sign-in pages can offer: the Google client id, or null when Google sign-in is off. */
+    authProviders: () =>
+      request<{ google_client_id: string | null }>("GET", "/auth/providers", undefined, false),
+    googleAuth: async (input: GoogleSignInInput) =>
+      startSession(await request<TokenResponse>("POST", "/auth/google", input, false)),
+    verifyEmail: (token: string) => request<void>("POST", "/auth/email/verify", { token }, false),
+    resendEmailVerification: () => request<void>("POST", "/auth/email/resend", {}),
     otpRequest: (phone: string) =>
       request<{ message: string }>("POST", "/auth/otp/request", { phone }, false),
     otpVerify: async (input: {

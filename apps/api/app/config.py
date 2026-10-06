@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     quick_login_max_attempts: int = 5  # wrong PINs before quick sign-in switches itself off
     otp_resend_seconds: int = 60
     invite_ttl_hours: int = 72
+    # Sign-up by email must be confirmed from the inbox before the app is usable, so nobody can run an account on an address they do not own.
+    # It only takes effect where real email is set up (SMTP_HOST), because nothing else can deliver the link; production refuses to start without it.
+    require_email_verification: bool = True
+    email_verify_hours: int = 48
+    # "Sign in with Google": the OAuth client id from Google Cloud (Credentials > OAuth client ID > Web application). Empty switches it off.
+    google_client_id: str = ""
 
     # Report delivery. Leave these empty in development: reports then go to an in-memory outbox.
     smtp_host: str = ""

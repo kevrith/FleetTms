@@ -21,6 +21,8 @@ def bucket(monkeypatch):
     monkeypatch.setattr(settings, "storage_backend", "s3")
     monkeypatch.setattr(settings, "s3_bucket", BUCKET)
     monkeypatch.setattr(settings, "s3_region", "us-east-1")
+    monkeypatch.setattr(settings, "s3_endpoint_url", "")  # never the real provider's address from a developer's .env
+    monkeypatch.setattr(settings, "s3_force_path_style", False)
     monkeypatch.setattr(settings, "s3_prefix", PREFIX)
     monkeypatch.setattr(settings, "s3_access_key", secrets.token_hex(8))
     monkeypatch.setattr(settings, "s3_secret_key", secrets.token_hex(16))
@@ -142,6 +144,8 @@ async def test_ready_says_whether_files_can_be_stored_and_read_back(client, buck
 
 
 async def test_a_bucket_backend_without_a_bucket_name_is_a_configuration_problem(monkeypatch):
+    monkeypatch.setattr(settings, "storage_backend", "local")
+    monkeypatch.setattr(settings, "s3_bucket", "")
     assert storage.config_problem() is None
     monkeypatch.setattr(settings, "storage_backend", "s3")
     assert storage.config_problem() == "STORAGE_BACKEND=s3 needs S3_BUCKET."

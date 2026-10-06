@@ -9,6 +9,7 @@ arq>=0.26
 pydantic-settings>=2.6
 httpx>=0.27
 PyJWT>=2.9
+cryptography>=43  # checks the signature on Google's sign-in tokens
 argon2-cffi>=23.1
 pyotp>=2.9
 email-validator>=2.2

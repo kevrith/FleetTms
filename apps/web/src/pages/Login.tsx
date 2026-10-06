@@ -5,6 +5,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { ErrorBanner, errorMessage, Field } from "../ui";
+import GoogleButton from "./GoogleButton";
 import PublicShell from "./PublicShell";
 
 export default function Login() {
@@ -16,24 +17,22 @@ export default function Login() {
   const [step, setStep] = useState<null | "totp" | "sms">(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Set once Google has vouched for the person but their account also wants a second step: the code is sent along with the same token.
+  const [googleToken, setGoogleToken] = useState<string | null>(null);
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
+  async function attempt(run: () => Promise<{ mfa_setup_required: boolean }>, google?: string) {
     setBusy(true);
     setError(null);
     try {
-      const res = await api.login({
-        identifier,
-        password,
-        totp_code: step === "totp" ? code : undefined,
-        sms_code: step === "sms" ? code : undefined,
-      });
+      const res = await run();
       await reload();
       nav(res.mfa_setup_required ? "/two-factor" : "/", { replace: true });
     } catch (err) {
       if (err instanceof ApiError && err.code === "two_factor_required") {
+        setGoogleToken(google ?? googleToken);
         setStep("totp");
       } else if (err instanceof ApiError && err.code === "sms_code_required") {
+        setGoogleToken(google ?? googleToken);
         setStep("sms");
         setCode("");
         setError(err.message);
@@ -45,29 +44,52 @@ export default function Login() {
     }
   }
 
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    const second = {
+      totp_code: step === "totp" ? code : undefined,
+      sms_code: step === "sms" ? code : undefined,
+    };
+    void attempt(() =>
+      googleToken
+        ? api.googleAuth({ credential: googleToken, ...second })
+        : api.login({ identifier, password, ...second }),
+    );
+  }
+
+  function signInWithGoogle(credential: string) {
+    setStep(null);
+    setCode("");
+    void attempt(() => api.googleAuth({ credential }), credential);
+  }
+
   return (
     <PublicShell layout="form">
       <form className="card auth-card" onSubmit={submit}>
         <img className="auth-logo" src="/logo.png" alt="FleetTms" width={64} height={64} />
         <h1>Sign in to FleetTms</h1>
         <ErrorBanner message={error} />
-        <Field label="Email or phone number">
-          <input
-            value={identifier}
-            onChange={(e) => setIdentifier(e.target.value)}
-            autoComplete="username"
-            required
-          />
-        </Field>
-        <Field label="Password">
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-            required
-          />
-        </Field>
+        {!googleToken && (
+          <>
+            <Field label="Email or phone number">
+              <input
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+                autoComplete="username"
+                required
+              />
+            </Field>
+            <Field label="Password">
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
+            </Field>
+          </>
+        )}
         {step && (
           <Field
             label={
@@ -90,6 +112,7 @@ export default function Login() {
         <button className="btn primary" disabled={busy}>
           <LogIn size={18} /> {step ? "Verify and sign in" : "Sign in"}
         </button>
+        {!googleToken && <GoogleButton mode="signin" onCredential={signInWithGoogle} />}
         <p className="muted">
           New to FleetTms? <Link to="/signup">Create your business account</Link>
         </p>

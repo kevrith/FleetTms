@@ -70,3 +70,17 @@ async def send_invite_email(*, to: str, name: str, business_name: str, invited_b
     )
     await get_email_sender().send(to, f"{invited_by} invited you to {business_name} on FleetTms", body)
     return bool(settings.smtp_host)
+
+
+async def send_verification_email(*, to: str, name: str, token: str) -> None:
+    """The link that confirms a new account's email address."""
+    base = (settings.public_web_url or settings.web_app_url or "http://localhost:5180").rstrip("/")
+    body = (
+        f"Hello {name},\n\n"
+        "Confirm your email address to start using FleetTms:\n"
+        f"{base}/verify-email?token={token}\n\n"
+        f"The link works once and expires in {settings.email_verify_hours // 24 or 1} days. "
+        "If you did not create a FleetTms account, you can ignore this email and nothing will happen.\n\n"
+        "FleetTms\n"
+    )
+    await get_email_sender().send(to, "Confirm your email address for FleetTms", body)

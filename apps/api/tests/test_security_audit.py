@@ -84,11 +84,14 @@ def dependency_names(route, module):
 # Open to anyone on the internet, and what protects each one.
 PUBLIC = {
     ("POST", "/auth/accept-invite"): "a one-time invitation token; rate limited",
+    ("POST", "/auth/email/verify"): "a one-time secret from the sign-up email, kept only as a hash and expiring; rate limited",
+    ("POST", "/auth/google"): "Google's signed token, checked for signature, audience and expiry; a second step still applies; rate limited and locked out",
     ("POST", "/auth/login"): "password and second step; lockout and rate limit",
     ("POST", "/auth/otp/request"): "answers the same for every number; limited per address and per phone",
     ("POST", "/auth/otp/verify"): "a five-attempt code; rate limited",
     ("POST", "/auth/quick-login"): "a device secret and a PIN; locks after five wrong PINs",
     ("POST", "/auth/refresh"): "a refresh token; rate limited",
+    ("GET", "/auth/providers"): "only says whether Google sign-in is on and its public client id",
     ("POST", "/auth/signup"): "creates a new business; limited to five an hour per address",
     ("POST", "/hooks/c2b/{business_id}/{key}/confirmation"): "a secret derived per business in the address; wrong keys shut an address out",
     ("POST", "/hooks/c2b/{business_id}/{key}/validation"): "the same",
@@ -132,6 +135,7 @@ BEFORE_SECOND_STEP = {
     ("POST", "/auth/2fa/setup"),
     ("POST", "/auth/2fa/sms/confirm"),
     ("POST", "/auth/2fa/sms/setup"),
+    ("POST", "/auth/email/resend"),  # a person waiting to confirm their email must be able to ask for the link again
     ("POST", "/auth/logout"),
     ("POST", "/auth/logout-all"),
     ("GET", "/auth/me"),
@@ -182,7 +186,7 @@ def test_the_public_routes_that_take_a_secret_are_all_rate_limited():
                     n.startswith(("limit.", "hook_guard")) for n in names
                 )
     unlimited = sorted(k for k, v in limited.items() if not v)
-    assert unlimited == [("GET", "/plans"), ("GET", "/privacy/documents")]  # public information with nothing to guess
+    assert unlimited == [("GET", "/auth/providers"), ("GET", "/plans"), ("GET", "/privacy/documents")]  # public information with nothing to guess
 
 
 # ---- the audit trail ----------------------------------------------------------------------------------------------------
@@ -228,6 +232,8 @@ AUDIT_EXEMPT = {
     ("POST", "/platform/breaches"): "the register is the record: it is the platform's own, has no business, and keeps who made each entry and when",
     ("PATCH", "/platform/breaches/{breach_id}"): "the same",
     ("POST", "/auth/otp/request"): "asks for a code; the challenge row is the record and the sign-in that follows is audited",
+    ("POST", "/auth/email/verify"): "confirms an address from a one-time link; the user row records when (email_verified_at) and the link is used up",
+    ("POST", "/auth/email/resend"): "sends a fresh link, three an hour per person; confirming it is what changes the account",
     ("POST", "/quotes/preview"): "works a quote out without saving it",
     ("POST", "/auth/2fa/setup"): "only starts setting up; turning it on is audited as auth.2fa_enabled",
     ("POST", "/auth/2fa/sms/setup"): "the same",

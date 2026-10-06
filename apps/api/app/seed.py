@@ -6,7 +6,7 @@ fake (0712 000 xxx). Safe to run once; it refuses if the demo business already e
 
 import os
 import sys
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
@@ -76,7 +76,7 @@ async def seed_demo() -> None:
         await db.flush()
         current_business_id.set(business.id)
         try:
-            owner = User(name="Demo Owner", email=email, password_hash=hash_password(password))
+            owner = User(name="Demo Owner", email=email, password_hash=hash_password(password), email_verified_at=datetime.now(UTC))
             db.add(owner)
             await db.flush()
             owner_member = Membership(user_id=owner.id)

@@ -44,6 +44,9 @@ export interface Me {
   companies: Company[];
   is_platform_admin: boolean;
   is_platform_super: boolean;
+  email_verified: boolean;
+  /** The address must still be confirmed from the email before the app can be used. */
+  email_verification_pending: boolean;
   support_access: boolean;
   mfa_setup_required: boolean;
   two_factor_enabled: boolean;
@@ -102,6 +105,21 @@ export interface SignupInput {
   accept_dpa: boolean;
   /** A partner's code, if one sent the business here. A wrong one is ignored. */
   referral_code?: string | null;
+}
+
+export interface GoogleSignInInput {
+  /** The token from Google's button. */
+  credential: string;
+  /** Only when creating an account with Google. */
+  business_name?: string;
+  accept_terms?: boolean;
+  accept_privacy?: boolean;
+  accept_dpa?: boolean;
+  referral_code?: string | null;
+  totp_code?: string;
+  sms_code?: string;
+  business_id?: string;
+  device_label?: string;
 }
 
 export interface InviteInput {

@@ -243,6 +243,11 @@ class User(Base):
     # The one level above a platform admin: only a super admin changes who the admins are, and nobody can remove one through the console.
     # Set from the command line (app.cli), never from the console.
     is_platform_super: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    # Proof that the person owns the address: set by the link in the sign-up email, by accepting an invitation, or by Google (which has already checked).
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    email_verify_token_hash: Mapped[str | None] = mapped_column(String(64))
+    email_verify_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    google_sub: Mapped[str | None] = mapped_column(String(64), unique=True)  # Google's own id for the person, so a changed address still finds them
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     failed_attempts: Mapped[int] = mapped_column(Integer, default=0)
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

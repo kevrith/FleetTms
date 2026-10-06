@@ -4,6 +4,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { ErrorBanner, errorMessage, Field } from "../ui";
+import GoogleButton from "./GoogleButton";
 import PublicShell from "./PublicShell";
 
 export default function Signup() {
@@ -47,6 +48,31 @@ export default function Signup() {
       await api.signup({
         ...form,
         phone: form.phone || null,
+        referral_code: referral.trim() || null,
+        accept_terms: accepted,
+        accept_privacy: accepted,
+        accept_dpa: accepted,
+      });
+      await reload();
+      nav("/two-factor", { replace: true });
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function signUpWithGoogle(credential: string) {
+    if (form.business_name.trim().length < 2 || !accepted) {
+      setError("Enter your business name and accept the terms above, then use Google.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await api.googleAuth({
+        credential,
+        business_name: form.business_name.trim(),
         referral_code: referral.trim() || null,
         accept_terms: accepted,
         accept_privacy: accepted,
@@ -136,6 +162,7 @@ export default function Signup() {
         <button className="btn primary" disabled={busy || !accepted}>
           <UserPlus size={18} /> Create account
         </button>
+        <GoogleButton mode="signup" onCredential={(c) => void signUpWithGoogle(c)} />
         <p className="muted">
           Already have an account? <Link to="/login">Sign in</Link>
         </p>
