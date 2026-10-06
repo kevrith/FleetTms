@@ -692,6 +692,32 @@ export interface DashboardAlert {
   title: string;
   detail: string;
   link: string;
+  /** True for an SOS or a breakdown: shown as an emergency banner instead of a card. */
+  emergency?: boolean;
+}
+
+/** Someone in trouble right now. */
+export interface DashboardEmergency {
+  id: string;
+  kind: "sos" | "breakdown";
+  driver: string | null;
+  phone: string | null;
+  registration: string | null;
+  since: string;
+  answered: boolean;
+  lat: number | null;
+  lng: number | null;
+}
+
+/** How many active lorries are in each state; a lorry with an open repair in progress counts as in the workshop. */
+export interface DashboardFleet {
+  moving: number;
+  idle: number;
+  offline: number;
+  parked: number;
+  unknown: number;
+  in_workshop: number;
+  total: number;
 }
 
 export interface Dashboard {
@@ -708,6 +734,9 @@ export interface Dashboard {
     money_owed_cents: number | null;
   };
   alerts: DashboardAlert[];
+  emergencies: DashboardEmergency[];
+  /** Only for those who may see the live map and whose plan includes it. */
+  fleet: DashboardFleet | null;
   open_defects: number | null;
   /** This month so far; only for those who may see invoices. */
   profit_vs_cash: ProfitVsCash | null;

@@ -10,11 +10,13 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import tracking
 from app.db import get_db
 from app.debtor_rules import ageing_bucket
 from app.deps import Principal, error, require, require_any
 from app.finance_view import billed_cents, last_month_profit, lease_alerts, profit_vs_cash
 from app.floatcalc import day_bounds
+from app.gps_rules import vehicle_state
 from app.models import (
     COUNTED,
     BillingMethod,
@@ -27,6 +29,7 @@ from app.models import (
     FraudAlert,
     FuelEntry,
     Incident,
+    IncidentType,
     Inspection,
     InspectionStatus,
     Invoice,
@@ -55,6 +58,7 @@ from app.payment_reminders import balance_of
 from app.reminders import NAIROBI, nairobi_today
 from app.report_files import report_pdf, report_xlsx
 from app.routers.workshop import OPEN, schedule_out
+from app.subscriptions import feature_allowed
 from app.trust import flag_summary
 from app.vehicle_scope import scope_vehicles
 
@@ -66,6 +70,41 @@ ENGINE_KINDS = ("fuel_variance", "side_trip", "long_stop", "tamper_then_stop", "
 
 def alert(kind: str, severity: str, title: str, detail: str, link: str) -> dict:
     return {"kind": kind, "severity": severity, "title": title, "detail": detail, "link": link}
+
+
+def days_phrase(on: date, today: date) -> str:
+    """A date as an owner would say it: today, tomorrow, in 4 days, yesterday, 3 days ago."""
+    n = (on - today).days
+    if n == 0:
+        return "today"
+    if n == 1:
+        return "tomorrow"
+    if n > 1:
+        return f"in {n} days"
+    return "yesterday" if n == -1 else f"{-n} days ago"
+
+
+def emergency(id: uuid.UUID, kind: str, name: str | None, phone: str | None, reg: str | None, since: datetime, answered: bool, lat: float | None, lng: float | None) -> dict:
+    """Someone in trouble right now: shown first on the owner's phone, with a way to call the driver."""
+    return {"id": id, "kind": kind, "driver": name, "phone": phone, "registration": reg, "since": since, "answered": answered, "lat": lat, "lng": lng}
+
+
+async def fleet_counts(db: AsyncSession, vehicles: dict[uuid.UUID, Vehicle]) -> dict:
+    """How many lorries are moving, standing on a trip, not reporting, parked, never seen, or in the workshop."""
+    now = datetime.now(UTC)
+    active = [v for v in vehicles.values() if v.is_active]
+    ids = [v.id for v in active]
+    on_trip = {t.vehicle_id for t in (await db.execute(select(Trip).where(Trip.vehicle_id.in_(ids), Trip.status.in_((TripStatus.IN_PROGRESS, TripStatus.DELIVERED))))).scalars()} if ids else set()
+    in_shop = {w.vehicle_id for w in (await db.execute(select(WorkOrder).where(WorkOrder.vehicle_id.in_(ids), WorkOrder.status.in_((WorkOrderStatus.IN_PROGRESS, WorkOrderStatus.WAITING_PARTS))))).scalars()} if ids else set()
+    last = await tracking.last_positions(db, ids)
+    counts = {"moving": 0, "idle": 0, "offline": 0, "parked": 0, "unknown": 0, "in_workshop": 0}
+    for v in active:
+        if v.id in in_shop:
+            counts["in_workshop"] += 1
+            continue
+        p = last.get(v.id)
+        counts[vehicle_state(on_trip=v.id in on_trip, last_at=p.recorded_at if p else None, now=now, speed_kmh=p.speed_kmh if p else None)] += 1
+    return {**counts, "total": len(active)}
 
 
 async def money_alerts(db: AsyncSession, today: date) -> list[dict]:
@@ -143,6 +182,7 @@ async def dashboard(
         numbers["money_owed_cents"] = money["owed_cents"]
 
     alerts: list[dict] = []
+    emergencies: list[dict] = []
     if "vehicles.view" in perms:
         for s in (await db.execute(select(ServiceSchedule).where(ServiceSchedule.is_active.is_(True), ServiceSchedule.vehicle_id.in_(vids)))).scalars():
             row = schedule_out(s, vehicles[s.vehicle_id], today)
@@ -158,7 +198,7 @@ async def dashboard(
             alerts.append(alert("inspection_blocked", "red", f"{vehicles[i.vehicle_id].registration}: critical fault found today", "The vehicle cannot start a trip until a manager clears it.", f"/vehicles/{i.vehicle_id}"))
         for d in (await db.execute(select(ComplianceDocument).where(ComplianceDocument.vehicle_id.in_(vids), ComplianceDocument.expires_on <= today + timedelta(days=30)).order_by(ComplianceDocument.expires_on))).scalars():
             gone = d.expires_on < today
-            alerts.append(alert("document_expired" if gone else "document_expiring", "red" if gone else "amber", f"{vehicles[d.vehicle_id].registration}: {d.doc_type.value.replace('_', ' ')} {'expired' if gone else 'expires'} {d.expires_on.isoformat()}", "", f"/vehicles/{d.vehicle_id}"))
+            alerts.append(alert("document_expired" if gone else "document_expiring", "red" if gone else "amber", f"{vehicles[d.vehicle_id].registration}: {d.doc_type.value.replace('_', ' ')} {'expired' if gone else 'expires'} {days_phrase(d.expires_on, today)}", f"Dated {d.expires_on.strftime('%d %b %Y')}.", f"/vehicles/{d.vehicle_id}"))
         for vid, flags in (await flag_summary(db, vids)).items():
             alerts.append(alert("low_trust", "amber", f"{vehicles[vid].registration}: phone check failed", ", ".join(sorted(flags)).replace("_", " "), f"/vehicles/{vid}"))
         week = start - timedelta(days=6)
@@ -225,17 +265,19 @@ async def dashboard(
         last_month = await last_month_profit(db, today)
         alerts += await lease_alerts(db, today, [v["registration"] for v in last_month["vehicles"] if v["lease_not_paying"]])
     if "sos.respond" in perms:
-        names = {m.id: m.user.name for m in (await db.execute(select(Membership))).scalars()}
+        people = {m.id: m.user for m in (await db.execute(select(Membership))).scalars()}
         for a in (await db.execute(select(SosAlert).where(SosAlert.status != "resolved").order_by(SosAlert.received_at))).scalars():
             if principal.vehicle_scope is not None and str(a.vehicle_id) not in principal.vehicle_scope:
                 continue
-            who = names.get(a.driver_membership_id, "A driver")
+            driver = people.get(a.driver_membership_id)
+            who = driver.name if driver else "A driver"
             reg = f" ({vehicles[a.vehicle_id].registration})" if a.vehicle_id in vehicles else ""
-            alerts.append(alert("sos_active", "red", f"SOS: {who}{reg} needs help", "Someone has answered." if a.acknowledged_at else "Nobody has answered yet.", "/incidents/sos"))
+            alerts.append({**alert("sos_active", "red", f"SOS: {who}{reg} needs help", "Someone has answered." if a.acknowledged_at else "Nobody has answered yet.", "/incidents/sos"), "emergency": True})
+            emergencies.append(emergency(a.id, "sos", driver.name if driver else None, driver.phone if driver else None, vehicles[a.vehicle_id].registration if a.vehicle_id in vehicles else None, a.sent_at, a.acknowledged_at is not None, a.lat, a.lng))
     if "vehicles.view" in perms or "workshop.manage" in perms:
         for t in (await db.execute(select(TyreSwapAlert).where(TyreSwapAlert.status == "open"))).scalars():
             if t.vehicle_id in vehicles:
-                alerts.append(alert("tyre_swap", "red", f"{vehicles[t.vehicle_id].registration}: possible tyre swap at {t.position.replace('_', ' ')}", f"Recorded {t.expected_serial or 'nothing'}, driver read {t.seen_serial}.", "/workshop/tyres"))
+                alerts.append(alert("tyre_swap", "red", f"{vehicles[t.vehicle_id].registration}: a tyre ({t.position.replace('_', ' ')}) may have been swapped", f"The tyre on record is {t.expected_serial or 'none'}, but the driver read {t.seen_serial}.", "/workshop/tyres"))
     if "workshop.manage" in perms:
         low = [p for p in (await db.execute(select(Part).where(Part.is_active.is_(True), Part.reorder_level > 0, Part.quantity <= Part.reorder_level))).scalars()]
         if low:
@@ -248,11 +290,19 @@ async def dashboard(
         for i in (await db.execute(select(Incident).where(Incident.status == "open").order_by(Incident.occurred_at.desc()).limit(20))).scalars():
             reg = vehicles[i.vehicle_id].registration if i.vehicle_id in vehicles else "A vehicle"
             red = i.type.value in ("accident", "cargo_theft")
-            alerts.append(alert("incident_open", "red" if red else "amber", f"{reg}: {i.type.value.replace('_', ' ')} reported", (i.description or "")[:120], f"/incidents/view/{i.id}"))
+            breakdown = i.type == IncidentType.BREAKDOWN
+            alerts.append({**alert("incident_open", "red" if red else "amber", f"{reg}: {i.type.value.replace('_', ' ')} reported", (i.description or "")[:120], f"/incidents/view/{i.id}"), **({"emergency": True} if breakdown else {})})
+            if breakdown:
+                driver = (await db.get(Membership, i.driver_membership_id)) if i.driver_membership_id else None
+                emergencies.append(emergency(i.id, "breakdown", driver.user.name if driver else None, driver.user.phone if driver else None, reg if i.vehicle_id in vehicles else None, i.occurred_at, False, i.lat, i.lng))
     order = {"red": 0, "amber": 1}
     alerts.sort(key=lambda a: (order[a["severity"]], a["kind"] != "sos_active"))  # an SOS is always first
     open_defects = int((await db.execute(select(func.count()).select_from(Defect).where(Defect.status != "fixed", Defect.vehicle_id.in_(vids)))).scalar_one()) if "vehicles.view" in perms else None
-    return {"numbers": numbers, "alerts": alerts, "open_defects": open_defects, "profit_vs_cash": money, "profit_last_month": last_month}
+    fleet = None
+    if "livemap.view" in perms and (principal.business_id is None or await feature_allowed(db, principal.business_id, "live_map")):
+        fleet = await fleet_counts(db, vehicles)
+    emergencies.sort(key=lambda e: e["since"])
+    return {"numbers": numbers, "alerts": alerts, "emergencies": emergencies, "fleet": fleet, "open_defects": open_defects, "profit_vs_cash": money, "profit_last_month": last_month}
 
 
 async def build_summary(db: AsyncSession, date_from: date, date_to: date) -> dict:

@@ -77,6 +77,55 @@ async def test_a_quiet_business_has_no_alerts(client):
     assert d["alerts"] == [] and d["open_defects"] == 0
 
 
+async def test_an_owner_sees_who_is_in_trouble_first_with_a_way_to_call(client):
+    f = await fleet(client)
+    assert (await dash(client, f.owner))["emergencies"] == []
+    await client.post("/sos", headers=bearer(f.driver), json={"lat": -1.29, "lng": 36.82})
+    await client.post("/incidents", headers=bearer(f.driver), json={"type": "breakdown", "description": "Engine overheated", "lat": -1.3, "lng": 36.8})
+    await client.post("/incidents", headers=bearer(f.driver), json={"type": "traffic_fine", "description": "Speeding"})
+    d = await dash(client, f.owner)
+    assert sorted(e["kind"] for e in d["emergencies"]) == ["breakdown", "sos"]
+    sos = next(e for e in d["emergencies"] if e["kind"] == "sos")
+    assert sos["registration"] == "KCA 123A" and sos["answered"] is False and "phone" in sos and sos["lat"] == -1.29
+    assert next(e for e in d["emergencies"] if e["kind"] == "breakdown")["registration"] == "KCA 123A"
+    flagged = [a["kind"] for a in d["alerts"] if a.get("emergency")]
+    assert sorted(flagged) == ["incident_open", "sos_active"]  # the fine is an ordinary alert, not an emergency
+    accountant, _ = await staff_session(client, f.owner, "accountant", "acc2@example.com")
+    assert (await dash(client, accountant))["emergencies"] == []  # the accountant neither answers an SOS nor handles incidents
+
+
+async def test_documents_and_tyres_are_worded_the_way_an_owner_would_say_them(client):
+    f = await fleet(client)
+    today = nairobi_today()
+    for doc, days in (("insurance", 4), ("inspection", -2)):
+        await client.post("/documents", headers=bearer(f.owner), json={"doc_type": doc, "vehicle_id": f.vehicle["id"], "expires_on": (today + timedelta(days=days)).isoformat()})
+    titles = [a["title"] for a in (await dash(client, f.owner))["alerts"]]
+    assert "KCA 123A: insurance expires in 4 days" in titles and "KCA 123A: inspection expired 2 days ago" in titles
+
+
+def test_days_are_said_in_plain_words():
+    from datetime import date
+
+    from app.routers.dashboard import days_phrase
+
+    today = date(2026, 10, 5)
+    said = [days_phrase(date(2026, 10, d), today) for d in (5, 6, 9, 4, 1)]
+    assert said == ["today", "tomorrow", "in 4 days", "yesterday", "4 days ago"]
+
+
+async def test_the_fleet_strip_counts_every_active_lorry_once(client):
+    f = await fleet(client)
+    await add_vehicle(client, f.owner, "KCB 222B")
+    d = await dash(client, f.owner)
+    counts = d["fleet"]
+    assert counts["total"] == 2
+    assert sum(counts[k] for k in ("moving", "idle", "offline", "parked", "unknown", "in_workshop")) == 2
+    await inspect(client, f.driver, f.vehicle["id"], {"Body damage": "Dent on the door"})
+    wo = (await client.get("/work-orders", headers=bearer(f.owner))).json()[0]
+    await client.put(f"/work-orders/{wo['id']}", headers=bearer(f.owner), json={"status": "in_progress", "assignee_kind": "garage", "assignee_name": "Kamau Motors"})
+    assert (await dash(client, f.owner))["fleet"]["in_workshop"] == 1
+
+
 async def test_each_person_sees_only_their_part(client):
     f = await fleet(client)
     await client.put("/spend-limits", headers=bearer(f.owner), json=[{"limit_cents": 10000}])
