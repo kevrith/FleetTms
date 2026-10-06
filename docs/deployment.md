@@ -46,7 +46,7 @@ After the fixes, on that machine:
 - [ ] Optional: a private S3-compatible bucket for photos and data copies instead of the server's disk (`STORAGE_BACKEND=s3` and the `S3_*` settings, bucket versioning on). Move what is on disk with `python -m app.storage_migrate --dry-run`, then `--delete-local`, inside the api container. `/ready` shows a `storage` check.
 - [ ] Paystack account for card payments (`PAYSTACK_SECRET_KEY`; webhook `https://API_HOST/hooks/paystack`). Make one small real card payment and a refund (`docs/card-payments.md`).
 - [ ] WhatsApp Business for automatic parts orders and reminders: a Meta app and number, the two approved templates, the webhook, and the five `WHATSAPP_*` settings (`docs/whatsapp.md`).
-- [ ] Email sending (SMTP) and, if wanted, WhatsApp; `ANTHROPIC_API_KEY` if the reading and question features are on; `GOOGLE_MAPS_API_KEY` for route suggestions.
+- [ ] Email sending (SMTP) and, if wanted, WhatsApp. For email: pick a provider, add `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD` and `SMTP_FROM` (for example `FleetTms <noreply@your-domain>`) in Render, set `PUBLIC_WEB_URL` to the public web address (invitation links use it), and add the provider's SPF, DKIM and DMARC records to the sending domain's DNS so messages are not marked as spam. Invitations, alerts, scheduled reports and invoices all use these settings; `ANTHROPIC_API_KEY` if the reading and question features are on; `GOOGLE_MAPS_API_KEY` for route suggestions.
 - [ ] Maps: the web map uses OpenStreetMap's public tile server, whose usage policy does not allow heavy commercial use. Choose a tile provider before launch and change `TILES` in `apps/web/src/MapView.tsx` and the policy line in `deploy/Caddyfile`.
 
 **Before opening the doors**

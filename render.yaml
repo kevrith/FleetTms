@@ -41,6 +41,16 @@ services:
         value: "true"
       - key: S3_REGION
         value: auto
+      - key: SMTP_HOST
+        sync: false # your mail provider's SMTP server
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false # for example FleetTms <noreply@your-domain>
       - key: S3_BUCKET
         sync: false
       - key: S3_ENDPOINT_URL

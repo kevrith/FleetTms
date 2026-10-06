@@ -32,6 +32,7 @@ export default function Users() {
   const [partyId, setPartyId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [inviteEmailed, setInviteEmailed] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [editRoles, setEditRoles] = useState<Role[]>([]);
   const [form, setForm] = useState({ name: "", email: "", phone: "", depot_id: "" });
@@ -55,6 +56,7 @@ export default function Users() {
     e.preventDefault();
     setError(null);
     setInviteLink(null);
+    setInviteEmailed(null);
     const body: InviteInput = {
       name: form.name,
       email: form.email || null,
@@ -67,6 +69,7 @@ export default function Users() {
       const created = await api.inviteUser(body);
       if (created.invite_token) {
         setInviteLink(`${window.location.origin}/accept-invite?token=${created.invite_token}`);
+        if (created.invite_emailed && body.email) setInviteEmailed(body.email);
       }
       setForm({ name: "", email: "", phone: "", depot_id: "" });
       setRoles([]);
@@ -172,7 +175,10 @@ export default function Users() {
           )}
           {inviteLink && (
             <p className="banner ok">
-              Share this link with them. It works once and expires in 3 days: <br />
+              {inviteEmailed
+                ? `We emailed an invitation to ${inviteEmailed}. If it does not arrive, share this link with them. `
+                : "Share this link with them. "}
+              It works once and expires in 3 days: <br />
               <code>{inviteLink}</code>
             </p>
           )}

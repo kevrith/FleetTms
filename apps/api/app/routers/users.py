@@ -13,6 +13,7 @@ from app.db import get_db
 from app.deps import Principal, error, require
 from app.models import (
     AuthSession,
+    Business,
     Depot,
     Membership,
     MembershipStatus,
@@ -22,6 +23,7 @@ from app.models import (
     RoleAssignment,
     User,
 )
+from app.notify import send_invite_email
 from app.permissions import OTP_ONLY_ROLES
 from app.phone import normalize_phone
 from app.security import new_secret_token, sha256
@@ -194,8 +196,18 @@ async def invite_user(
         party_id=body.party_id,
     )
     await db.commit()
+    emailed = False
+    if invite_token and body.email:
+        business = (await db.execute(select(Business).where(Business.id == principal.business_id))).scalar_one()
+        emailed = await send_invite_email(
+            to=body.email,
+            name=body.name.strip(),
+            business_name=business.name,
+            invited_by=principal.user.name,
+            token=invite_token,
+        )
     membership = await _get_membership(db, membership.id)
-    return {**_out(membership), "invite_token": invite_token}
+    return {**_out(membership), "invite_token": invite_token, "invite_emailed": emailed}
 
 
 @router.put("/{membership_id}/roles")

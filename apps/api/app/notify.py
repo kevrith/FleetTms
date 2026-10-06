@@ -53,3 +53,20 @@ def get_email_sender() -> EmailSender:
 
 def fake_email() -> FakeEmail:
     return _fake
+
+
+async def send_invite_email(*, to: str, name: str, business_name: str, invited_by: str, token: str) -> bool:
+    """Emails a new person the one-time link to choose their password. Returns whether a real mail server is set up (without one the
+    message only goes to the in-memory outbox, so the person who invited them still has to pass the link on)."""
+    base = (settings.public_web_url or settings.web_app_url or "http://localhost:5180").rstrip("/")  # an empty setting must not give a link with no address
+    link = f"{base}/accept-invite?token={token}"
+    body = (
+        f"Hello {name},\n\n"
+        f"{invited_by} has added you to {business_name} on FleetTms.\n\n"
+        f"Choose your password to finish setting up your account:\n{link}\n\n"
+        f"The link works once and expires in {settings.invite_ttl_hours // 24 or 1} days. "
+        "If you were not expecting this, you can ignore this email and nothing will happen.\n\n"
+        "FleetTms\n"
+    )
+    await get_email_sender().send(to, f"{invited_by} invited you to {business_name} on FleetTms", body)
+    return bool(settings.smtp_host)

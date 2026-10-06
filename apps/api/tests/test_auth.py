@@ -6,6 +6,7 @@ from sqlalchemy import select, update
 from app.auth_service import now
 from app.db import get_sessionmaker
 from app.models import AuthSession, OtpChallenge, User
+from app.notify import fake_email
 from app.sms import get_sms_sender
 from tests.helpers import (
     PASSWORD,
@@ -301,6 +302,23 @@ async def test_invite_flow_and_token_is_single_use(client):
     assert (await client.post("/auth/accept-invite", json={"token": token, "password": PASSWORD})).status_code == 204
     assert (await client.post("/auth/accept-invite", json={"token": token, "password": PASSWORD})).status_code == 400
     assert (await login(client, "acc@example.com")).status_code == 200
+
+
+async def test_invite_is_emailed_with_a_working_link(client):
+    fake_email().outbox.clear()
+    owner, _ = await owner_session(client)
+    res = await client.post(
+        "/users", headers=bearer(owner), json={"name": "Acc", "email": "acc@example.com", "roles": ["accountant"]}
+    )
+    token = res.json()["invite_token"]
+    to, subject, body = fake_email().outbox[-1]
+    assert to == "acc@example.com"
+    assert "invited you" in subject and "FleetTms" in subject
+    assert f"/accept-invite?token={token}" in body
+    # A driver signs in by phone and gets no invitation email.
+    fake_email().outbox.clear()
+    await client.post("/users", headers=bearer(owner), json={"name": "Dan", "phone": "0712000009", "roles": ["driver"]})
+    assert fake_email().outbox == []
 
 
 async def test_expired_invite_is_rejected(client):

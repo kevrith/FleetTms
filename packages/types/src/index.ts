@@ -62,6 +62,7 @@ export interface StaffMember {
   status: "active" | "revoked";
   two_factor_enabled: boolean;
   invite_token?: string | null;
+  invite_emailed?: boolean;
 }
 
 export interface Depot {
