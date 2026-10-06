@@ -43,7 +43,11 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_location_points_business_id'), 'location_points', ['business_id'], unique=False)
     # A time-series table: split into week-long chunks by the time the phone took the fix.
-    op.execute("SELECT create_hypertable('location_points', 'recorded_at', chunk_time_interval => INTERVAL '7 days')")
+    # Only where TimescaleDB is installed; on plain PostgreSQL it stays an ordinary table.
+    op.execute(
+        "DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN "
+        "PERFORM create_hypertable('location_points', 'recorded_at', chunk_time_interval => INTERVAL '7 days'); END IF; END $$"
+    )
     op.create_index('ix_location_points_trip_time', 'location_points', ['trip_id', 'recorded_at'], unique=False)
     op.create_index('ix_location_points_vehicle_time', 'location_points', ['vehicle_id', 'recorded_at'], unique=False)
     op.create_table('tracking_gaps',

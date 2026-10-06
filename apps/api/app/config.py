@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -161,6 +162,15 @@ class Settings(BaseSettings):
     ask_model: str = "claude-sonnet-5-5"
     ask_per_day: int = 100  # questions per person per day, so a stuck screen cannot run up the bill
     monitoring_notice_version: str = "draft-2"
+
+    @field_validator("database_url")
+    @classmethod
+    def _async_driver(cls, value: str) -> str:
+        """Hosts (Supabase, Render, Neon) hand out postgres:// or postgresql:// addresses with ?sslmode=; the async driver needs its own name and ?ssl=."""
+        for plain in ("postgres://", "postgresql://"):
+            if value.startswith(plain):
+                value = "postgresql+asyncpg://" + value[len(plain):]
+        return value.replace("sslmode=", "ssl=")
 
 
 settings = Settings()

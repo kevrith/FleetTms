@@ -1,0 +1,57 @@
+# Render Blueprint: the API and its Redis on the free plan. The database is Supabase (use its Session pooler address) and the web app is on Vercel.
+# Steps are in docs/hosting-vercel-render.md. Values marked sync: false are asked for in the Render dashboard; none are stored here.
+services:
+  - type: web
+    name: fleettms-api
+    runtime: python
+    plan: free
+    region: frankfurt # the closest of Render's regions to Kenya
+    rootDir: apps/api
+    buildCommand: pip install -r requirements.txt -c constraints.txt
+    startCommand: sh start-render.sh
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: ENVIRONMENT
+        value: staging # "production" refuses to start without real SMS credentials and https settings (docs/deployment.md)
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false # Supabase: Connect > Session pooler
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: fleettms-redis
+          property: connectionString
+      - key: CORS_ORIGINS
+        sync: false # the Vercel address, https://your-app.vercel.app
+      - key: PUBLIC_WEB_URL
+        sync: false # the same Vercel address
+      - key: WEB_APP_URL
+        sync: false # the same Vercel address
+      - key: PUBLIC_API_URL
+        sync: false # this service's address, https://fleettms-api.onrender.com
+      - key: TRUST_PROXY_HEADERS
+        value: "true" # Render's proxy sets X-Forwarded-For; without this every user shares one rate-limit address
+      # Photos go to a private Cloudflare R2 bucket: free instances have no disk, so local files would be lost on every restart.
+      - key: STORAGE_BACKEND
+        value: s3
+      - key: S3_FORCE_PATH_STYLE
+        value: "true"
+      - key: S3_REGION
+        value: auto
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ENDPOINT_URL
+        sync: false # https://<account id>.r2.cloudflarestorage.com
+      - key: S3_ACCESS_KEY
+        sync: false
+      - key: S3_SECRET_KEY
+        sync: false
+
+  - type: keyvalue
+    name: fleettms-redis
+    plan: free
+    region: frankfurt # must match the API: the internal address only works inside one region
+    ipAllowList: [] # only Render services in this account can reach it

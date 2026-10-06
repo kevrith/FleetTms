@@ -1,0 +1,6 @@
+{
+  "installCommand": "pnpm install --frozen-lockfile --filter \"@fleettms/web...\"",
+  "buildCommand": "pnpm --filter @fleettms/web build",
+  "outputDirectory": "apps/web/dist",
+  "rewrites": [{ "source": "/((?!assets/).*)", "destination": "/index.html" }]
+}

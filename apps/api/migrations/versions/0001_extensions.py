@@ -12,8 +12,12 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute("CREATE EXTENSION IF NOT EXISTS postgis")
-    op.execute("CREATE EXTENSION IF NOT EXISTS timescaledb")
+    # Both are optional: the app runs on plain PostgreSQL (managed hosts such as Supabase or Render may not offer TimescaleDB).
+    for extension in ("postgis", "timescaledb"):
+        op.execute(
+            f"DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = '{extension}') "
+            f"THEN CREATE EXTENSION IF NOT EXISTS {extension}; END IF; END $$"
+        )
 
 
 def downgrade() -> None:
