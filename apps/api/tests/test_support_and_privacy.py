@@ -14,7 +14,7 @@ async def make_platform_admin(client):
         db.add(
             User(
                 name="Kastra Support", email="support@example.com", password_hash=hash_password(PASSWORD),
-                totp_secret=secret, totp_enabled=True, is_platform_admin=True,
+                totp_secret=secret, totp_enabled=True, is_platform_admin=True, is_platform_super=True,
             )
         )
         await db.commit()

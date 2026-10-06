@@ -5,12 +5,14 @@ import { ErrorBanner } from "../ui";
 import { date } from "./format";
 import { Badge, DataTable, FormDialog, FormField, Page, Panel, useLoad, useToast } from "./kit";
 
-/** Who runs the console. Everyone here can see every customer's subscription and change it, so keep the list short. */
+/** Who runs the console. Everyone here can see every customer's subscription and change it, so keep the list short.
+ * Only a super admin adds or removes admins, and a super admin cannot be removed here. */
 export default function Admins() {
   const { data, error, reload } = useLoad(() => api.platformAdmins());
   const [adding, setAdding] = useState(false);
   const [email, setEmail] = useState("");
   const toast = useToast();
+  const iAmSuper = data?.find((a) => a.you)?.super ?? false;
 
   async function remove(id: string, name: string) {
     if (
@@ -31,17 +33,23 @@ export default function Admins() {
   return (
     <Page
       title="Platform admins"
-      subtitle="People who can use this console. Each needs an account with two-step sign-in."
+      subtitle={
+        iAmSuper
+          ? "People who can use this console. Each needs an account with two-step sign-in."
+          : "People who can use this console. Only a super admin can add or remove admins."
+      }
       actions={
-        <button
-          className="pf-btn primary"
-          onClick={() => {
-            setEmail("");
-            setAdding(true);
-          }}
-        >
-          <UserPlus size={15} /> Add an admin
-        </button>
+        iAmSuper ? (
+          <button
+            className="pf-btn primary"
+            onClick={() => {
+              setEmail("");
+              setAdding(true);
+            }}
+          >
+            <UserPlus size={15} /> Add an admin
+          </button>
+        ) : undefined
       }
     >
       <ErrorBanner message={error} />
@@ -56,7 +64,8 @@ export default function Admins() {
               header: "Name",
               render: (a) => (
                 <>
-                  <strong>{a.name}</strong> {a.you && <Badge tone="accent">you</Badge>}
+                  <strong>{a.name}</strong> {a.super && <Badge tone="accent">super admin</Badge>}{" "}
+                  {a.you && <Badge tone="accent">you</Badge>}
                 </>
               ),
             },
@@ -67,7 +76,7 @@ export default function Admins() {
               key: "a",
               header: "",
               render: (a) =>
-                a.you ? null : (
+                a.you || a.super || !iAmSuper ? null : (
                   <button className="pf-btn small danger" onClick={() => void remove(a.id, a.name)}>
                     Remove
                   </button>

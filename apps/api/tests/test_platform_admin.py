@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import update
 
 from app import platform_mpesa
-from app.models import SubscriptionInvoice
+from app.models import SubscriptionInvoice, User
 from app.reminders import NAIROBI
 from tests.billing_helpers import pay_invoice, subscription
 from tests.fleet import add_vehicle
@@ -474,6 +474,31 @@ async def test_the_system_page_reports_readiness_the_queue_the_integrations_and_
     assert set(s["integrations"]) == {"sms", "etims_platform", "storage", "cards", "whatsapp", "mpesa"} and s["integrations"]["storage"] == "local"
     assert s["stuck"] == {"etims_review": 0, "etims_waiting": 0, "whatsapp_failed_24h": 0, "reminders_failed_24h": 0, "card_payments_pending": 0}
     assert s["version"] and s["environment"] and s["checked_at"]
+
+
+async def test_only_a_super_admin_changes_who_the_admins_are(client):
+    owner, _ = await customer(client)
+    admin = await make_platform_admin(client)
+    assert (await client.get("/auth/me", headers=bearer(admin))).json()["is_platform_super"] is True
+    assert (await client.post("/platform/admins", headers=bearer(admin), json={"email": "owner@example.com"})).status_code == 201
+    listed = (await client.get("/platform/admins", headers=bearer(admin))).json()
+    assert {a["email"]: a["super"] for a in listed} == {"support@example.com": True, "owner@example.com": False}
+
+    # The new admin runs the console but cannot change who the admins are, and cannot remove the person who added them.
+    assert (await client.get("/auth/me", headers=bearer(owner))).json()["is_platform_super"] is False
+    assert (await client.get("/platform/overview", headers=bearer(owner))).status_code == 200
+    assert (await client.get("/platform/admins", headers=bearer(owner))).status_code == 200
+    super_id = next(a["id"] for a in listed if a["super"])
+    removed = await client.delete(f"/platform/admins/{super_id}", headers=bearer(owner))
+    assert removed.status_code == 403 and removed.json()["detail"]["code"] == "super_admin_required"
+    added = await client.post("/platform/admins", headers=bearer(owner), json={"email": "support@example.com"})
+    assert added.status_code == 403 and added.json()["detail"]["code"] == "super_admin_required"
+
+    # Not even another super admin can remove a super admin through the console.
+    await in_db(lambda db: db.execute(update(User).where(User.email == "owner@example.com").values(is_platform_super=True)))
+    again = await client.delete(f"/platform/admins/{super_id}", headers=bearer(owner))
+    assert again.status_code == 409 and again.json()["detail"]["code"] == "super_admin"
+    assert (await client.get("/platform/overview", headers=bearer(admin))).status_code == 200
 
 
 # ---- only platform admins -----------------------------------------------------------------------------------------------------

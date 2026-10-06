@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import audit, plan_rules, platform_etims, readiness, subscriptions
 from app.config import settings
 from app.db import get_db
-from app.deps import Principal, error, platform_admin
+from app.deps import Principal, error, platform_admin, platform_super
 from app.lease_rules import add_months
 from app.models import (
     AuditLog,
@@ -693,7 +693,7 @@ class AdminIn(BaseModel):
 
 
 def _admin_out(u: User) -> dict:
-    return {"id": u.id, "name": u.name, "email": u.email, "phone": u.phone, "active": u.is_active, "created_at": u.created_at}
+    return {"id": u.id, "name": u.name, "email": u.email, "phone": u.phone, "active": u.is_active, "super": u.is_platform_super, "created_at": u.created_at}
 
 
 @router.get("/platform/admins")
@@ -703,8 +703,8 @@ async def list_admins(principal: Principal = Depends(platform_admin), db: AsyncS
 
 
 @router.post("/platform/admins", status_code=status.HTTP_201_CREATED)
-async def add_admin(body: AdminIn, principal: Principal = Depends(platform_admin), db: AsyncSession = Depends(get_db)):
-    """Gives an existing user the console. They must already have an account (and two-step sign-in, which every session needs anyway)."""
+async def add_admin(body: AdminIn, principal: Principal = Depends(platform_super), db: AsyncSession = Depends(get_db)):
+    """Gives an existing user the console (a super admin only). They must already have an account (and two-step sign-in, which every session needs anyway)."""
     user = (await db.execute(select(User).where(func.lower(User.email) == body.email.strip().lower()))).scalar_one_or_none()
     if user is None or not user.is_active:
         raise error(status.HTTP_404_NOT_FOUND, "not_found", "No active user has that email address. They must sign up first.")
@@ -717,13 +717,16 @@ async def add_admin(body: AdminIn, principal: Principal = Depends(platform_admin
 
 
 @router.delete("/platform/admins/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_admin(user_id: uuid.UUID, principal: Principal = Depends(platform_admin), db: AsyncSession = Depends(get_db)):
-    """Takes the console away from a user, and ends any support session they have open. Not yourself, and never the last admin."""
+async def remove_admin(user_id: uuid.UUID, principal: Principal = Depends(platform_super), db: AsyncSession = Depends(get_db)):
+    """Takes the console away from a user, and ends any support session they have open (a super admin only). Not yourself, never another
+    super admin (that is done from the command line), and never the last admin."""
     if user_id == principal.user.id:
         raise error(status.HTTP_409_CONFLICT, "self", "You cannot remove your own access. Ask another admin to.")
     user = (await db.execute(select(User).where(User.id == user_id, User.is_platform_admin.is_(True)))).scalar_one_or_none()
     if user is None:
         raise error(status.HTTP_404_NOT_FOUND, "not_found", "That user does not run the console.")
+    if user.is_platform_super:
+        raise error(status.HTTP_409_CONFLICT, "super_admin", "A super admin cannot be removed here.")
     if (await db.execute(select(func.count()).select_from(User).where(User.is_platform_admin.is_(True)))).scalar_one() <= 1:
         raise error(status.HTTP_409_CONFLICT, "last_admin", "There must always be one admin.")
     user.is_platform_admin = False

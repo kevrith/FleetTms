@@ -43,6 +43,7 @@ export interface Me {
   permissions: string[];
   companies: Company[];
   is_platform_admin: boolean;
+  is_platform_super: boolean;
   support_access: boolean;
   mfa_setup_required: boolean;
   two_factor_enabled: boolean;
@@ -2828,6 +2829,7 @@ export interface PlatformAdmin {
   email: string | null;
   phone: string | null;
   active: boolean;
+  super: boolean;
   created_at: string;
   you?: boolean;
 }

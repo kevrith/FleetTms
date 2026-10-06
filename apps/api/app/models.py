@@ -240,6 +240,9 @@ class User(Base):
     # SMS code as the second step, instead of an authenticator app. Never both.
     sms_2fa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     is_platform_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    # The one level above a platform admin: only a super admin changes who the admins are, and nobody can remove one through the console.
+    # Set from the command line (app.cli), never from the console.
+    is_platform_super: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     failed_attempts: Mapped[int] = mapped_column(Integer, default=0)
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

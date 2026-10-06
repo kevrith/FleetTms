@@ -184,3 +184,10 @@ async def platform_admin(principal: Principal = Depends(current_principal)) -> P
     if not principal.user.is_platform_admin:
         raise error(status.HTTP_403_FORBIDDEN, "forbidden", "You do not have permission to do this.")
     return principal
+
+
+async def platform_super(principal: Principal = Depends(platform_admin)) -> Principal:
+    """Changing who runs the console is for super admins only."""
+    if not principal.user.is_platform_super:
+        raise error(status.HTTP_403_FORBIDDEN, "super_admin_required", "Only a super admin can add or remove platform admins.")
+    return principal

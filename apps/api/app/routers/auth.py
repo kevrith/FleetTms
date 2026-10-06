@@ -664,6 +664,7 @@ async def me(principal: Principal = Depends(principal_unverified), db: AsyncSess
             for c in companies.values()
         ],
         "is_platform_admin": user.is_platform_admin,
+        "is_platform_super": user.is_platform_super,
         "support_access": principal.support,
         "mfa_setup_required": not principal.mfa_verified,
         "two_factor_enabled": has_two_factor(user),
