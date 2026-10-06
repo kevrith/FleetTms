@@ -78,7 +78,7 @@ async def do_request_repair(db: AsyncSession, principal: Principal, body: Repair
         photo = await claim_photo(db, principal, pid, PhotoKind.REPAIR, required=False, client_id=cid, near=opened)
         if photo is not None:
             photo_ids.append(str(photo.id))
-    title = KINDS[body.kind] + (f" ({position})" if position else "") + (": do not drive" if not body.can_drive else ": driver request")
+    title = KINDS[body.kind] + (f" ({position.replace('_', ' ')})" if position else "") + (": do not drive" if not body.can_drive else ": driver request")
     wo = WorkOrder(
         vehicle_id=crew.vehicle_id, source=WorkOrderSource.MANUAL, title=title[:160],
         description=(body.description or "").strip() or None, opened_at=opened,

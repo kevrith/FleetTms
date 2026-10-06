@@ -18,7 +18,7 @@ async def test_a_driver_asks_for_a_repair_and_the_workshop_sees_it_on_their_vehi
     assert res.status_code == 201, res.text
     assert res.json()["priority"] == "urgent" and res.json()["registration"] == "KCA 123A"
     orders = (await client.get("/work-orders", headers=bearer(f.owner))).json()
-    assert [o["title"] for o in orders] == ["Tyre (steer_left): do not drive"]
+    assert [o["title"] for o in orders] == ["Tyre (steer left): do not drive"]
     assert orders[0]["vehicle_id"] == f.vehicle["id"] and orders[0]["description"] == "Slow puncture, losing air"
     mine = (await client.get("/me/repair-requests", headers=bearer(f.driver))).json()
     assert [r["status"] for r in mine] == ["open"]

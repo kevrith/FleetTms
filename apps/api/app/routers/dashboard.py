@@ -1,6 +1,7 @@
 """Owner dashboard v1 and basic reports (masterplan 5.15 and Section 6)."""
 
 import io
+import re
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Literal
@@ -82,6 +83,11 @@ def days_phrase(on: date, today: date) -> str:
     if n > 1:
         return f"in {n} days"
     return "yesterday" if n == -1 else f"{-n} days ago"
+
+
+def plain_title(title: str) -> str:
+    """A work order title as an owner would read it: "Tyre (steer_left)" becomes "Tyre (steer left)"; older requests stored the raw position."""
+    return re.sub(r"\(([a-z]+(?:_[a-z]+)+)\)", lambda m: f"({m.group(1).replace('_', ' ')})", title)
 
 
 def emergency(id: uuid.UUID, kind: str, name: str | None, phone: str | None, reg: str | None, since: datetime, answered: bool, lat: float | None, lng: float | None) -> dict:
@@ -192,7 +198,7 @@ async def dashboard(
                 left = f"{row['km_left']:,} km left" if row["km_left"] is not None and (row["days_left"] is None or row["km_left"] / 1000 < max(row["days_left"], 1)) else f"{row['days_left']} days left"
                 alerts.append(alert("service_due", "amber", f"{row['registration']}: {s.name} is due soon", left, f"/vehicles/{s.vehicle_id}"))
         for wo in (await db.execute(select(WorkOrder).where(WorkOrder.status.in_(OPEN), WorkOrder.priority == Priority.URGENT, WorkOrder.vehicle_id.in_(vids)))).scalars():
-            alerts.append(alert("work_order_urgent", "red", f"Urgent work order: {wo.title}", vehicles[wo.vehicle_id].registration, "/workshop"))
+            alerts.append(alert("work_order_urgent", "red", f"Urgent work order: {plain_title(wo.title)}", vehicles[wo.vehicle_id].registration, "/workshop"))
         blocked = (await db.execute(select(Inspection).where(Inspection.local_date == today, Inspection.status == InspectionStatus.BLOCKED, Inspection.vehicle_id.in_(vids)))).scalars()
         for i in blocked:
             alerts.append(alert("inspection_blocked", "red", f"{vehicles[i.vehicle_id].registration}: critical fault found today", "The vehicle cannot start a trip until a manager clears it.", f"/vehicles/{i.vehicle_id}"))

@@ -113,6 +113,15 @@ def test_days_are_said_in_plain_words():
     assert said == ["today", "tomorrow", "in 4 days", "yesterday", "4 days ago"]
 
 
+def test_an_old_work_order_title_loses_its_underscores():
+    from app.routers.dashboard import plain_title
+
+    assert plain_title("Tyre (steer_left): do not drive") == "Tyre (steer left): do not drive"
+    assert plain_title("Tyre (rear_axle_outer_left): driver request") == "Tyre (rear axle outer left): driver request"
+    assert plain_title("Brakes: do not drive") == "Brakes: do not drive"
+    assert plain_title("Fix the some_thing sensor") == "Fix the some_thing sensor"
+
+
 async def test_the_fleet_strip_counts_every_active_lorry_once(client):
     f = await fleet(client)
     await add_vehicle(client, f.owner, "KCB 222B")
