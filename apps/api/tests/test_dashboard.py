@@ -94,6 +94,17 @@ async def test_an_owner_sees_who_is_in_trouble_first_with_a_way_to_call(client):
     assert (await dash(client, accountant))["emergencies"] == []  # the accountant neither answers an SOS nor handles incidents
 
 
+async def test_an_unanswered_emergency_comes_before_an_answered_one_and_an_sos_before_a_breakdown(client):
+    f = await fleet(client)
+    sos = (await client.post("/sos", headers=bearer(f.driver), json={"lat": -1.29, "lng": 36.82})).json()
+    await client.post("/incidents", headers=bearer(f.driver), json={"type": "breakdown", "description": "Engine overheated"})
+    order = [(e["kind"], e["answered"]) for e in (await dash(client, f.owner))["emergencies"]]
+    assert order == [("sos", False), ("breakdown", False)]
+    await client.post(f"/sos/{sos['id']}/acknowledge", headers=bearer(f.owner), json={})
+    order = [(e["kind"], e["answered"]) for e in (await dash(client, f.owner))["emergencies"]]
+    assert order == [("breakdown", False), ("sos", True)]  # the one nobody has answered goes first
+
+
 async def test_documents_and_tyres_are_worded_the_way_an_owner_would_say_them(client):
     f = await fleet(client)
     today = nairobi_today()
@@ -114,7 +125,7 @@ def test_days_are_said_in_plain_words():
 
 
 def test_an_old_work_order_title_loses_its_underscores():
-    from app.routers.dashboard import plain_title
+    from app.wording import plain_title
 
     assert plain_title("Tyre (steer_left): do not drive") == "Tyre (steer left): do not drive"
     assert plain_title("Tyre (rear_axle_outer_left): driver request") == "Tyre (rear axle outer left): driver request"

@@ -1,7 +1,6 @@
 """Owner dashboard v1 and basic reports (masterplan 5.15 and Section 6)."""
 
 import io
-import re
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Literal
@@ -62,6 +61,7 @@ from app.routers.workshop import OPEN, schedule_out
 from app.subscriptions import feature_allowed
 from app.trust import flag_summary
 from app.vehicle_scope import scope_vehicles
+from app.wording import plain_title
 
 router = APIRouter(tags=["dashboard"])
 MAX_REPORT_DAYS = 366
@@ -83,11 +83,6 @@ def days_phrase(on: date, today: date) -> str:
     if n > 1:
         return f"in {n} days"
     return "yesterday" if n == -1 else f"{-n} days ago"
-
-
-def plain_title(title: str) -> str:
-    """A work order title as an owner would read it: "Tyre (steer_left)" becomes "Tyre (steer left)"; older requests stored the raw position."""
-    return re.sub(r"\(([a-z]+(?:_[a-z]+)+)\)", lambda m: f"({m.group(1).replace('_', ' ')})", title)
 
 
 def emergency(id: uuid.UUID, kind: str, name: str | None, phone: str | None, reg: str | None, since: datetime, answered: bool, lat: float | None, lng: float | None) -> dict:
@@ -307,7 +302,8 @@ async def dashboard(
     fleet = None
     if "livemap.view" in perms and (principal.business_id is None or await feature_allowed(db, principal.business_id, "live_map")):
         fleet = await fleet_counts(db, vehicles)
-    emergencies.sort(key=lambda e: e["since"])
+    # Nobody has answered comes first, an SOS before a breakdown, and the one waiting longest first among equals.
+    emergencies.sort(key=lambda e: (e["answered"], e["kind"] != "sos", e["since"]))
     return {"numbers": numbers, "alerts": alerts, "emergencies": emergencies, "fleet": fleet, "open_defects": open_defects, "profit_vs_cash": money, "profit_last_month": last_month}
 
 

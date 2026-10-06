@@ -30,6 +30,7 @@ from app.reminders import NAIROBI, nairobi_today
 from app.routers.vehicles import get_vehicle
 from app.service_rules import service_due
 from app.vehicle_scope import scope_vehicles, vehicle_in_scope
+from app.wording import plain_title
 
 router = APIRouter(tags=["workshop"])
 OPEN = (WorkOrderStatus.OPEN, WorkOrderStatus.IN_PROGRESS, WorkOrderStatus.WAITING_PARTS)
@@ -88,7 +89,7 @@ def parts_total(wo: WorkOrder) -> int:
 def work_order_out(wo: WorkOrder) -> dict:
     return {
         "id": wo.id, "vehicle_id": wo.vehicle_id, "source": wo.source.value, "defect_id": wo.defect_id,
-        "schedule_id": wo.schedule_id, "title": wo.title, "description": wo.description, "priority": wo.priority.value,
+        "schedule_id": wo.schedule_id, "title": plain_title(wo.title), "description": wo.description, "priority": wo.priority.value,
         "status": wo.status.value, "assignee_kind": wo.assignee_kind, "assignee_name": wo.assignee_name,
         "labour_cents": wo.labour_cents, "parts_cents": parts_total(wo), "total_cents": wo.labour_cents + parts_total(wo),
         "parts": [

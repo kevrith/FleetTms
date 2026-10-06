@@ -29,6 +29,7 @@ from app.models import (
 from app.photos import claim_photo, photo_out, photos_by_id
 from app.routers.trips import trip_out
 from app.tyre_rules import valid_position
+from app.wording import plain_title
 
 router = APIRouter(tags=["me"])
 
@@ -52,7 +53,7 @@ class RepairIn(BaseModel):
 def _request_out(wo: WorkOrder, registration: str | None, photos: dict[uuid.UUID, Photo] | None = None) -> dict:
     photos = photos or {}
     return {
-        "id": wo.id, "title": wo.title, "description": wo.description, "priority": wo.priority.value,
+        "id": wo.id, "title": plain_title(wo.title), "description": wo.description, "priority": wo.priority.value,
         "status": wo.status.value, "registration": registration, "opened_at": wo.opened_at, "completed_at": wo.completed_at,
         "photos": [photo_out(photos[uuid.UUID(i)]) for i in wo.photo_ids if uuid.UUID(i) in photos],
     }  # fmt: skip

@@ -132,12 +132,18 @@ export function HelpCard() {
   // While the alert is open, keep the office posted on where the vehicle is.
   useEffect(() => {
     if (!open) return;
-    const timer = setInterval(async () => {
+    const send = async () => {
       if (!sosId.current) return;
       const where = await quickPosition();
       if (where) await api.sosLocation(sosId.current, where).catch(() => undefined);
-    }, 15_000);
-    return () => clearInterval(timer);
+    };
+    // The first update comes quickly: an SOS sent before the GPS had a fix tells the office where to go as soon as there is one.
+    const first = setTimeout(send, 3_000);
+    const timer = setInterval(send, 15_000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(timer);
+    };
   }, [open]);
 
   function confirmSos() {

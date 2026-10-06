@@ -74,7 +74,7 @@ export default function MoreScreen() {
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={{ gap: 12, flexGrow: 1, justifyContent: "center" }}>
+      <ScrollView contentContainerStyle={{ gap: 12, paddingVertical: 16 }}>
         <Title>{me?.user.name}</Title>
         <Body muted>{me?.roles.map((r) => ROLE_LABELS[r]).join(", ")}</Body>
         <ErrorText message={error} />

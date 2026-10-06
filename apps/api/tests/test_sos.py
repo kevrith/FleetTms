@@ -45,6 +45,27 @@ async def test_pressing_again_moves_the_pin_instead_of_texting_everyone_twice(cl
     assert again["id"] == first["id"] and again["lat"] == -1.3 and len(texts()) == 1
 
 
+async def test_an_sos_sent_before_the_phone_knew_where_it_was_texts_the_place_once_it_does(client):
+    f = await fleet(client)
+    await staff(client, f, "manager", "m@example.com", "+254733000001")
+    alert = (await client.post("/sos", headers=bearer(f.driver), json={})).json()
+    assert alert["lat"] is None and len(texts()) == 1 and "Location not known yet" in texts()[0][1]
+    for lat in (-1.31, -1.32):
+        await client.post(f"/sos/{alert['id']}/location", headers=bearer(f.driver), json={"lat": lat, "lng": 36.83})
+    sent = texts()
+    assert len(sent) == 2  # told once, not on every update
+    phone, message = sent[1]
+    assert phone == "+254733000001" and "is here" in message and "KCA 123A" in message and "https://maps.google.com/?q=-1.31,36.83" in message
+
+
+async def test_pressing_again_with_a_position_also_texts_the_place_to_an_sos_that_had_none(client):
+    f = await fleet(client)
+    await staff(client, f, "manager", "m@example.com", "+254733000001")
+    await client.post("/sos", headers=bearer(f.driver), json={})
+    again = (await press(client, f.driver)).json()
+    assert again["lat"] == -1.2921 and len(texts()) == 2 and "is here" in texts()[1][1]
+
+
 async def test_live_location_updates_follow_the_alert_and_stop_when_it_closes(client):
     f = await fleet(client)
     sup = await staff(client, f, "manager", "m@example.com", "+254733000001")

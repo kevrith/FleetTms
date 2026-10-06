@@ -81,6 +81,18 @@ async def _recipients(db: AsyncSession, vehicle_id: uuid.UUID | None, exclude_me
     return sorted(phones)
 
 
+async def _tell_where(db: AsyncSession, alert: SosAlert, principal: Principal) -> None:
+    """An SOS that went out before the phone knew where it was: once the position arrives, tell the same people where to go."""
+    vehicle = (await db.execute(select(Vehicle).where(Vehicle.id == alert.vehicle_id))).scalar_one_or_none() if alert.vehicle_id else None
+    text = f"FleetTms SOS update: {principal.user.name}{f' ({vehicle.registration})' if vehicle else ''} is here: https://maps.google.com/?q={alert.lat},{alert.lng}"
+    sms = get_sms_sender()
+    for phone in await _recipients(db, alert.vehicle_id, principal.membership_id):
+        try:
+            await sms.send(phone, text)
+        except Exception:
+            log.exception("SOS location text to %s failed", mask_phone(phone))
+
+
 async def do_send_sos(db: AsyncSession, principal: Principal, body: SosIn) -> SosAlert:
     """Raises (or updates) the driver's alert and texts the people who respond. The caller commits."""
     if body.client_id is not None:
@@ -96,7 +108,10 @@ async def do_send_sos(db: AsyncSession, principal: Principal, body: SosIn) -> So
         )
     ).scalar_one_or_none()
     if live is not None:  # already raised: just move the pin
+        unlocated = live.lat is None
         _add_point(live, body.lat, body.lng, body.accuracy_m, sent_at)
+        if unlocated and live.lat is not None:
+            await _tell_where(db, live, principal)
         return live
     crew = (
         await db.execute(select(CrewAssignment).where(CrewAssignment.membership_id == principal.membership_id, CrewAssignment.ended_at.is_(None)).limit(1))
@@ -155,7 +170,10 @@ async def update_location(alert_id: uuid.UUID, body: LocationIn, principal: Prin
     alert = await _mine(db, principal, alert_id)
     if alert.status == "resolved":
         raise error(status.HTTP_409_CONFLICT, "closed", "That alert is already closed.")
+    unlocated = alert.lat is None
     _add_point(alert, body.lat, body.lng, body.accuracy_m, capture_time(body.captured_at))
+    if unlocated and alert.lat is not None:
+        await _tell_where(db, alert, principal)
     await db.commit()
     return {"status": alert.status, "acknowledged": alert.acknowledged_at is not None}
 

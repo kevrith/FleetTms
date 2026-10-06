@@ -3,10 +3,25 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
-from app.models import StaffProfile
+from app.models import StaffProfile, WorkOrder
 from tests.helpers import bearer
 from tests.leasing import in_db, month_start
 from tests.shots import ago, begin_trip, fleet, now_iso, photo_id, sync, upload
+
+
+async def test_a_title_stored_with_the_raw_tyre_position_is_shown_in_plain_words_to_the_driver_and_the_workshop(client):
+    f = await fleet(client)
+    await client.post("/me/repair-requests", headers=bearer(f.driver), json={"kind": "tyre", "position": "steer_left", "can_drive": False})
+
+    async def make_old(db):
+        for wo in (await db.execute(select(WorkOrder))).scalars():
+            wo.title = "Tyre (steer_left): do not drive"  # how requests were stored before the position was written in words
+
+    await in_db(make_old)
+    mine = (await client.get("/me/repair-requests", headers=bearer(f.driver))).json()
+    assert [r["title"] for r in mine] == ["Tyre (steer left): do not drive"]
+    orders = (await client.get("/work-orders", headers=bearer(f.owner))).json()
+    assert [o["title"] for o in orders] == ["Tyre (steer left): do not drive"]
 
 
 async def test_a_driver_asks_for_a_repair_and_the_workshop_sees_it_on_their_vehicle(client):
