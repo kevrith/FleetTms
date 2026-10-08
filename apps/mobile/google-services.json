@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "495451205458",
+    "project_id": "fleettms-fbaeb",
+    "storage_bucket": "fleettms-fbaeb.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:495451205458:android:05cebdeabb0b01aef0948b",
+        "android_client_info": {
+          "package_name": "com.kastra.fleettms"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB7kIav38VAE83jGusY5N7NukXSRklsJKQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
