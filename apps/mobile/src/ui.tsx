@@ -52,7 +52,7 @@ export function Input(props: TextInputProps & { label: string }) {
       <TextInput
         accessibilityLabel={label}
         placeholderTextColor={t.muted}
-        style={[styles.input, { color: t.text, borderColor: t.muted, backgroundColor: t.surface }]}
+        style={[styles.input, { color: t.text, borderColor: t.line, backgroundColor: t.surface }]}
         {...rest}
       />
     </View>
@@ -75,7 +75,7 @@ export function Button({
   const t = useTheme();
   const bg = kind === "primary" ? colors.brand : "transparent";
   const fg = kind === "primary" ? "#fff" : kind === "danger" ? colors.alert : t.text;
-  const border = kind === "primary" ? colors.brand : kind === "danger" ? colors.alert : t.muted;
+  const border = kind === "primary" ? colors.brand : kind === "danger" ? colors.alert : t.line;
   return (
     <Pressable
       accessibilityRole="button"

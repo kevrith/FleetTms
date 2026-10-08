@@ -6,7 +6,8 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, AppState, ScrollView, useColorScheme, View } from "react-native";
 import { api } from "./api";
 import { useAuth } from "./auth";
-import { Screen } from "./ui";
+import { StatusBar } from "expo-status-bar";
+import { Screen, useTheme } from "./ui";
 import HomeScreen from "./screens/Home";
 import LoginScreen from "./screens/Login";
 import ExpensesScreen from "./screens/Expenses";
@@ -91,26 +92,40 @@ function useUnreadMessages(enabled: boolean) {
 }
 
 function Tabs({ tabs }: { tabs: TabDef[] }) {
-  const unread = useUnreadMessages(tabs.some((t) => t.name === "Messages"));
+  const t = useTheme();
+  const unread = useUnreadMessages(tabs.some((tab) => tab.name === "Messages"));
   return (
-    <Tab.Navigator
-      screenOptions={{
-        tabBarStyle: { height: tapTarget + 12 },
-        tabBarLabelStyle: { fontSize: tabs.length > 5 ? 11 : 13 }, // six tabs leave each label little room
-      }}
-    >
-      {tabs.map(({ name, icon, component }) => (
-        <Tab.Screen
-          key={name}
-          name={name}
-          component={component}
-          options={{
-            tabBarBadge: name === "Messages" && unread > 0 ? unread : undefined,
-            tabBarIcon: ({ color, size }) => <Ionicons name={icon} size={size} color={color} />,
-          }}
-        />
-      ))}
-    </Tab.Navigator>
+    <>
+      {/* the navy header sits behind the clock and battery */}
+      <StatusBar style="light" />
+      <Tab.Navigator
+        screenOptions={{
+          headerStyle: { backgroundColor: colors.navy },
+          headerTintColor: "#ffffff",
+          headerTitleStyle: { fontWeight: "700" },
+          tabBarActiveTintColor: t.action,
+          tabBarInactiveTintColor: t.muted,
+          tabBarStyle: {
+            height: tapTarget + 12,
+            backgroundColor: t.bg,
+            borderTopColor: t.line,
+          },
+          tabBarLabelStyle: { fontSize: tabs.length > 5 ? 11 : 13 }, // six tabs leave each label little room
+        }}
+      >
+        {tabs.map(({ name, icon, component }) => (
+          <Tab.Screen
+            key={name}
+            name={name}
+            component={component}
+            options={{
+              tabBarBadge: name === "Messages" && unread > 0 ? unread : undefined,
+              tabBarIcon: ({ color, size }) => <Ionicons name={icon} size={size} color={color} />,
+            }}
+          />
+        ))}
+      </Tab.Navigator>
+    </>
   );
 }
 

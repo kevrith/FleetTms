@@ -9,7 +9,7 @@
     "preview": {
       "distribution": "internal",
       "android": { "buildType": "apk" },
-      "env": { "EXPO_PUBLIC_API_URL": "https://api-staging.example.com" }
+      "env": { "EXPO_PUBLIC_API_URL": "https://fleettms-api.onrender.com" }
     },
     "production": {
       "autoIncrement": true,

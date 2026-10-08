@@ -1,6 +1,7 @@
 import { ApiError } from "@fleettms/api-client";
 import { useEffect, useState } from "react";
-import { ScrollView } from "react-native";
+import { Image, ScrollView } from "react-native";
+import logo from "../../assets/logo-small.png";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { clearQuick, getQuick, type QuickCredentials } from "../quick";
@@ -261,6 +262,11 @@ export default function LoginScreen() {
         contentContainerStyle={{ gap: 16, flexGrow: 1, justifyContent: "center" }}
         keyboardShouldPersistTaps="handled"
       >
+        <Image
+          source={logo}
+          style={{ width: 96, height: 96, alignSelf: "center" }}
+          accessibilityLabel="FleetTms"
+        />
         <Title>FleetTms</Title>
         <Body muted>{mode === "driver" ? "Driver sign in" : "Owner and staff sign in"}</Body>
         {mode === "driver" ? <DriverSignIn /> : <StaffLogin />}
