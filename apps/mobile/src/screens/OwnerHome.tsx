@@ -1,25 +1,52 @@
 import { Ionicons } from "@expo/vector-icons";
 import { colors, tapTarget } from "@fleettms/design-tokens";
 import type { Dashboard, DashboardAlert, DashboardEmergency } from "@fleettms/types";
-import {
-  useNavigation,
-  type NavigationProp,
-  type ParamListBase,
-} from "@react-navigation/native";
+import { useNavigation, type NavigationProp, type ParamListBase } from "@react-navigation/native";
 import { useCallback, useEffect, useState } from "react";
-import { Linking, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import { Alert, Linking, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { api } from "../api";
 import { useAuth } from "../auth";
+import { registerForPush } from "../push";
 import { ago, fleetLine, kesShort, tabForLink, tripsLine, visibleAlerts } from "../dashboard";
 import { Body, Title, useTheme } from "../ui";
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
 
-function EmergencyBanner({ e, now }: { e: DashboardEmergency; now: number }) {
+function EmergencyBanner({
+  e,
+  now,
+  onChanged,
+}: {
+  e: DashboardEmergency;
+  now: number;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  async function answer(work: () => Promise<unknown>) {
+    setBusy(true);
+    try {
+      await work();
+      onChanged();
+    } catch {
+      Alert.alert("That did not work", "Check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  const resolve = () =>
+    Alert.alert(
+      "Close this SOS?",
+      "Only do this when the driver is safe and the matter is settled.",
+      [
+        { text: "Not yet", style: "cancel" },
+        { text: "Yes, close it", onPress: () => void answer(() => api.resolveSos(e.id)) },
+      ],
+    );
   const who = e.driver ?? "A driver";
   const title = e.kind === "sos" ? `SOS: ${who} needs help` : `Breakdown: ${who}`;
   const where = [e.registration, ago(e.since, now)].filter(Boolean).join(" · ");
-  const status = e.kind === "sos" ? (e.answered ? "Someone has answered." : "Nobody has answered yet.") : "";
+  const status =
+    e.kind === "sos" ? (e.answered ? "Someone has answered." : "Nobody has answered yet.") : "";
   const action = (icon: IconName, label: string, onPress: () => void) => (
     <Pressable
       accessibilityRole="button"
@@ -47,13 +74,28 @@ function EmergencyBanner({ e, now }: { e: DashboardEmergency; now: number }) {
       <View style={{ flexDirection: "row", gap: 8 }}>
         {e.phone ? action("call", "Call", () => void Linking.openURL(`tel:${e.phone}`)) : null}
         {e.lat != null && e.lng != null
-          ? action("location", "Location", () =>
-              void Linking.openURL(
-                `geo:${e.lat},${e.lng}?q=${e.lat},${e.lng}(${encodeURIComponent(e.registration ?? who)})`,
-              ),
+          ? action(
+              "location",
+              "Location",
+              () =>
+                void Linking.openURL(
+                  `geo:${e.lat},${e.lng}?q=${e.lat},${e.lng}(${encodeURIComponent(e.registration ?? who)})`,
+                ),
             )
           : null}
       </View>
+      {e.kind === "sos" ? (
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          {!e.answered
+            ? action(
+                "hand-left",
+                busy ? "..." : "I'm on it",
+                () => void answer(() => api.acknowledgeSos(e.id)),
+              )
+            : null}
+          {action("checkmark-circle", "Resolved", resolve)}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -79,7 +121,11 @@ function Tile({
       style={{ width: "48%", padding: 14, borderRadius: 12, backgroundColor: t.surface, gap: 2 }}
     >
       <Body muted>{label}</Body>
-      <Text style={{ color: t.text, fontSize: 24, fontWeight: "800" }} numberOfLines={1} adjustsFontSizeToFit>
+      <Text
+        style={{ color: t.text, fontSize: 24, fontWeight: "800" }}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+      >
         {value}
       </Text>
       {sub ? <Body muted>{sub}</Body> : null}
@@ -167,6 +213,10 @@ export default function OwnerHome() {
   }, []);
 
   useEffect(() => {
+    void registerForPush(); // so an SOS reaches this phone with the app closed
+  }, []);
+
+  useEffect(() => {
     void load();
     const timer = setInterval(() => void load(), 15_000); // an SOS shows up here within seconds
     const clock = setInterval(() => setNow(Date.now()), 30_000); // keeps "Updated 2 min ago" honest
@@ -185,9 +235,18 @@ export default function OwnerHome() {
   const totalAlerts = alerts.urgent + alerts.watch;
   const tiles: React.ReactNode[] = [];
   if (n?.income_today_cents != null)
-    tiles.push(<Tile key="billed" label="Billed today" value={kesShort(n.income_today_cents)} onPress={null} />);
+    tiles.push(
+      <Tile
+        key="billed"
+        label="Billed today"
+        value={kesShort(n.income_today_cents)}
+        onPress={null}
+      />,
+    );
   if (n?.money_owed_cents != null)
-    tiles.push(<Tile key="owed" label="Owed to me" value={kesShort(n.money_owed_cents)} onPress={null} />);
+    tiles.push(
+      <Tile key="owed" label="Owed to me" value={kesShort(n.money_owed_cents)} onPress={null} />,
+    );
   if (n?.expenses_today_cents !== undefined)
     tiles.push(
       <Tile
@@ -238,11 +297,18 @@ export default function OwnerHome() {
       </View>
 
       {(data?.emergencies ?? []).map((e) => (
-        <EmergencyBanner key={`${e.kind}-${e.id}`} e={e} now={now} />
+        <EmergencyBanner key={`${e.kind}-${e.id}`} e={e} now={now} onChanged={() => void load()} />
       ))}
 
       {tiles.length > 0 && (
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, justifyContent: "space-between" }}>
+        <View
+          style={{
+            flexDirection: "row",
+            flexWrap: "wrap",
+            gap: 12,
+            justifyContent: "space-between",
+          }}
+        >
           {tiles}
         </View>
       )}
@@ -260,7 +326,11 @@ export default function OwnerHome() {
               <View key={label} style={{ flex: 1 }}>
                 <Body muted>{label}</Body>
                 <Text
-                  style={{ fontSize: 20, fontWeight: "800", color: cents < 0 ? colors.alert : t.text }}
+                  style={{
+                    fontSize: 20,
+                    fontWeight: "800",
+                    color: cents < 0 ? colors.alert : t.text,
+                  }}
                   numberOfLines={1}
                   adjustsFontSizeToFit
                 >

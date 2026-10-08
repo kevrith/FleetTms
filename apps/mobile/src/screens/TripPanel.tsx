@@ -7,6 +7,7 @@ import {
 } from "@fleettms/business-rules";
 import { useState } from "react";
 import { ScrollView, Text, View } from "react-native";
+import { api } from "../api";
 import { CaptureScreen } from "../capture";
 import type { LocalPhoto } from "../offline/types";
 import { useOffline } from "../offline/runtime";
@@ -38,6 +39,59 @@ const formatWhen = (iso: string) =>
     hour: "2-digit",
     minute: "2-digit",
   });
+
+/**
+ * For a driver nobody has made a trip for: say where from and where to, and the trip is made on the vehicle they are assigned to. It
+ * needs a connection (the trip is made on the server); the usual steps follow, starting with the inspection.
+ */
+function NewTrip({ onMade }: { onMade: () => Promise<unknown> }) {
+  const [open, setOpen] = useState(false);
+  const [origin, setOrigin] = useState("");
+  const [destination, setDestination] = useState("");
+  const [cargo, setCargo] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function make() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.startMyTrip({
+        origin: origin.trim(),
+        destination: destination.trim(),
+        cargo_description: cargo.trim() || null,
+      });
+      await onMade();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) return <Button label="Start a new trip" onPress={() => setOpen(true)} />;
+  return (
+    <View style={{ gap: 8 }}>
+      <Input label="From" value={origin} onChangeText={setOrigin} placeholder="Mombasa" />
+      <Input label="To" value={destination} onChangeText={setDestination} placeholder="Nairobi" />
+      <Input
+        label="What are you carrying? (optional)"
+        value={cargo}
+        onChangeText={setCargo}
+        placeholder="Cement, 400 bags"
+      />
+      <Body muted>Needs an internet connection.</Body>
+      <ErrorText message={error} />
+      <Button
+        label="Make the trip"
+        onPress={make}
+        busy={busy}
+        disabled={origin.trim().length < 2 || destination.trim().length < 2}
+      />
+      <Button label="Cancel" kind="secondary" onPress={() => setOpen(false)} disabled={busy} />
+    </View>
+  );
+}
 
 export default function TripPanel() {
   const t = useTheme();
@@ -76,6 +130,11 @@ export default function TripPanel() {
         <Text style={{ color: t.text, fontSize: 20 }}>No trip assigned yet</Text>
         {offline.state.cache.refreshedAt === null && (
           <Body muted>Connect once to download today's trip.</Body>
+        )}
+        {vehicle ? (
+          <NewTrip onMade={() => offline.syncNow()} />
+        ) : (
+          <Body muted>Ask your employer to put you on a vehicle, then you can start a trip.</Body>
         )}
       </View>
     );
