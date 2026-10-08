@@ -155,7 +155,13 @@ function DriverLogin() {
       />
       {sent && (
         <>
-          <Body muted>We sent a 6-digit code by SMS. It works for 5 minutes.</Body>
+          <Body muted>
+            If this number is registered, a 6-digit code is on its way by SMS. It works for 5
+            minutes.
+          </Body>
+          <Body muted>
+            Nothing after a minute? Check the number is right, or ask your employer to add you.
+          </Body>
           <Input
             label="6-digit code"
             value={code}
@@ -171,6 +177,16 @@ function DriverLogin() {
         <>
           <Button label="Sign in" onPress={verify} busy={busy} disabled={code.length !== 6} />
           <Button label="Send a new code" kind="secondary" onPress={sendCode} disabled={busy} />
+          <Button
+            label="Wrong number? Change it"
+            kind="secondary"
+            onPress={() => {
+              setSent(false);
+              setCode("");
+              setError(null);
+            }}
+            disabled={busy}
+          />
         </>
       ) : (
         <Button
