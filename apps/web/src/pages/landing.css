@@ -51,20 +51,18 @@
   gap: 24px;
   margin-right: auto;
 }
-.lp-links a,
-.lp-signin {
+.lp-links a {
   color: rgba(255, 255, 255, 0.78);
   text-decoration: none;
   font-size: 15px;
 }
-.lp-links a:hover,
-.lp-signin:hover {
+.lp-links a:hover {
   color: #fff;
 }
 .lp-bar-actions {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 12px;
   margin-left: auto;
 }
 
@@ -517,8 +515,12 @@
   .lp-bar-row {
     gap: 12px;
   }
-  .lp-signin {
-    display: none;
+  .lp-bar-actions {
+    gap: 8px;
+  }
+  .lp-bar-actions .lp-btn {
+    padding: 8px 12px;
+    font-size: 14px;
   }
   .lp-strip-row {
     justify-content: flex-start;

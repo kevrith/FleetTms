@@ -18,7 +18,7 @@ export function PublicHeader() {
           <Link to="/help">Help</Link>
         </nav>
         <div className="lp-bar-actions">
-          <Link className="lp-signin" to="/login">
+          <Link className="lp-btn lp-btn-ghost lp-signin" to="/login">
             Sign in
           </Link>
           <Link className="lp-btn lp-btn-primary" to="/signup">
