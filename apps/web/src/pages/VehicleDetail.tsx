@@ -10,7 +10,7 @@ import type {
   VehicleInput,
   VehicleTrust,
 } from "@fleettms/types";
-import { UserMinus } from "lucide-react";
+import { Truck, UserMinus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
@@ -27,7 +27,7 @@ import ServiceCard from "./ServiceCard";
 import { VehicleForm } from "./Vehicles";
 
 function Crew({ vehicle, canManage }: { vehicle: Vehicle; canManage: boolean }) {
-  const { can } = useAuth();
+  const { can, me, reload } = useAuth();
   const [history, setHistory] = useState<CrewAssignment[]>([]);
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +53,16 @@ function Crew({ vehicle, canManage }: { vehicle: Vehicle; canManage: boolean }) 
     setError(null);
     try {
       await api.assignCrew(vehicle.id, membershipId, role);
+      await load();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+  async function driveMyself() {
+    setError(null);
+    try {
+      await api.driveMyself(vehicle.id);
+      await reload();
       await load();
     } catch (e) {
       setError(errorMessage(e));
@@ -95,6 +105,11 @@ function Crew({ vehicle, canManage }: { vehicle: Vehicle; canManage: boolean }) 
                     ))}
                   </select>
                 </Field>
+                {role === "driver" && !now && me?.roles.includes("owner") && (
+                  <button className="btn" onClick={driveMyself}>
+                    <Truck size={16} /> I drive this vehicle myself
+                  </button>
+                )}
                 {now && (
                   <button className="btn" onClick={() => unassign(role)}>
                     <UserMinus size={16} /> Remove

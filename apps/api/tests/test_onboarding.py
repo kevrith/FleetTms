@@ -1,6 +1,6 @@
 from tests.billing_helpers import subscription
 from tests.fleet import add_vehicle
-from tests.helpers import bearer, driver_session, owner_session, staff_session
+from tests.helpers import PASSWORD, bearer, driver_session, owner_session, staff_session
 from tests.test_jobs import dispatch
 
 FIRST = {"client_name": "Bamburi Cement", "pickup": "Mombasa", "dropoff": "Nairobi", "distance_km": 480, "rate_cents": 12_000_000}
@@ -92,3 +92,48 @@ async def test_only_the_owner_adds_or_removes_sample_data(client):
     other, _ = await owner_session(client, "Bravo", "b@example.com")
     await client.post("/onboarding/sample-data", headers=bearer(other))
     assert (await client.get("/vehicles", headers=bearer(owner))).json() == []  # theirs is theirs
+
+
+async def test_an_owner_who_drives_gets_the_driver_role_at_signup(client):
+    res = await client.post(
+        "/auth/signup",
+        json={
+            "business_name": "Solo Haulage", "name": "Solo Owner", "email": "solo@example.com", "password": PASSWORD,
+            "accept_terms": True, "accept_privacy": True, "accept_dpa": True, "drives_vehicle": True,
+        },
+    )  # fmt: skip
+    assert res.status_code == 201, res.text
+    me = (await client.get("/auth/me", headers=bearer(res.json()))).json()
+    assert set(me["roles"]) == {"owner", "driver"}
+    plain = await client.post(
+        "/auth/signup",
+        json={
+            "business_name": "Other Haulage", "name": "Other Owner", "email": "other@example.com", "password": PASSWORD,
+            "accept_terms": True, "accept_privacy": True, "accept_dpa": True,
+        },
+    )  # fmt: skip
+    assert (await client.get("/auth/me", headers=bearer(plain.json()))).json()["roles"] == ["owner"]
+
+
+async def test_driving_it_myself_makes_the_owner_the_vehicles_driver_and_can_then_run_a_trip(client):
+    owner, _ = await owner_session(client)
+    vehicle = await add_vehicle(client, owner, "KCA 123A")
+    res = await client.post("/onboarding/drive-myself", headers=bearer(owner), json={"vehicle_id": vehicle["id"]})
+    assert res.status_code == 200, res.text
+    assert set((await client.get("/auth/me", headers=bearer(owner))).json()["roles"]) == {"owner", "driver"}
+    crew = [c for c in (await client.get(f"/vehicles/{vehicle['id']}/crew", headers=bearer(owner))).json() if c["ended_at"] is None]
+    assert [c["role"] for c in crew] == ["driver"]
+    # Again: nothing changes, and no error.
+    again = await client.post("/onboarding/drive-myself", headers=bearer(owner), json={"vehicle_id": vehicle["id"]})
+    assert again.status_code == 200, again.text
+    assert len((await client.get(f"/vehicles/{vehicle['id']}/crew", headers=bearer(owner))).json()) == 1
+    trip = await client.post("/trips", headers=bearer(owner), json={"vehicle_id": vehicle["id"], "origin": "Mombasa", "destination": "Nairobi"})
+    assert trip.status_code == 201, trip.text
+
+
+async def test_driving_it_myself_without_a_vehicle_only_adds_the_role_and_is_for_owners(client):
+    owner, _ = await owner_session(client)
+    assert (await client.post("/onboarding/drive-myself", headers=bearer(owner), json={})).status_code == 200
+    assert set((await client.get("/auth/me", headers=bearer(owner))).json()["roles"]) == {"owner", "driver"}
+    manager, _ = await staff_session(client, owner, "manager", "mgr@example.com")
+    assert (await client.post("/onboarding/drive-myself", headers=bearer(manager), json={})).status_code == 403

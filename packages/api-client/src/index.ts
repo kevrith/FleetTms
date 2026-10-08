@@ -1206,6 +1206,11 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
         "/onboarding/first-job",
         input,
       ),
+    /** Owner-driver mode: adds the Driver role to the signed-in owner and, with a vehicle, makes them its driver. */
+    driveMyself: (vehicleId?: string) =>
+      post<{ vehicle_id: string | null }>("/onboarding/drive-myself", {
+        vehicle_id: vehicleId ?? null,
+      }),
     addSampleData: () => post<{ vehicle_id: string; job_id: string }>("/onboarding/sample-data"),
     removeSampleData: () => request<void>("DELETE", "/onboarding/sample-data"),
 

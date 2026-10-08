@@ -77,6 +77,7 @@ class SignupIn(BaseModel):
     accept_privacy: bool
     accept_dpa: bool
     referral_code: str | None = Field(default=None, max_length=20)  # a partner's code, if one sent them; a wrong one is ignored, never a reason to refuse
+    drives_vehicle: bool = False  # an owner who drives the lorry themselves also gets the Driver role (owner-driver mode)
 
 
 class LoginIn(BaseModel):
@@ -142,6 +143,7 @@ class GoogleIn(BaseModel):
     accept_privacy: bool = False
     accept_dpa: bool = False
     referral_code: str | None = Field(default=None, max_length=20)
+    drives_vehicle: bool = False
     # An existing account with two-step verification still needs its second step after Google.
     totp_code: str | None = None
     sms_code: str | None = None
@@ -173,8 +175,9 @@ def _choose_business(companies: dict, wanted: uuid.UUID | None) -> uuid.UUID | N
 # ---- sign up -----------------------------------------------------------------------------------
 
 
-async def _start_business(db: AsyncSession, user: User, business_name: str, referral_code: str | None) -> Business:
-    """A new business with this person as its owner: the 14-day trial, the accepted legal documents and the audit entry. The caller commits."""
+async def _start_business(db: AsyncSession, user: User, business_name: str, referral_code: str | None, drives_vehicle: bool = False) -> Business:
+    """A new business with this person as its owner (and its driver, if they drive themselves): the 14-day trial, the accepted legal documents
+    and the audit entry. The caller commits."""
     business = Business(name=business_name.strip())
     if referral_code:
         from app import partners
@@ -191,6 +194,8 @@ async def _start_business(db: AsyncSession, user: User, business_name: str, refe
     db.add(membership)
     await db.flush()
     db.add(RoleAssignment(membership_id=membership.id, role=Role.OWNER))
+    if drives_vehicle:
+        db.add(RoleAssignment(membership_id=membership.id, role=Role.DRIVER))
     for doc, version in (
         (Document.TERMS, settings.terms_version),
         (Document.PRIVACY, settings.privacy_version),
@@ -233,9 +238,9 @@ async def signup(body: SignupIn, db: AsyncSession = Depends(get_db)):
         )
 
     user = User(name=body.name.strip(), email=email, phone=phone, password_hash=hash_password(body.password))
-    business = await _start_business(db, user, body.business_name, body.referral_code)
+    business = await _start_business(db, user, body.business_name, body.referral_code, body.drives_vehicle)
     token = email_verification.issue(user) if email_verification.required() else None
-    tokens = await issue_session(db, user, business.id, {Role.OWNER}, mfa_verified=False)
+    tokens = await issue_session(db, user, business.id, {Role.OWNER, Role.DRIVER} if body.drives_vehicle else {Role.OWNER}, mfa_verified=False)
     await db.commit()
     if token:
         await send_verification_email(to=email, name=user.name, token=token)  # after the commit, so the link finds its token
@@ -293,8 +298,9 @@ async def google_sign_in(body: GoogleIn, db: AsyncSession = Depends(get_db)):
             raise error(422, "terms_not_accepted", "You must accept the Terms, Privacy Policy and Data Processing Agreement.")
         name = (claims.get("name") or email.split("@")[0]).strip()
         user = User(name=name if len(name) >= 2 else email, email=email, google_sub=sub, email_verified_at=moment)
-        business = await _start_business(db, user, body.business_name, body.referral_code)
-        tokens = await issue_session(db, user, business.id, {Role.OWNER}, mfa_verified=False, device_label=body.device_label)
+        business = await _start_business(db, user, body.business_name, body.referral_code, body.drives_vehicle)
+        roles = {Role.OWNER, Role.DRIVER} if body.drives_vehicle else {Role.OWNER}
+        tokens = await issue_session(db, user, business.id, roles, mfa_verified=False, device_label=body.device_label)
         await db.commit()
         return tokens
 

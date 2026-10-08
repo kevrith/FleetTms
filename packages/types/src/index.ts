@@ -105,6 +105,8 @@ export interface SignupInput {
   accept_dpa: boolean;
   /** A partner's code, if one sent the business here. A wrong one is ignored. */
   referral_code?: string | null;
+  /** The owner drives a vehicle themselves, so they also get the Driver role. */
+  drives_vehicle?: boolean;
 }
 
 export interface GoogleSignInInput {
@@ -116,6 +118,7 @@ export interface GoogleSignInInput {
   accept_privacy?: boolean;
   accept_dpa?: boolean;
   referral_code?: string | null;
+  drives_vehicle?: boolean;
   totp_code?: string;
   sms_code?: string;
   business_id?: string;

@@ -21,6 +21,7 @@ export default function Signup() {
     password: "",
   });
   const [accepted, setAccepted] = useState(false);
+  const [drives, setDrives] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) =>
@@ -49,6 +50,7 @@ export default function Signup() {
         ...form,
         phone: form.phone || null,
         referral_code: referral.trim() || null,
+        drives_vehicle: drives,
         accept_terms: accepted,
         accept_privacy: accepted,
         accept_dpa: accepted,
@@ -74,6 +76,7 @@ export default function Signup() {
         credential,
         business_name: form.business_name.trim(),
         referral_code: referral.trim() || null,
+        drives_vehicle: drives,
         accept_terms: accepted,
         accept_privacy: accepted,
         accept_dpa: accepted,
@@ -148,6 +151,10 @@ export default function Signup() {
             autoComplete="new-password"
           />
         </Field>
+        <label className="check">
+          <input type="checkbox" checked={drives} onChange={(e) => setDrives(e.target.checked)} />
+          <span>I drive a lorry in this business myself (you can add drivers later).</span>
+        </label>
         <label className="check">
           <input
             type="checkbox"

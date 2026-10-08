@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,11 +16,13 @@ from app.models import (
     AlertSettings,
     Business,
     Client,
+    CrewRole,
     Feedback,
     Job,
     LocationPoint,
     Membership,
     Role,
+    RoleAssignment,
     SavedRoute,
     SpendLimit,
     Trip,
@@ -107,6 +109,37 @@ async def first_job(body: FirstJobIn, principal: Principal = Depends(require("bu
         principal, db,
     )  # fmt: skip
     return {"client_id": client.id, "route_id": route.id, "job": job}
+
+
+class DriveMyselfIn(BaseModel):
+    vehicle_id: uuid.UUID | None = None  # the lorry to put them in as its driver; without one they only get the role
+
+
+@router.post("/onboarding/drive-myself")
+async def drive_myself(body: DriveMyselfIn, principal: Principal = Depends(require("business.manage")), db: AsyncSession = Depends(get_db)):
+    """For an owner who drives their own lorry (owner-driver mode): adds the Driver role to their login, and, when a vehicle is given, makes
+    them its driver. Being a driver is what adds the Driver view to the phone app. Doing it twice changes nothing."""
+    from app.routers import vehicles as vehicles_router
+
+    membership = (await db.execute(select(Membership).where(Membership.id == principal.membership_id))).scalar_one()
+    if Role.DRIVER not in {r.role for r in membership.roles}:
+        before = sorted(r.role.value for r in membership.roles)
+        membership.roles.append(RoleAssignment(role=Role.DRIVER))
+        await db.flush()
+        audit.record(
+            db, actor_user_id=principal.user.id, action="user.roles_changed", entity_type="membership", entity_id=membership.id,
+            before={"roles": before}, after={"roles": sorted([*before, Role.DRIVER.value])}, note="The owner drives their own vehicle",
+        )  # fmt: skip
+    if body.vehicle_id is None:
+        await db.commit()
+        return {"vehicle_id": None}
+    try:
+        await vehicles_router.assign_crew(body.vehicle_id, vehicles_router.CrewIn(membership_id=membership.id, role=CrewRole.DRIVER), principal, db)
+    except HTTPException as e:
+        if not (isinstance(e.detail, dict) and e.detail.get("code") == "already_assigned"):
+            raise
+        await db.commit()  # already their lorry: the role is saved either way
+    return {"vehicle_id": body.vehicle_id}
 
 
 SAMPLE = {"registration": "DEMO 001A", "client": "Sample Client Ltd", "route": "Mombasa to Nairobi (sample)"}

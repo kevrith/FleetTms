@@ -3,6 +3,7 @@ import { Check, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
+import { useAuth } from "../auth";
 import { Card, ErrorBanner, errorMessage, Field } from "../ui";
 
 const toCents = (kes: string) => Math.round(Number(kes || 0) * 100);
@@ -13,10 +14,13 @@ const toCents = (kes: string) => Math.round(Number(kes || 0) * 100);
  */
 export default function Start() {
   const navigate = useNavigate();
+  const { me, reload } = useAuth();
   const [o, setO] = useState<Onboarding | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [vehicle, setVehicle] = useState({ registration: "", tank: "", kmpl: "" });
+  const [driveIt, setDriveIt] = useState<boolean | null>(null);
+  const iDrive = driveIt ?? me?.roles.includes("driver") ?? false;
   const [driver, setDriver] = useState({ name: "", phone: "" });
   const [job, setJob] = useState({
     client: "",
@@ -51,29 +55,31 @@ export default function Start() {
 
   function addVehicle(e: FormEvent) {
     e.preventDefault();
-    void run(
-      () =>
-        api.createVehicle({
-          registration: vehicle.registration.trim().toUpperCase(),
-          make: null,
-          model: null,
-          capacity_tonnes: null,
-          fuel_type: "diesel",
-          tank_litres: vehicle.tank ? Number(vehicle.tank) : null,
-          expected_kmpl_loaded: vehicle.kmpl || null,
-          expected_kmpl_empty: null,
-          odometer_km: 0,
-          tracking_tier: "basic",
-          depot_id: null,
-          ownership_type: "owned",
-          party_id: null,
-          gvw_limit_kg: null,
-          tare_kg: null,
-          axle_config: null,
-          is_active: true,
-        }),
-      "Vehicle added.",
-    ).then(() => setVehicle({ registration: "", tank: "", kmpl: "" }));
+    void run(async () => {
+      const made = await api.createVehicle({
+        registration: vehicle.registration.trim().toUpperCase(),
+        make: null,
+        model: null,
+        capacity_tonnes: null,
+        fuel_type: "diesel",
+        tank_litres: vehicle.tank ? Number(vehicle.tank) : null,
+        expected_kmpl_loaded: vehicle.kmpl || null,
+        expected_kmpl_empty: null,
+        odometer_km: 0,
+        tracking_tier: "basic",
+        depot_id: null,
+        ownership_type: "owned",
+        party_id: null,
+        gvw_limit_kg: null,
+        tare_kg: null,
+        axle_config: null,
+        is_active: true,
+      });
+      if (iDrive) {
+        await api.driveMyself(made.id);
+        await reload();
+      }
+    }, "Vehicle added.").then(() => setVehicle({ registration: "", tank: "", kmpl: "" }));
   }
   function inviteDriver(e: FormEvent) {
     e.preventDefault();
@@ -142,6 +148,14 @@ export default function Start() {
               onChange={(e) => setVehicle({ ...vehicle, kmpl: e.target.value })}
             />
           </Field>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={iDrive}
+              onChange={(e) => setDriveIt(e.target.checked)}
+            />
+            <span>I drive this vehicle myself</span>
+          </label>
           <button className="btn primary" type="submit">
             Add the vehicle
           </button>
