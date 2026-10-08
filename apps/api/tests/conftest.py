@@ -20,6 +20,13 @@ TEST_DB = os.getenv("TEST_DB_NAME", "fleettms_test")  # a second session can use
 
 # Point the app at the test database before anything creates an engine.
 _dev_url = make_url(settings.database_url)
+# The suite creates databases and truncates tables, so it must never meet a hosted database (the .env may point at one).
+if _dev_url.host not in ("localhost", "127.0.0.1", "::1", "db"):
+    pytest.exit(
+        f"Refusing to run the tests against {_dev_url.host}: they create databases and truncate tables. "
+        "Point DATABASE_URL at the local Docker database (localhost:5442) for the test run.",
+        returncode=2,
+    )
 settings.database_url = _dev_url.set(database=TEST_DB).render_as_string(hide_password=False)
 settings.jwt_secret = secrets.token_urlsafe(32)  # generated per run, never stored
 # A second session can also have its own Redis database (TEST_REDIS_DB=7): two sessions sharing one clear each other's rate-limit and usage counters.
