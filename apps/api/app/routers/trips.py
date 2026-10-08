@@ -246,6 +246,43 @@ async def create_trip(
     return await trip_out(db, trip)
 
 
+class MyTripIn(BaseModel):
+    origin: str = Field(min_length=2, max_length=160)
+    destination: str = Field(min_length=2, max_length=160)
+    cargo_description: str | None = Field(default=None, max_length=255)
+
+
+@router.post("/me/trips", status_code=status.HTTP_201_CREATED)
+async def start_my_trip(body: MyTripIn, principal: Principal = Depends(require("trips.own")), db: AsyncSession = Depends(get_db)):
+    """A driver makes their own trip: where from, where to and what is on board, on the vehicle they are assigned to. For the owner who is
+    also the driver and the small business where nobody sits at a desk making trips. It is a scheduled trip like any other, so the usual
+    steps follow (inspection, odometer photo, start); this only saves the office from having to create it first."""
+    if principal.membership_id is None:
+        raise error(422, "no_driver", "Only a driver can make a trip.")
+    mine = (
+        await db.execute(
+            select(CrewAssignment).where(
+                CrewAssignment.membership_id == principal.membership_id, CrewAssignment.role == CrewRole.DRIVER, CrewAssignment.ended_at.is_(None)
+            )
+        )
+    ).scalars().first()
+    if mine is None:
+        raise error(422, "no_vehicle", "You are not assigned to a vehicle yet. Ask your employer to put you on one.")
+    busy = (
+        await db.execute(
+            select(Trip.id).where(Trip.driver_membership_id == principal.membership_id, Trip.status.in_(ACTIVE)).limit(1)
+        )
+    ).first()
+    if busy is not None:
+        raise error(status.HTTP_409_CONFLICT, "already_has_trip", "You already have a trip. Finish or cancel it before making another.")
+    trip = await do_create_trip(
+        db, principal,
+        TripIn(vehicle_id=mine.vehicle_id, driver_membership_id=principal.membership_id, origin=body.origin.strip(), destination=body.destination.strip(), cargo_description=body.cargo_description),
+    )  # fmt: skip
+    await db.commit()
+    return await trip_out(db, trip)
+
+
 @router.get("/trips")
 async def list_trips(
     status_filter: TripStatus | None = None,

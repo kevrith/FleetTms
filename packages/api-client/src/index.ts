@@ -24,6 +24,7 @@ import type {
   PlansInfo,
   PlatformBusinessDetail,
   PlatformBusinessRow,
+  MyTripInput,
   PlatformAdmin,
   PlatformSmsInbox,
   PlatformAnalytics,
@@ -1501,6 +1502,10 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
     // ---- SOS ----
     myTyrePositions: () => get<MyTyrePositions>("/me/tyre-positions"),
     mySos: () => get<MySos | null>("/me/sos"),
+    /** A driver makes their own trip on the vehicle they are assigned to. */
+    startMyTrip: (input: MyTripInput) => post<Trip>("/me/trips", input),
+    setPushToken: (token: string) => request<void>("PUT", "/me/push-token", { token }),
+    clearPushToken: () => request<void>("DELETE", "/me/push-token"),
     sosLocation: (id: string, input: { lat: number; lng: number; accuracy_m?: number | null }) =>
       post<{ status: string; acknowledged: boolean }>(`/sos/${id}/location`, input),
     sosAlerts: (activeOnly = true) => get<SosAlert[]>(`/sos?active_only=${activeOnly}`),

@@ -247,6 +247,7 @@ class User(Base):
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     email_verify_token_hash: Mapped[str | None] = mapped_column(String(64))
     email_verify_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    push_token: Mapped[str | None] = mapped_column(String(200))  # the phone's Expo push address, for SOS and other alerts (the latest phone wins)
     google_sub: Mapped[str | None] = mapped_column(String(64), unique=True)  # Google's own id for the person, so a changed address still finds them
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     failed_attempts: Mapped[int] = mapped_column(Integer, default=0)

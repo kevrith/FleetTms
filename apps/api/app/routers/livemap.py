@@ -12,7 +12,16 @@ from app.config import settings
 from app.db import get_db
 from app.deps import Principal, feature, require
 from app.gps_rules import vehicle_state
-from app.models import Depot, Membership, TrackerDevice, TrackingGap, Trip, TripStatus, Vehicle
+from app.models import (
+    Depot,
+    Membership,
+    SosAlert,
+    TrackerDevice,
+    TrackingGap,
+    Trip,
+    TripStatus,
+    Vehicle,
+)
 from app.routers.trips import get_trip
 from app.trust import flag_summary, trust_out
 from app.vehicle_scope import require_vehicle_in_scope, scope_vehicles
@@ -35,15 +44,18 @@ async def map_vehicles(principal: Principal = Depends(require("livemap.view")), 
     devices = {d.vehicle_id: d for d in (await db.execute(select(TrackerDevice).where(TrackerDevice.is_active.is_(True)))).scalars()}
     flags = await flag_summary(db, ids)
     dark = {g.vehicle_id: g for g in (await db.execute(select(TrackingGap).where(TrackingGap.resolved_at.is_(None)))).scalars()}
+    sos = {a.vehicle_id: a for a in (await db.execute(select(SosAlert).where(SosAlert.status != "resolved").order_by(SosAlert.received_at))).scalars() if a.vehicle_id in ids}
     out = []
     for v in vehicles:
         p, t = last.get(v.id), trips.get(v.id)
+        a = sos.get(v.id)
         state = vehicle_state(on_trip=t is not None, last_at=p.recorded_at if p else None, now=now, speed_kmh=p.speed_kmh if p else None)
         out.append(
             {
                 "vehicle_id": v.id, "registration": v.registration, "state": state, "depot": depots.get(v.depot_id), "going_dark": v.id in dark,
                 "position": tracking.point_out(p) if p else None, "source": p.source if p else None, "trust": trust_out(v, flags.get(v.id, {})),
                 "tracker": None if v.id not in devices else {"online": devices[v.id].online_state != "offline", "power_ok": devices[v.id].power_ok, "battery_pct": devices[v.id].battery_pct, "ignition": devices[v.id].ignition, "immobilised": devices[v.id].immobilised}, "age_seconds": int((now - p.recorded_at).total_seconds()) if p else None,
+                "sos": None if a is None else {"id": a.id, "status": a.status, "since": a.sent_at, "lat": a.lat, "lng": a.lng, "driver": names.get(a.driver_membership_id)},
                 "trip": None if t is None else {"id": t.id, "origin": t.origin, "destination": t.destination, "status": t.status.value, "started_at": t.started_at, "driver": names.get(t.driver_membership_id)},
             }
         )

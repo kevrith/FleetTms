@@ -6,13 +6,13 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import audit
 from app.clock import capture_time
 from app.db import get_db
-from app.deps import Principal, error, require
+from app.deps import Principal, current_principal, error, require
 from app.models import (
     CrewAssignment,
     PayrollLine,
@@ -22,6 +22,7 @@ from app.models import (
     Priority,
     Trip,
     TripStatus,
+    User,
     Vehicle,
     WorkOrder,
     WorkOrderSource,
@@ -93,6 +94,27 @@ async def do_request_repair(db: AsyncSession, principal: Principal, body: Repair
         after={"kind": body.kind, "position": position, "can_drive": body.can_drive},
     )  # fmt: skip
     return wo
+
+
+class PushTokenIn(BaseModel):
+    token: str = Field(min_length=10, max_length=200)
+
+
+@router.put("/me/push-token", status_code=status.HTTP_204_NO_CONTENT)
+async def set_push_token(body: PushTokenIn, principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_db)):
+    """The phone's push address, so an SOS or another alert can reach this person when the app is closed. The latest phone to say so is used."""
+    if not body.token.startswith(("ExponentPushToken[", "ExpoPushToken[")):
+        raise error(422, "invalid_token", "That is not a push address from the app.")
+    # A phone that changes hands must not keep telling the last person who signed in on it.
+    await db.execute(update(User).where(User.push_token == body.token, User.id != principal.user.id).values(push_token=None))
+    principal.user.push_token = body.token
+    await db.commit()
+
+
+@router.delete("/me/push-token", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_push_token(principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_db)):
+    principal.user.push_token = None
+    await db.commit()
 
 
 @router.post("/me/repair-requests", status_code=status.HTTP_201_CREATED)

@@ -720,6 +720,13 @@ export interface DashboardAlert {
 }
 
 /** Someone in trouble right now. */
+/** A trip a driver makes for themselves on the vehicle they are assigned to. */
+export interface MyTripInput {
+  origin: string;
+  destination: string;
+  cargo_description?: string | null;
+}
+
 export interface DashboardEmergency {
   id: string;
   kind: "sos" | "breakdown";
@@ -1849,6 +1856,15 @@ export interface MapVehicle {
     destination: string | null;
     status: string;
     started_at: string | null;
+    driver: string | null;
+  } | null;
+  /** An SOS from this vehicle's driver that nobody has closed yet, with where the driver pressed it. */
+  sos?: {
+    id: string;
+    status: string;
+    since: string;
+    lat: number | null;
+    lng: number | null;
     driver: string | null;
   } | null;
   source?: "phone" | "tracker" | null;

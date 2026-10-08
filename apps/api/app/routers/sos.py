@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit
+from app import audit, push
 from app.clock import capture_time
 from app.db import get_db
 from app.deps import Principal, error, require_any
@@ -81,6 +81,18 @@ async def _recipients(db: AsyncSession, vehicle_id: uuid.UUID | None, exclude_me
     return sorted(phones)
 
 
+async def _recipient_tokens(db: AsyncSession, vehicle_id: uuid.UUID | None, exclude_membership: uuid.UUID | None) -> list[str]:
+    """Push addresses of the same people the text goes to (a phone number is not needed for a push)."""
+    tokens: list[str] = []
+    for m in (await db.execute(select(Membership).where(Membership.status == MembershipStatus.ACTIVE))).scalars():
+        if m.id == exclude_membership or not m.user.push_token:
+            continue
+        roles = {r.role: r for r in m.roles}
+        if Role.OWNER in roles or Role.MANAGER in roles or Role.SUPERVISOR in roles and vehicle_id is not None and str(vehicle_id) in (roles[Role.SUPERVISOR].vehicle_scope or []):
+            tokens.append(m.user.push_token)
+    return tokens
+
+
 async def _tell_where(db: AsyncSession, alert: SosAlert, principal: Principal) -> None:
     """An SOS that went out before the phone knew where it was: once the position arrives, tell the same people where to go."""
     vehicle = (await db.execute(select(Vehicle).where(Vehicle.id == alert.vehicle_id))).scalar_one_or_none() if alert.vehicle_id else None
@@ -139,6 +151,13 @@ async def do_send_sos(db: AsyncSession, principal: Principal, body: SosIn) -> So
             alert.notified += 1
         except Exception:
             log.exception("SOS text to %s failed", mask_phone(phone))
+    await push.send(
+        await _recipient_tokens(db, alert.vehicle_id, principal.membership_id),
+        "SOS: a driver needs help",
+        f"{principal.user.name}{f' ({vehicle.registration})' if vehicle else ''} pressed the SOS button.",
+        {"type": "sos", "alert_id": str(alert.id)},
+        channel=push.SOS_CHANNEL,
+    )
     audit.record(db, actor_user_id=principal.user.id, action="sos.raised", entity_type="sos_alert", entity_id=alert.id, after={"vehicle_id": str(alert.vehicle_id) if alert.vehicle_id else None, "notified": alert.notified})
     return alert
 
