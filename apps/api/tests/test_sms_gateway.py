@@ -124,7 +124,7 @@ async def test_the_production_check_accepts_the_real_gateway_and_still_refuses_t
     monkeypatch.setattr(settings, "environment", "production")
     good = {
         "jwt_secret": "s" * 40, "cors_origins": "https://app.example.com", "public_api_url": "https://api.example.com", "enforce_plans": True,
-        "enforce_billing": True, "rate_limits_enabled": True, "document_reader": "", "ask_llm": "",
+        "enforce_billing": True, "rate_limits_enabled": True, "document_reader": "", "ask_llm": "", "smtp_host": "smtp.example.com",
     }  # fmt: skip
     for name, value in good.items():
         monkeypatch.setattr(settings, name, value)
