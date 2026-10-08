@@ -1,8 +1,9 @@
 import { ApiError } from "@fleettms/api-client";
-import { LogIn } from "lucide-react";
+import { Download, LogIn } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
+import { ANDROID_APP_URL } from "../appLinks";
 import { useAuth } from "../auth";
 import { ErrorBanner, errorMessage, Field } from "../ui";
 import GoogleButton from "./GoogleButton";
@@ -115,6 +116,12 @@ export default function Login() {
         {!googleToken && <GoogleButton mode="signin" onCredential={signInWithGoogle} />}
         <p className="muted">
           New to FleetTms? <Link to="/signup">Create your business account</Link>
+        </p>
+        <p className="muted">
+          <a href={ANDROID_APP_URL}>
+            <Download size={14} /> Get the Android app
+          </a>{" "}
+          for drivers and owners on the road.
         </p>
       </form>
     </PublicShell>

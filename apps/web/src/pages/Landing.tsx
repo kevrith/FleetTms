@@ -4,6 +4,7 @@ import {
   Camera,
   CheckCircle2,
   ClipboardCheck,
+  Download,
   FileCheck2,
   Fuel,
   LineChart,
@@ -18,6 +19,7 @@ import {
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
+import { ANDROID_APP_URL } from "../appLinks";
 import { kes } from "../labels";
 import "./landing.css";
 import { PublicFooter, PublicHeader } from "./PublicShell";
@@ -115,6 +117,9 @@ export default function Landing() {
               </Link>
               <a className="lp-btn lp-btn-ghost lp-btn-lg" href="#how">
                 See how it works
+              </a>
+              <a className="lp-btn lp-btn-ghost lp-btn-lg" href={ANDROID_APP_URL}>
+                <Download size={18} /> Get the Android app
               </a>
             </div>
             <p className="lp-fine">No payment details needed to start.</p>
