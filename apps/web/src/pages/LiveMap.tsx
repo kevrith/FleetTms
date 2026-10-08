@@ -5,6 +5,8 @@ import { api } from "../api";
 import { MapView } from "../MapView";
 import { Card, ErrorBanner, errorMessage } from "../ui";
 
+const SOS_SUFFIX = ":sos";
+
 const STATE_LABEL: Record<string, string> = {
   moving: "Moving",
   idle: "Standing on a trip",
@@ -59,9 +61,10 @@ export default function LiveMap() {
     }
   }, [chosen?.trip?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const emergencies = useMemo(() => (data?.vehicles ?? []).filter((v) => v.sos), [data]);
   const markers = useMemo(
-    () =>
-      (data?.vehicles ?? [])
+    () => [
+      ...(data?.vehicles ?? [])
         .filter((v) => v.position)
         .map((v) => ({
           id: v.vehicle_id,
@@ -70,7 +73,20 @@ export default function LiveMap() {
           colour: STATE_COLOUR[v.state] ?? "#475569",
           label: `${v.registration}: ${STATE_LABEL[v.state]}${v.age_seconds !== null ? `, ${ago(v.age_seconds)}` : ""}`,
         })),
-    [data],
+      // An open SOS is drawn where the driver pressed it, even for a lorry the map has not heard from.
+      ...emergencies
+        .filter((v) => v.sos!.lat != null && v.sos!.lng != null)
+        .map((v) => ({
+          id: `${v.vehicle_id}${SOS_SUFFIX}`,
+          lat: v.sos!.lat!,
+          lng: v.sos!.lng!,
+          colour: "#dc2626",
+          big: true,
+          pulse: true,
+          label: `SOS: ${v.registration}${v.sos!.driver ? `, ${v.sos!.driver}` : ""}`,
+        })),
+    ],
+    [data, emergencies],
   );
   const lines = useMemo(
     () =>
@@ -95,11 +111,22 @@ export default function LiveMap() {
         Phones report only while a trip is running, so a parked lorry shows where its last trip
         ended.
       </p>
+      {emergencies.length > 0 && (
+        <div className="banner bad" role="alert">
+          <strong>SOS:</strong>{" "}
+          {emergencies
+            .map((v) => `${v.registration}${v.sos!.driver ? ` (${v.sos!.driver})` : ""}`)
+            .join(", ")}
+          {emergencies.some((v) => v.sos!.lat == null) &&
+            ". Where the driver is is not known yet; the pin appears when the phone sends it."}{" "}
+          <Link to="/incidents/sos">Answer it</Link>
+        </div>
+      )}
       <MapView
         markers={markers}
         lines={lines}
         selected={selected}
-        onSelect={setSelected}
+        onSelect={(id) => setSelected(id.replace(SOS_SUFFIX, ""))}
         height={460}
       />
       <Card title="Vehicles">
@@ -125,6 +152,7 @@ export default function LiveMap() {
                 >
                   <td>{v.registration}</td>
                   <td>
+                    {v.sos && <span className="status bad">SOS </span>}
                     <span style={{ color: STATE_COLOUR[v.state] }}>{STATE_LABEL[v.state]}</span>
                     {v.going_dark && <span className="status bad"> went dark</span>}
                     {v.position?.speed_kmh != null &&

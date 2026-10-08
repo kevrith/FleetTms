@@ -471,3 +471,21 @@ pre {
 .nav .muted {
   color: var(--nav-text);
 }
+
+/* An emergency on the map: a ring that breathes, still when the person has asked for less motion. */
+@keyframes map-pulse {
+  from {
+    opacity: 0.9;
+  }
+  to {
+    opacity: 0.15;
+  }
+}
+.map-pulse {
+  animation: map-pulse 0.9s ease-in-out infinite alternate;
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-pulse {
+    animation: none;
+  }
+}

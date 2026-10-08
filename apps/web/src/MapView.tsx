@@ -11,6 +11,8 @@ export interface MapMarker {
   label: string;
   /** Draw it bigger (the one that is selected). */
   big?: boolean;
+  /** A ring that pulses around it: an emergency, so it cannot be missed. */
+  pulse?: boolean;
 }
 
 export interface MapLine {
@@ -116,6 +118,16 @@ export function MapView({
       bounds.push(...draft);
     }
     for (const m of markers) {
+      if (m.pulse) {
+        L.circleMarker([m.lat, m.lng], {
+          radius: 22,
+          stroke: false,
+          fillColor: m.colour,
+          fillOpacity: 0.35,
+          className: "map-pulse",
+          interactive: false,
+        }).addTo(g);
+      }
       const dot = L.circleMarker([m.lat, m.lng], {
         radius: m.big || m.id === selected ? 11 : 8,
         color: "#ffffff",
