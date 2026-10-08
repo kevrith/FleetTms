@@ -12,13 +12,6 @@ on:
     tags:
       - "mobile-v*"
   workflow_dispatch:
-    inputs:
-      profile:
-        description: "EAS build profile"
-        required: true
-        default: preview
-        type: choice
-        options: [preview, production]
 
 permissions:
   contents: write # creates and updates the mobile-latest release
@@ -62,14 +55,19 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
-          PROFILE: ${{ github.event.inputs.profile || 'preview' }}
         run: |
           if [ -z "$EXPO_TOKEN" ]; then
             echo "::error::The EXPO_TOKEN repository secret is not set."
             exit 1
           fi
           mkdir -p build
-          eas build --platform android --profile "$PROFILE" --local --output ./build/fleettms.apk --non-interactive
+          # Always the preview profile: an installable APK that talks to the hosted API. The production profile makes an app bundle for
+          # the Play Store, which a phone cannot install, so it is never published here.
+          eas build --platform android --profile preview --local --output ./build/fleettms.apk --non-interactive
+          if ! unzip -l build/fleettms.apk | grep -q " AndroidManifest.xml$"; then
+            echo "::error::The build is not an installable APK (an app bundle has no AndroidManifest.xml at its root)."
+            exit 1
+          fi
 
       - name: Keep the APK with the run
         uses: actions/upload-artifact@v4
