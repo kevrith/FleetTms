@@ -1,5 +1,6 @@
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 
 from app.config import settings
@@ -110,23 +111,26 @@ async def redis_is_up() -> bool:
         await client.aclose()
 
 
-@app.get("/ready")
+@app.api_route("/ready", methods=["GET", "HEAD"])
 async def ready():
     """Everything the system depends on, for an uptime monitor: 200 when all is well, 503 with the reasons when not (readiness.py)."""
-    from fastapi.responses import JSONResponse
-
     from app.readiness import readiness
 
     result = await readiness()
     return JSONResponse(result, status_code=200 if result["ready"] else 503)
 
 
-@app.get("/health")
-async def health() -> dict[str, str]:
-    return {
+@app.api_route("/health", methods=["GET", "HEAD"])
+async def health(request: Request) -> JSONResponse:
+    database, redis = await database_is_up(), await redis_is_up()
+    body = {
         "status": "ok",
         "service": settings.app_name,
         "version": settings.version,
-        "database": "up" if await database_is_up() else "down",
-        "redis": "up" if await redis_is_up() else "down",
+        "database": "up" if database else "down",
+        "redis": "up" if redis else "down",
     }
+    # A free uptime monitor can only send HEAD, which has no body to read, so for HEAD the status code carries the answer. GET stays 200
+    # whatever the state (Render's own health check uses it, and restarting the API does not fix a database that is down).
+    down = request.method == "HEAD" and not (database and redis)
+    return JSONResponse(body, status_code=503 if down else 200)
