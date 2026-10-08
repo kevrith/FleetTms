@@ -207,6 +207,72 @@ function Photo({
   );
 }
 
+/** For a trip paid in cash or M-Pesa with no invoice: what was received, which profit then counts as the trip's income. */
+function ReceivedCard({
+  trip,
+  hasInvoice,
+  onChanged,
+}: {
+  trip: Trip;
+  hasInvoice: boolean;
+  onChanged: () => void;
+}) {
+  const [amount, setAmount] = useState(
+    trip.received_cents != null ? String(trip.received_cents / 100) : "",
+  );
+  const [note, setNote] = useState(trip.received_note ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  async function save() {
+    setError(null);
+    setSaved(false);
+    try {
+      await api.setTripReceived(trip.id, Math.round(Number(amount) * 100), note.trim() || null);
+      setSaved(true);
+      onChanged();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+  return (
+    <Card title="Payment received">
+      <ErrorBanner message={error} />
+      <p className="muted">
+        {hasInvoice
+          ? "This trip has an invoice, and the invoice is what counts toward profit. What you record here is kept as a note."
+          : "No invoice? Say what you were paid, in cash or by M-Pesa. Profit counts it as this trip's income."}
+      </p>
+      <div className="form-grid">
+        <Field label="Amount received (KES)">
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+        </Field>
+        <Field label="Note (optional)">
+          <input
+            value={note}
+            maxLength={200}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Cash on delivery"
+          />
+        </Field>
+        <button className="btn primary" disabled={amount === ""} onClick={save}>
+          Save
+        </button>
+      </div>
+      {saved && (
+        <p className="status ok" role="status">
+          Saved.
+        </p>
+      )}
+    </Card>
+  );
+}
+
 function Delivery({ trip, onChanged }: { trip: Trip; onChanged: () => void }) {
   const { can } = useAuth();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
@@ -328,6 +394,14 @@ function Delivery({ trip, onChanged }: { trip: Trip; onChanged: () => void }) {
             </>
           )}
         </Card>
+      )}
+      {delivered && can("trips.manage") && (
+        <ReceivedCard
+          key={trip.received_cents ?? "none"}
+          trip={trip}
+          hasInvoice={invoice !== null}
+          onChanged={onChanged}
+        />
       )}
     </>
   );

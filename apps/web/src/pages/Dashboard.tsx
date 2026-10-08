@@ -36,6 +36,23 @@ export default function Dashboard() {
   return (
     <>
       <OnboardingCard />
+      {(data.deadlines ?? []).map((d) => (
+        <p
+          key={d.id}
+          className={`banner ${d.level === "expired" ? "bad" : "warn"}`}
+          role={d.level === "expired" ? "alert" : "status"}
+        >
+          <strong>
+            {d.kind === "insurance" ? "Insurance" : "Inspection"} for {d.registration}
+          </strong>{" "}
+          {d.days_left < 0
+            ? `expired ${-d.days_left} day${d.days_left === -1 ? "" : "s"} ago.`
+            : d.days_left === 0
+              ? "expires today."
+              : `expires in ${d.days_left} day${d.days_left === 1 ? "" : "s"}.`}{" "}
+          <Link to="/compliance">Renew and set the new date</Link>
+        </p>
+      ))}
       {n.mode === "owner_driver" && (
         <p className="muted">
           Owner-driver mode: you are also a driver, so you are not asked to approve your own

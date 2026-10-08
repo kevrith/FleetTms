@@ -6,6 +6,7 @@ import {
   Server,
   Radio,
   ShieldAlert,
+  ShieldCheck,
   Trophy,
   Briefcase,
   Building2,
@@ -46,6 +47,12 @@ export const navItems: NavItem[] = [
   { path: "/scorecards", label: "Driver scorecards", icon: Trophy, permission: "reports.view" },
   { path: "/tracking", label: "Trackers & alerts", icon: Radio, permission: "livemap.view" },
   { path: "/vehicles", label: "Vehicles", icon: Truck, permission: "vehicles.view" },
+  {
+    path: "/compliance",
+    label: "Insurance & inspection",
+    icon: ShieldCheck,
+    permission: "vehicles.view",
+  },
   { path: "/trips", label: "Trips", icon: FileText, permission: "trips.view" },
   {
     path: "/clients",

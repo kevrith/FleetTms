@@ -92,28 +92,34 @@ async def test_expiring_list_is_soonest_first_and_includes_expired(client, monke
     assert [r["doc_type"] for r in rows] == ["insurance", "inspection"]
 
 
-async def test_reminders_fire_at_30_14_and_7_days_and_only_once(client):
+async def test_reminders_fire_at_60_30_14_7_and_1_days_and_only_once(client):
     owner = await owner_with_phone(client)
     v = await add_vehicle(client, owner, "KCA 123A")
-    await add_doc(client, owner, v["id"], TODAY + timedelta(days=30))
+    expiry = TODAY + timedelta(days=60)
+    await add_doc(client, owner, v["id"], expiry)
     outbox = get_sms_sender().outbox
+    on = lambda days_out: send_document_reminders(expiry - timedelta(days=days_out))
 
-    assert await send_document_reminders(TODAY - timedelta(days=1)) == 0  # 31 days out: too early
-    assert await send_document_reminders(TODAY) == 1
-    assert "KCA 123A" in outbox[-1][1] and "30 days" in outbox[-1][1]
-    assert await send_document_reminders(TODAY) == 0  # same day again: no repeat
-    assert await send_document_reminders(TODAY + timedelta(days=15)) == 0  # 15 days out: nothing due
-    assert await send_document_reminders(TODAY + timedelta(days=16)) == 1  # 14 days out
-    assert await send_document_reminders(TODAY + timedelta(days=23)) == 1  # 7 days out
-    assert await send_document_reminders(TODAY + timedelta(days=24)) == 0  # 6 days out: already covered
-    assert len(outbox) == 3
+    assert await on(61) == 0  # too early
+    assert await on(60) == 1
+    assert "KCA 123A" in outbox[-1][1] and "60 days" in outbox[-1][1]
+    assert await on(60) == 0  # same day again: no repeat
+    assert await on(45) == 0  # nothing due between reminders
+    assert await on(30) == 1
+    assert await on(15) == 0
+    assert await on(14) == 1
+    assert await on(7) == 1
+    assert await on(6) == 0  # already covered
+    assert await on(1) == 1
+    assert await on(0) == 0  # the last one went the day before
+    assert len(outbox) == 5
 
 
 async def test_missed_days_send_one_message_not_a_burst(client):
     owner = await owner_with_phone(client)
     v = await add_vehicle(client, owner)
     await add_doc(client, owner, v["id"], TODAY + timedelta(days=5))
-    assert await send_document_reminders(TODAY) == 1  # the 30 and 14 day reminders are covered by this one
+    assert await send_document_reminders(TODAY) == 1  # the 60, 30, 14 and 7 day reminders are covered by this one
     assert await send_document_reminders(TODAY + timedelta(days=1)) == 0
 
 

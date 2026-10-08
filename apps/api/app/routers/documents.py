@@ -9,10 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import audit
 from app.db import get_db
 from app.deps import Principal, error, require
-from app.models import ComplianceDocType, ComplianceDocument, Membership
+from app.models import ComplianceDocType, ComplianceDocument, Membership, Vehicle
 from app.reminders import nairobi_today
 from app.routers.vehicles import get_vehicle
-from app.vehicle_scope import vehicle_in_scope
+from app.vehicle_scope import scope_vehicles, vehicle_in_scope
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 FIELDS = ["doc_type", "vehicle_id", "membership_id", "reference", "issued_on", "expires_on"]
@@ -100,6 +100,82 @@ async def list_documents(
         ComplianceDocument.vehicle_id == vehicle_id if vehicle_id else ComplianceDocument.membership_id == membership_id
     )
     return [_out(d) for d in (await db.execute(query)).scalars()]
+
+
+TRACKED = (ComplianceDocType.INSURANCE, ComplianceDocType.INSPECTION)  # what every lorry must have in date
+URGENT_DAYS = 14  # from here the owner's home screen carries a banner, not just a line in the list
+DUE_SOON_DAYS = 60  # early enough to find the money for a renewal; the first reminder goes out at the same point
+_URGENCY = {"expired": 0, "missing": 1, "due_soon": 2, "ok": 3}
+
+
+def _status(expires_on: date | None, today: date) -> str:
+    if expires_on is None:
+        return "missing"
+    left = (expires_on - today).days
+    return "expired" if left < 0 else "due_soon" if left <= DUE_SOON_DAYS else "ok"
+
+
+async def current_documents(db: AsyncSession, vehicle_ids: list[uuid.UUID], kinds: tuple[ComplianceDocType, ...] | None = None) -> dict[tuple[uuid.UUID, ComplianceDocType], ComplianceDocument]:
+    """Each vehicle's current document of each kind: the one that runs longest, so an old one left behind after a renewal is ignored."""
+    if not vehicle_ids:
+        return {}
+    query = select(ComplianceDocument).where(ComplianceDocument.vehicle_id.in_(vehicle_ids))
+    if kinds:
+        query = query.where(ComplianceDocument.doc_type.in_(kinds))
+    current: dict[tuple[uuid.UUID, ComplianceDocType], ComplianceDocument] = {}
+    for d in (await db.execute(query)).scalars():
+        key = (d.vehicle_id, d.doc_type)
+        if key not in current or d.expires_on > current[key].expires_on:
+            current[key] = d
+    return current
+
+
+@router.get("/compliance")
+async def compliance(principal: Principal = Depends(require("vehicles.view")), db: AsyncSession = Depends(get_db)):
+    """Every active vehicle's insurance and inspection in one list, the ones that need a person first: expired, then not recorded at all
+    (which nothing would ever remind about), then due within 60 days. A vehicle's current document of a kind is the one that runs longest."""
+    today = nairobi_today()
+    vehicles = (await db.execute(scope_vehicles(select(Vehicle).where(Vehicle.is_active.is_(True), Vehicle.is_sample.is_(False)), principal).order_by(Vehicle.registration))).scalars().all()
+    current = await current_documents(db, [v.id for v in vehicles], TRACKED)
+
+    def cell(v: Vehicle, kind: ComplianceDocType) -> dict:
+        d = current.get((v.id, kind))
+        return {"id": d.id if d else None, "expires_on": d.expires_on if d else None, "days_left": (d.expires_on - today).days if d else None, "status": _status(d.expires_on if d else None, today)}
+
+    rows = [{"vehicle_id": v.id, "registration": v.registration, "insurance": cell(v, ComplianceDocType.INSURANCE), "inspection": cell(v, ComplianceDocType.INSPECTION)} for v in vehicles]
+    rows.sort(key=lambda r: (min(_URGENCY[r["insurance"]["status"]], _URGENCY[r["inspection"]["status"]]), r["registration"]))
+    return rows
+
+
+class ExpiryIn(BaseModel):
+    expires_on: date
+    reference: str | None = Field(default=None, max_length=80)  # the policy or certificate number
+
+
+@router.put("/vehicle/{vehicle_id}/{doc_type}")
+async def set_expiry(vehicle_id: uuid.UUID, doc_type: ComplianceDocType, body: ExpiryIn, principal: Principal = Depends(require()), db: AsyncSession = Depends(get_db)):
+    """Sets when a vehicle's insurance or inspection runs out: changes the one on record, or makes it if there is none. For the phone,
+    where a renewal is just a new date. The change is in the audit log with the old date."""
+    if doc_type not in TRACKED:
+        raise error(422, "not_tracked", "Only insurance and inspection can be set this way.")
+    _check(principal, vehicle_id, "manage")
+    await get_vehicle(db, principal, vehicle_id)
+    if not (nairobi_today() - timedelta(days=3650) <= body.expires_on <= nairobi_today() + timedelta(days=3650)):
+        raise error(422, "date_out_of_range", "Check the date: it should be within the last or next ten years.")
+    doc = (await db.execute(select(ComplianceDocument).where(ComplianceDocument.vehicle_id == vehicle_id, ComplianceDocument.doc_type == doc_type).order_by(ComplianceDocument.expires_on.desc()).limit(1))).scalar_one_or_none()
+    if doc is None:
+        doc = ComplianceDocument(doc_type=doc_type, vehicle_id=vehicle_id, expires_on=body.expires_on, reference=body.reference)
+        db.add(doc)
+        await db.flush()
+        audit.record(db, actor_user_id=principal.user.id, action="document.created", entity_type="document", entity_id=doc.id, after=audit.snapshot(doc, FIELDS))
+    else:
+        before = audit.snapshot(doc, FIELDS)
+        doc.expires_on = body.expires_on
+        if body.reference is not None:
+            doc.reference = body.reference
+        audit.record(db, actor_user_id=principal.user.id, action="document.updated", entity_type="document", entity_id=doc.id, before=before, after=audit.snapshot(doc, FIELDS))
+    await db.commit()
+    return _out(doc)
 
 
 @router.get("/expiring")

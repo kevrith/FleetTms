@@ -25,6 +25,7 @@ import type {
   PlatformBusinessDetail,
   PlatformBusinessRow,
   MyTripInput,
+  VehicleCompliance,
   PlatformAdmin,
   PlatformSmsInbox,
   PlatformAnalytics,
@@ -1504,6 +1505,25 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
     mySos: () => get<MySos | null>("/me/sos"),
     /** A driver makes their own trip on the vehicle they are assigned to. */
     startMyTrip: (input: MyTripInput) => post<Trip>("/me/trips", input),
+    /** Records what was paid for a delivered trip that has no invoice. */
+    setTripReceived: (id: string, amountCents: number, note?: string | null) =>
+      request<Trip>("PUT", `/trips/${id}/received`, {
+        amount_cents: amountCents,
+        note: note ?? null,
+      }),
+    /** Every active vehicle's insurance and inspection, the ones that need a person first. */
+    vehicleCompliance: () => get<VehicleCompliance[]>("/documents/compliance"),
+    /** Sets when a vehicle's insurance or inspection runs out (a date as 2026-12-31). */
+    setVehicleExpiry: (
+      vehicleId: string,
+      kind: "insurance" | "inspection",
+      expiresOn: string,
+      reference?: string | null,
+    ) =>
+      request<ComplianceDocument>("PUT", `/documents/vehicle/${vehicleId}/${kind}`, {
+        expires_on: expiresOn,
+        reference: reference ?? null,
+      }),
     setPushToken: (token: string) => request<void>("PUT", "/me/push-token", { token }),
     clearPushToken: () => request<void>("DELETE", "/me/push-token"),
     sosLocation: (id: string, input: { lat: number; lng: number; accuracy_m?: number | null }) =>

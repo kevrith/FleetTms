@@ -28,7 +28,7 @@ from app.models import (
     WorkOrderSource,
 )
 from app.photos import claim_photo, photo_out, photos_by_id
-from app.routers.trips import trip_out
+from app.routers.trips import sees_money, trip_out
 from app.tyre_rules import valid_position
 from app.wording import plain_title
 
@@ -157,7 +157,7 @@ async def my_trip_history(
         .order_by(Trip.ended_at.desc().nulls_last(), Trip.created_at.desc())
         .limit(min(max(limit, 1), 100))
     )
-    return [await trip_out(db, t) for t in (await db.execute(query)).scalars()]
+    return [await trip_out(db, t, money=sees_money(principal)) for t in (await db.execute(query)).scalars()]
 
 
 @router.get("/me/pay")

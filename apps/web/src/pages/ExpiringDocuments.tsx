@@ -8,7 +8,7 @@ import { DOC_TYPE } from "../labels";
 import { Card } from "../ui";
 import { ExpiryBadge } from "./DocumentsPanel";
 
-/** Home card: documents that have expired or expire within 30 days. Hidden when there is nothing to show. */
+/** Home card: documents that have expired or expire within 60 days. Hidden when there is nothing to show. */
 export default function ExpiringDocuments() {
   const { can } = useAuth();
   const [docs, setDocs] = useState<ComplianceDocument[]>([]);
@@ -19,7 +19,7 @@ export default function ExpiringDocuments() {
   useEffect(() => {
     if (!allowed) return;
     api
-      .expiringDocuments(30)
+      .expiringDocuments(60)
       .then(setDocs)
       .catch(() => setDocs([]));
     if (can("vehicles.view"))

@@ -611,6 +611,10 @@ class Trip(TenantMixin, Base):
     tracker_points: Mapped[int | None] = mapped_column(Integer)
     distance_detail: Mapped[dict | None] = mapped_column(JSONB)  # the three distances and which one disagrees, if one does
     job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), index=True)
+    # What was paid for a trip that has no invoice (a one-lorry owner who is simply paid cash or M-Pesa): profit counts it as the trip's income.
+    received_cents: Mapped[int | None] = mapped_column(BigInteger)
+    received_note: Mapped[str | None] = mapped_column(String(200))
+    received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     planned_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # when the booking is expected to finish
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

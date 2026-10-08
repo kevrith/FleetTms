@@ -6,6 +6,7 @@ import { api } from "./api";
 import { useAuth } from "./auth";
 import Layout from "./Layout";
 import { navItems } from "./nav";
+import Compliance from "./pages/Compliance";
 import ExpiringDocuments from "./pages/ExpiringDocuments";
 import AcceptInvite from "./pages/AcceptInvite";
 import VerifyEmail from "./pages/VerifyEmail";
@@ -138,6 +139,7 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/vehicles" element={<Vehicles />} />
         <Route path="/vehicles/:id" element={<VehicleDetail />} />
+        <Route path="/compliance" element={<Compliance />} />
         <Route path="/expenses/*" element={<Expenses />} />
         <Route path="/trips" element={<Trips />} />
         <Route path="/workshop/*" element={<Workshop />} />

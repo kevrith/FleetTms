@@ -20,7 +20,6 @@ from app.gps_rules import vehicle_state
 from app.models import (
     COUNTED,
     BillingMethod,
-    ComplianceDocument,
     Defect,
     EtimsSubmission,
     Expense,
@@ -57,6 +56,7 @@ from app.models import (
 from app.payment_reminders import balance_of
 from app.reminders import NAIROBI, nairobi_today
 from app.report_files import report_pdf, report_xlsx
+from app.routers.documents import TRACKED, URGENT_DAYS, current_documents
 from app.routers.workshop import OPEN, schedule_out
 from app.subscriptions import feature_allowed
 from app.trust import flag_summary
@@ -184,6 +184,7 @@ async def dashboard(
 
     alerts: list[dict] = []
     emergencies: list[dict] = []
+    deadlines: list[dict] = []
     if "vehicles.view" in perms:
         for s in (await db.execute(select(ServiceSchedule).where(ServiceSchedule.is_active.is_(True), ServiceSchedule.vehicle_id.in_(vids)))).scalars():
             row = schedule_out(s, vehicles[s.vehicle_id], today)
@@ -197,9 +198,15 @@ async def dashboard(
         blocked = (await db.execute(select(Inspection).where(Inspection.local_date == today, Inspection.status == InspectionStatus.BLOCKED, Inspection.vehicle_id.in_(vids)))).scalars()
         for i in blocked:
             alerts.append(alert("inspection_blocked", "red", f"{vehicles[i.vehicle_id].registration}: critical fault found today", "The vehicle cannot start a trip until a manager clears it.", f"/vehicles/{i.vehicle_id}"))
-        for d in (await db.execute(select(ComplianceDocument).where(ComplianceDocument.vehicle_id.in_(vids), ComplianceDocument.expires_on <= today + timedelta(days=30)).order_by(ComplianceDocument.expires_on))).scalars():
+        latest = await current_documents(db, list(vids))
+        for d in sorted((d for d in latest.values() if d.expires_on <= today + timedelta(days=60)), key=lambda d: d.expires_on):
             gone = d.expires_on < today
             alerts.append(alert("document_expired" if gone else "document_expiring", "red" if gone else "amber", f"{vehicles[d.vehicle_id].registration}: {d.doc_type.value.replace('_', ' ')} {'expired' if gone else 'expires'} {days_phrase(d.expires_on, today)}", f"Dated {d.expires_on.strftime('%d %b %Y')}.", f"/vehicles/{d.vehicle_id}"))
+            if d.doc_type in TRACKED and (d.expires_on - today).days <= URGENT_DAYS:
+                deadlines.append({"id": d.id, "vehicle_id": d.vehicle_id, "registration": vehicles[d.vehicle_id].registration, "kind": d.doc_type.value, "expires_on": d.expires_on, "days_left": (d.expires_on - today).days, "level": "expired" if gone else "urgent"})
+        unrecorded = [v for v in vehicles.values() if not v.is_sample and v.is_active and any((v.id, k) not in latest for k in TRACKED)]
+        if unrecorded and "vehicles.manage" in perms:
+            alerts.append(alert("documents_missing", "amber", f"{len(unrecorded)} vehicle{'s' if len(unrecorded) != 1 else ''} with no insurance or inspection date", "You will not be reminded about these until the dates are added.", "/compliance"))
         for vid, flags in (await flag_summary(db, vids)).items():
             alerts.append(alert("low_trust", "amber", f"{vehicles[vid].registration}: phone check failed", ", ".join(sorted(flags)).replace("_", " "), f"/vehicles/{vid}"))
         week = start - timedelta(days=6)
@@ -304,7 +311,8 @@ async def dashboard(
         fleet = await fleet_counts(db, vehicles)
     # Nobody has answered comes first, an SOS before a breakdown, and the one waiting longest first among equals.
     emergencies.sort(key=lambda e: (e["answered"], e["kind"] != "sos", e["since"]))
-    return {"numbers": numbers, "alerts": alerts, "emergencies": emergencies, "fleet": fleet, "open_defects": open_defects, "profit_vs_cash": money, "profit_last_month": last_month}
+    deadlines.sort(key=lambda d: (d["days_left"], d["registration"]))
+    return {"numbers": numbers, "alerts": alerts, "emergencies": emergencies, "deadlines": deadlines, "fleet": fleet, "open_defects": open_defects, "profit_vs_cash": money, "profit_last_month": last_month}
 
 
 async def build_summary(db: AsyncSession, date_from: date, date_to: date) -> dict:

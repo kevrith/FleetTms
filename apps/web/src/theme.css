@@ -354,6 +354,10 @@ input[type="checkbox"] {
   background: color-mix(in srgb, var(--alert) 15%, transparent);
   color: var(--alert);
 }
+.banner.warn {
+  background: color-mix(in srgb, #d97706 18%, transparent);
+  color: var(--text);
+}
 .banner.ok {
   background: color-mix(in srgb, var(--ok) 15%, transparent);
   color: var(--text);

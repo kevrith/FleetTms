@@ -380,6 +380,10 @@ export interface TripJob {
 }
 
 export interface Trip {
+  /** What was paid for the trip when there is no invoice. Only for people who deal with money. */
+  received_cents?: number | null;
+  received_note?: string | null;
+  received_at?: string | null;
   gps_distance_km?: number | null;
   distance_check?: "ok" | "mismatch" | "no_gps" | null;
   tracker_distance_km?: number | null;
@@ -720,11 +724,42 @@ export interface DashboardAlert {
 }
 
 /** Someone in trouble right now. */
+export type ComplianceStatus = "ok" | "due_soon" | "expired" | "missing";
+
+/** A vehicle's current insurance or inspection: the one that runs longest, or "missing" when none was ever recorded. */
+export interface ComplianceCell {
+  id: string | null;
+  expires_on: string | null;
+  days_left: number | null;
+  status: ComplianceStatus;
+}
+
+export interface VehicleCompliance {
+  vehicle_id: string;
+  registration: string;
+  insurance: ComplianceCell;
+  inspection: ComplianceCell;
+}
+
 /** A trip a driver makes for themselves on the vehicle they are assigned to. */
 export interface MyTripInput {
   origin: string;
   destination: string;
   cargo_description?: string | null;
+  /** Who pays and what the trip pays (whole cents), for the owner or a manager. A small job is made behind the scenes. */
+  client_name?: string | null;
+  price_cents?: number | null;
+}
+
+/** An insurance or inspection that runs out within 14 days, or already has: shown as a banner at the top of the owner's home. */
+export interface DashboardDeadline {
+  id: string;
+  vehicle_id: string;
+  registration: string;
+  kind: "insurance" | "inspection";
+  expires_on: string;
+  days_left: number;
+  level: "urgent" | "expired";
 }
 
 export interface DashboardEmergency {
@@ -765,6 +800,7 @@ export interface Dashboard {
   };
   alerts: DashboardAlert[];
   emergencies: DashboardEmergency[];
+  deadlines?: DashboardDeadline[];
   /** Only for those who may see the live map and whose plan includes it. */
   fleet: DashboardFleet | null;
   open_defects: number | null;

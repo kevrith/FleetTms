@@ -1,13 +1,15 @@
 import {
+  formatKes,
   isBelowMinimum,
   minimumReading,
   nairobiDay,
   odometerProblem,
   parseOdometer,
 } from "@fleettms/business-rules";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { api } from "../api";
+import { useAuth } from "../auth";
 import { CaptureScreen } from "../capture";
 import type { LocalPhoto } from "../offline/types";
 import { useOffline } from "../offline/runtime";
@@ -45,10 +47,17 @@ const formatWhen = (iso: string) =>
  * needs a connection (the trip is made on the server); the usual steps follow, starting with the inspection.
  */
 function NewTrip({ onMade }: { onMade: () => Promise<unknown> }) {
+  const { me } = useAuth();
+  // Only the owner or a manager says what a trip pays; for a hired driver the fields are not offered.
+  const canPrice = me?.permissions.includes("jobs.manage") ?? false;
   const [open, setOpen] = useState(false);
   const [origin, setOrigin] = useState("");
   const [destination, setDestination] = useState("");
   const [cargo, setCargo] = useState("");
+  const [client, setClient] = useState("");
+  const [price, setPrice] = useState("");
+  const priceCents = Math.round(Number(price) * 100);
+  const halfPriced = canPrice && client.trim().length > 0 !== price.trim().length > 0;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -60,6 +69,9 @@ function NewTrip({ onMade }: { onMade: () => Promise<unknown> }) {
         origin: origin.trim(),
         destination: destination.trim(),
         cargo_description: cargo.trim() || null,
+        ...(canPrice && client.trim() && priceCents > 0
+          ? { client_name: client.trim(), price_cents: priceCents }
+          : {}),
       });
       await onMade();
     } catch (e) {
@@ -80,21 +92,107 @@ function NewTrip({ onMade }: { onMade: () => Promise<unknown> }) {
         onChangeText={setCargo}
         placeholder="Cement, 400 bags"
       />
+      {canPrice && (
+        <>
+          <Input
+            label="Who is paying? (optional)"
+            value={client}
+            onChangeText={setClient}
+            placeholder="Bamburi Cement"
+          />
+          <Input
+            label="What the trip pays, in KES (optional)"
+            value={price}
+            onChangeText={setPrice}
+            keyboardType="decimal-pad"
+            placeholder="12000"
+          />
+          {halfPriced && (
+            <Body muted>Fill in both who is paying and what it pays, or neither.</Body>
+          )}
+        </>
+      )}
       <Body muted>Needs an internet connection.</Body>
       <ErrorText message={error} />
       <Button
         label="Make the trip"
         onPress={make}
         busy={busy}
-        disabled={origin.trim().length < 2 || destination.trim().length < 2}
+        disabled={
+          origin.trim().length < 2 ||
+          destination.trim().length < 2 ||
+          halfPriced ||
+          (canPrice && price.trim().length > 0 && !(priceCents > 0))
+        }
       />
       <Button label="Cancel" kind="secondary" onPress={() => setOpen(false)} disabled={busy} />
     </View>
   );
 }
 
+/**
+ * For the owner who drives: once the load is delivered, say what was paid (cash or M-Pesa), so profit has this trip's income without an
+ * invoice. A hired driver never sees this. It needs a connection.
+ */
+function ReceivedCard({ tripId }: { tripId: string }) {
+  const t = useTheme();
+  const [amount, setAmount] = useState("");
+  const [saved, setSaved] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .trip(tripId)
+      .then((trip) => {
+        if (trip.received_cents != null) {
+          setSaved(trip.received_cents);
+          setAmount(String(trip.received_cents / 100));
+        }
+      })
+      .catch(() => undefined);
+  }, [tripId]);
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    try {
+      const cents = Math.round(Number(amount) * 100);
+      await api.setTripReceived(tripId, cents);
+      setSaved(cents);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const cents = Math.round(Number(amount) * 100);
+  return (
+    <View style={{ padding: 16, borderRadius: 12, backgroundColor: t.surface, gap: 8 }}>
+      <Body muted>How much were you paid for this trip?</Body>
+      <Input
+        label="Amount received (KES)"
+        value={amount}
+        onChangeText={setAmount}
+        keyboardType="decimal-pad"
+        placeholder="12000"
+      />
+      {saved !== null && <Body muted>Recorded: {formatKes(saved)}</Body>}
+      <ErrorText message={error} />
+      <Button
+        label={saved === null ? "Save what I was paid" : "Update"}
+        onPress={save}
+        busy={busy}
+        disabled={amount.trim() === "" || !(cents >= 0)}
+      />
+    </View>
+  );
+}
+
 export default function TripPanel() {
   const t = useTheme();
+  const { me } = useAuth();
   const offline = useOffline();
   const { trip, vehicle, inspection } = offline.state.cache;
   const [mode, setMode] = useState<Mode>({ kind: "idle" });
@@ -328,7 +426,10 @@ export default function TripPanel() {
         </>
       )}
       {trip.status === "delivered" && (
-        <Button label="End trip" onPress={() => setMode({ kind: "odometer", phase: "end" })} />
+        <>
+          {me?.roles.includes("owner") && <ReceivedCard tripId={trip.id} />}
+          <Button label="End trip" onPress={() => setMode({ kind: "odometer", phase: "end" })} />
+        </>
       )}
     </View>
   );

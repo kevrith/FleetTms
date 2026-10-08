@@ -74,7 +74,12 @@ async def test_attention_list_shows_what_needs_doing_with_red_before_amber(clien
 async def test_a_quiet_business_has_no_alerts(client):
     f = await fleet(client)
     d = await dash(client, f.owner)
-    assert d["alerts"] == [] and d["open_defects"] == 0
+    assert [a["kind"] for a in d["alerts"]] == ["documents_missing"]  # the one nudge: no insurance or inspection date on record
+    for kind in ("insurance", "inspection"):
+        res = await client.put(f"/documents/vehicle/{f.vehicle['id']}/{kind}", headers=bearer(f.owner), json={"expires_on": (nairobi_today() + timedelta(days=300)).isoformat()})
+        assert res.status_code == 200, res.text
+    d = await dash(client, f.owner)
+    assert d["alerts"] == [] and d["deadlines"] == [] and d["open_defects"] == 0
 
 
 async def test_an_owner_sees_who_is_in_trouble_first_with_a_way_to_call(client):

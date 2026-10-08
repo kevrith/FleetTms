@@ -77,7 +77,8 @@ def _chunks(ids, size: int = 5000):
 
 
 async def trip_revenue(db: AsyncSession, trips: list[Trip]) -> tuple[dict[uuid.UUID, int], set[uuid.UUID], set[uuid.UUID]]:
-    """What each delivered trip earned (before VAT): its invoice, or its share of the month's contract fee. Returns
+    """What each delivered trip earned (before VAT): its invoice, or its share of the month's contract fee, or, with neither, what was
+    recorded as received. Returns
     (revenue, trips whose revenue is an estimate, trips with no revenue yet)."""
     if not trips:
         return {}, set(), set()
@@ -100,6 +101,8 @@ async def trip_revenue(db: AsyncSession, trips: list[Trip]) -> tuple[dict[uuid.U
             contract[(job.id, month_of(t.delivered_at or t.ended_at))].append(t)
         elif t.id in by_trip:
             revenue[t.id] = by_trip[t.id].subtotal_cents
+        elif t.received_cents is not None:
+            revenue[t.id] = t.received_cents  # no invoice: what the owner says was paid (a cash or M-Pesa job with no client on file)
     for (job_id, month), group in contract.items():
         invoice = next((i for i in invoices if i.job_id == job_id and i.kind == "contract" and i.period_start == month), None)
         fee = invoice.subtotal_cents if invoice is not None else jobs[job_id].rate_cents

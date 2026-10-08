@@ -1,11 +1,17 @@
 import { Ionicons } from "@expo/vector-icons";
 import { colors, tapTarget } from "@fleettms/design-tokens";
-import type { Dashboard, DashboardAlert, DashboardEmergency } from "@fleettms/types";
+import type {
+  Dashboard,
+  DashboardAlert,
+  DashboardDeadline,
+  DashboardEmergency,
+} from "@fleettms/types";
 import { useNavigation, type NavigationProp, type ParamListBase } from "@react-navigation/native";
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Linking, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { api } from "../api";
 import { useAuth } from "../auth";
+import { daysPhrase } from "../dates";
 import { registerForPush } from "../push";
 import { ago, fleetLine, kesShort, tabForLink, tripsLine, visibleAlerts } from "../dashboard";
 import { Body, Title, useTheme } from "../ui";
@@ -95,6 +101,40 @@ function EmergencyBanner({
             : null}
           {action("checkmark-circle", "Resolved", resolve)}
         </View>
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * An insurance or inspection that is close to running out or already has. Amber within 14 days, red once expired. Not an alarm like an
+ * SOS (that must stay rare); it cannot be scrolled past, and the button goes to where the new date is set.
+ */
+function DeadlineBanner({ d, onRenew }: { d: DashboardDeadline; onRenew: (() => void) | null }) {
+  const expired = d.level === "expired";
+  const colour = expired ? colors.alert : "#b45309";
+  return (
+    <View style={{ padding: 14, borderRadius: 12, backgroundColor: colour, gap: 6 }}>
+      <Text style={{ color: "#fff", fontSize: 18, fontWeight: "800" }}>
+        {d.kind === "insurance" ? "Insurance" : "Inspection"}: {d.registration}
+      </Text>
+      <Text style={{ color: "#fff", fontSize: 16 }}>
+        {daysPhrase(d.days_left)} ({d.expires_on})
+      </Text>
+      {onRenew ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={onRenew}
+          style={{
+            minHeight: tapTarget,
+            borderRadius: 10,
+            backgroundColor: "#fff",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Text style={{ color: colour, fontSize: 18, fontWeight: "700" }}>Set the new date</Text>
+        </Pressable>
       ) : null}
     </View>
   );
@@ -298,6 +338,10 @@ export default function OwnerHome() {
 
       {(data?.emergencies ?? []).map((e) => (
         <EmergencyBanner key={`${e.kind}-${e.id}`} e={e} now={now} onChanged={() => void load()} />
+      ))}
+
+      {(data?.deadlines ?? []).map((d) => (
+        <DeadlineBanner key={d.id} d={d} onRenew={goto("Vehicles")} />
       ))}
 
       {tiles.length > 0 && (

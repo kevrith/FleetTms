@@ -1,9 +1,9 @@
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import audit, fraud, odometer_reader, ratelimit, tracking
@@ -106,7 +106,7 @@ def require_actor(principal: Principal, trip: Trip) -> None:
         raise error(status.HTTP_403_FORBIDDEN, "not_your_trip", "This is not your trip.")
 
 
-async def trip_out(db: AsyncSession, trip: Trip) -> dict:
+async def trip_out(db: AsyncSession, trip: Trip, *, money: bool = False) -> dict:
     readings = (await db.execute(select(OdometerReading).where(OdometerReading.trip_id == trip.id))).scalars().all()
     photo_ids = [r.photo_id for r in readings] + ([trip.cargo_photo_id] if trip.cargo_photo_id else [])
     photos = (
@@ -152,6 +152,7 @@ async def trip_out(db: AsyncSession, trip: Trip) -> dict:
                 "billing_method": j.billing_method.value,
             }  # fmt: skip
     return {
+        **({"received_cents": trip.received_cents, "received_note": trip.received_note, "received_at": trip.received_at} if money else {}),
         "job": job,
         "pod": pod_out,
         "overload_kg": trip.overload_kg,
@@ -250,6 +251,9 @@ class MyTripIn(BaseModel):
     origin: str = Field(min_length=2, max_length=160)
     destination: str = Field(min_length=2, max_length=160)
     cargo_description: str | None = Field(default=None, max_length=255)
+    # What the trip pays and who pays it. Only the owner or a manager may say (a hired driver naming a price would be naming the trip's income).
+    client_name: str | None = Field(default=None, min_length=2, max_length=160)
+    price_cents: int | None = Field(default=None, ge=1, le=10_000_000_000)
 
 
 @router.post("/me/trips", status_code=status.HTTP_201_CREATED)
@@ -275,12 +279,42 @@ async def start_my_trip(body: MyTripIn, principal: Principal = Depends(require("
     ).first()
     if busy is not None:
         raise error(status.HTTP_409_CONFLICT, "already_has_trip", "You already have a trip. Finish or cancel it before making another.")
+    priced = body.client_name is not None or body.price_cents is not None
+    if priced and (body.client_name is None or body.price_cents is None):
+        raise error(422, "client_and_price", "Give both who is paying and what the trip pays, or neither.")
+    if priced and "jobs.manage" not in principal.permissions:
+        raise error(status.HTTP_403_FORBIDDEN, "forbidden", "Only the owner or a manager can say what a trip pays.")
+    job_id = None
+    if priced:
+        job_id = (await _job_for_trip(db, principal, body)).id  # a small job behind the scenes, so invoicing and profit work as for any other
     trip = await do_create_trip(
         db, principal,
         TripIn(vehicle_id=mine.vehicle_id, driver_membership_id=principal.membership_id, origin=body.origin.strip(), destination=body.destination.strip(), cargo_description=body.cargo_description),
+        job_id=job_id,
     )  # fmt: skip
     await db.commit()
-    return await trip_out(db, trip)
+    return await trip_out(db, trip, money=sees_money(principal))
+
+
+async def _job_for_trip(db: AsyncSession, principal: Principal, body: MyTripIn) -> Job:
+    """The client (found by name, else made) and a one-trip job at the price given, charged per trip. Nothing is committed: if the trip
+    cannot be made after all, none of this is kept."""
+    from app.models import BillingMethod, Client
+    from app.numbering import create_numbered
+
+    name = (body.client_name or "").strip()
+    client = (await db.execute(select(Client).where(func.lower(Client.name) == name.lower()))).scalars().first()
+    if client is None:
+        client = Client(name=name, billing_method=BillingMethod.PER_TRIP, rate_cents=body.price_cents)
+        db.add(client)
+        await db.flush()
+        audit.record(db, actor_user_id=principal.user.id, action="client.added", entity_type="client", entity_id=client.id, after={"name": client.name}, note="Made with a trip from the phone")
+    job = await create_numbered(
+        db, Job, "J", client_id=client.id, cargo_description=body.cargo_description, trips_planned=1, billing_method=BillingMethod.PER_TRIP,
+        rate_cents=body.price_cents, price_cents=body.price_cents, created_by_user_id=principal.user.id,
+    )  # fmt: skip
+    audit.record(db, actor_user_id=principal.user.id, action="job.created", entity_type="job", entity_id=job.id, after={"number": job.number}, note="Made with a trip from the phone")
+    return job
 
 
 @router.get("/trips")
@@ -325,7 +359,38 @@ async def my_trips(principal: Principal = Depends(require("trips.own")), db: Asy
 async def read_trip(
     trip_id: uuid.UUID, principal: Principal = Depends(require_any("trips.view", "trips.own")), db: AsyncSession = Depends(get_db)
 ):
-    return await trip_out(db, await get_trip(db, principal, trip_id))
+    return await trip_out(db, await get_trip(db, principal, trip_id), money=sees_money(principal))
+
+
+def sees_money(principal: Principal) -> bool:
+    """Whoever deals with money (the owner, a manager, the accountant) sees what a trip was paid. A hired driver does not."""
+    return bool({"trips.manage", "finance.view", "invoices.manage"} & principal.permissions)
+
+
+class ReceivedIn(BaseModel):
+    amount_cents: int = Field(ge=0, le=10_000_000_000)
+    note: str | None = Field(default=None, max_length=200)  # "cash on delivery", "M-Pesa from the buyer"
+
+
+@router.put("/trips/{trip_id}/received")
+async def set_received(trip_id: uuid.UUID, body: ReceivedIn, principal: Principal = Depends(require_any("trips.manage", "trips.own")), db: AsyncSession = Depends(get_db)):
+    """Records what was paid for a trip, for the owner who is paid cash or M-Pesa with no invoice: profit counts it as the trip's income.
+    The office (owner, manager) may do it for any trip; an owner who drives may do it for their own. A hired driver may not, because the
+    figure is the trip's income. An invoice, when there is one, takes the place of this."""
+    trip = await get_trip(db, principal, trip_id)
+    own_trip_of_owner = Role.OWNER in principal.roles and trip.driver_membership_id == principal.membership_id
+    if "trips.manage" not in principal.permissions and not own_trip_of_owner:
+        raise error(status.HTTP_403_FORBIDDEN, "forbidden", "Only the owner or a manager can record what a trip was paid.")
+    if trip.status not in (TripStatus.DELIVERED, TripStatus.COMPLETED):
+        raise error(status.HTTP_409_CONFLICT, "not_delivered", "Record what was paid once the trip has been delivered.")
+    before = {"received_cents": trip.received_cents, "received_note": trip.received_note}
+    trip.received_cents, trip.received_note, trip.received_at = body.amount_cents, (body.note or "").strip() or None, datetime.now(UTC)
+    audit.record(
+        db, actor_user_id=principal.user.id, action="trip.received_set", entity_type="trip", entity_id=trip.id,
+        before=before, after={"received_cents": trip.received_cents, "received_note": trip.received_note},
+    )  # fmt: skip
+    await db.commit()
+    return await trip_out(db, trip, money=True)
 
 
 class SuggestIn(BaseModel):
