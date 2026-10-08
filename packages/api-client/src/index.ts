@@ -25,6 +25,7 @@ import type {
   PlatformBusinessDetail,
   PlatformBusinessRow,
   PlatformAdmin,
+  PlatformSmsInbox,
   PlatformAnalytics,
   PlatformAttentionItem,
   PlatformAuditPage,
@@ -1462,6 +1463,7 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
     platformEditNote: (noteId: string, body: { body?: string; pinned?: boolean }) =>
       request<PlatformNote>("PUT", `/platform/notes/${noteId}`, body),
     platformDeleteNote: (noteId: string) => request<void>("DELETE", `/platform/notes/${noteId}`),
+    platformSmsInbox: () => get<PlatformSmsInbox>("/platform/sms-inbox"),
     platformAdmins: () => get<PlatformAdmin[]>("/platform/admins"),
     platformAddAdmin: (email: string) => post<PlatformAdmin>("/platform/admins", { email }),
     platformRemoveAdmin: (userId: string) => request<void>("DELETE", `/platform/admins/${userId}`),

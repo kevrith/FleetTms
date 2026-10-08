@@ -2,6 +2,8 @@
 
 import asyncio
 import logging
+from collections import deque
+from datetime import UTC, datetime
 from typing import Protocol
 
 import httpx
@@ -16,14 +18,22 @@ class SmsSender(Protocol):
     async def send(self, phone: str, message: str) -> None: ...
 
 
+CODE_PREFIX = "Your FleetTms code"  # how every one-time sign-in and verification code begins
+
+
 class FakeSmsSender:
     """Keeps messages in memory so tests and local development can read the code."""
 
     def __init__(self) -> None:
         self.outbox: list[tuple[str, str]] = []
+        # One-time codes only (never a business's alerts or messages), newest last, for the super admin's testing inbox in the platform
+        # console while no real gateway is set up. Held in memory: a restart clears it.
+        self.inbox: deque[dict] = deque(maxlen=50)
 
     async def send(self, phone: str, message: str) -> None:
         self.outbox.append((phone, message))
+        if message.startswith(CODE_PREFIX):
+            self.inbox.append({"to": phone, "message": message, "at": datetime.now(UTC)})
         log.info("Fake SMS sent to %s", mask_phone(phone))
         if settings.environment == "development":
             # Local development only: lets you read the one-time code without a real SMS gateway.

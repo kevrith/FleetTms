@@ -11,6 +11,7 @@ import Invoices from "../platform/Invoices";
 import KraInvoices from "../platform/KraInvoices";
 import PlatformShell from "../platform/PlatformShell";
 import Renewals from "../platform/Renewals";
+import SmsInbox from "../platform/SmsInbox";
 import System from "../platform/System";
 import Breaches from "./Breaches";
 import Partners from "./Partners";
@@ -32,6 +33,7 @@ export default function Platform() {
         <Route path="partners" element={<Partners />} />
         <Route path="kra" element={<KraInvoices />} />
         <Route path="system" element={<System />} />
+        <Route path="sms" element={<SmsInbox />} />
         <Route path="feedback" element={<Feedback />} />
         <Route path="usage" element={<UsageReport />} />
         <Route path="breaches" element={<Breaches />} />

@@ -692,6 +692,28 @@ class AdminIn(BaseModel):
     email: str = Field(min_length=3, max_length=320)
 
 
+SMS_INBOX_MINUTES = 30
+
+
+@router.get("/platform/sms-inbox")
+async def sms_inbox(principal: Principal = Depends(platform_super), db: AsyncSession = Depends(get_db)):
+    """The one-time codes the stand-in text sender has "sent" in the last half hour, for testing before a real SMS gateway is set up (a
+    super admin only). A code lets whoever reads it sign in as that person, so this exists only while the stand-in is the sender: once a
+    gateway is configured, or in production, it is empty and says so. It holds sign-in codes only, never a business's own messages, and
+    every look that shows a code is written to the platform's action log."""
+    from app.sms import FakeSmsSender, get_sms_sender
+
+    inner = getattr(get_sms_sender(), "inner", get_sms_sender())
+    if not isinstance(inner, FakeSmsSender) or settings.environment == "production":
+        return {"active": False, "minutes": SMS_INBOX_MINUTES, "messages": []}
+    cutoff = datetime.now(UTC) - timedelta(minutes=SMS_INBOX_MINUTES)
+    messages = [m for m in reversed(inner.inbox) if m["at"] >= cutoff]
+    if messages:
+        log_action(db, principal, "sms_inbox.viewed", "sms_inbox", detail={"codes_shown": len(messages)})
+        await db.commit()
+    return {"active": True, "minutes": SMS_INBOX_MINUTES, "messages": messages}
+
+
 def _admin_out(u: User) -> dict:
     return {"id": u.id, "name": u.name, "email": u.email, "phone": u.phone, "active": u.is_active, "super": u.is_platform_super, "created_at": u.created_at}
 

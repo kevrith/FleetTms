@@ -6,6 +6,7 @@ import {
   Gauge,
   Handshake,
   History,
+  Inbox,
   LayoutDashboard,
   LogOut,
   MessageSquareText,
@@ -42,6 +43,7 @@ const GROUPS: {
     title: "Operations",
     items: [
       { to: "/platform/system", label: "System status", icon: Gauge },
+      { to: "/platform/sms", label: "Text codes (testing)", icon: Inbox },
       { to: "/platform/kra", label: "KRA invoices", icon: FileText, badge: "kra" },
       { to: "/platform/feedback", label: "Feedback", icon: MessageSquareText, badge: "feedback" },
       { to: "/platform/usage", label: "Product usage", icon: Activity },

@@ -2844,6 +2844,14 @@ export interface PlatformNote {
   updated_at: string;
 }
 
+/** The one-time codes the stand-in text sender has "sent" lately, for a super admin to read while no real SMS gateway is set up. */
+export interface PlatformSmsInbox {
+  /** False once a real gateway sends the texts, or in production: there is nothing to read then. */
+  active: boolean;
+  minutes: number;
+  messages: { to: string; message: string; at: string }[];
+}
+
 export interface PlatformAdmin {
   id: string;
   name: string;
