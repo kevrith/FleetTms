@@ -20,6 +20,7 @@ import TripPanel from "./screens/TripPanel";
 import { PartsScreen, WorkOrdersScreen } from "./screens/Workshop";
 import TwoFactorScreen from "./screens/TwoFactor";
 import VehiclesScreen from "./screens/Vehicles";
+import { AttentionList, SyncBadge } from "./screens/SyncStatus";
 import { UpdateRequired } from "./updates/UpdateRequired";
 import { useAppUpdate } from "./updates/provider";
 
@@ -39,6 +40,8 @@ const Trips = () => (
       contentContainerStyle={{ gap: 16, paddingVertical: 16 }}
       keyboardShouldPersistTaps="handled"
     >
+      <SyncBadge />
+      <AttentionList />
       <TripPanel />
     </ScrollView>
   </Screen>

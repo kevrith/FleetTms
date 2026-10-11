@@ -1,7 +1,10 @@
+import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { colors } from "@fleettms/design-tokens";
+import { api } from "../api";
+import { explainRejection, tripIdOf } from "../offline/explain";
 import { useOffline } from "../offline/runtime";
-import type { ActionType } from "../offline/types";
+import type { ActionType, QueueItem } from "../offline/types";
 import { Body, Button, useTheme } from "../ui";
 
 const TYPE_LABEL: Record<ActionType, string> = {
@@ -26,7 +29,8 @@ export function SyncBadge() {
   let text = "All synced";
   let color: string = colors.ok;
   if (attention.length > 0) {
-    text = `${attention.length} need${attention.length === 1 ? "s" : ""} attention`;
+    const what = [...new Set(attention.map((i) => TYPE_LABEL[i.type]))].join(", ");
+    text = `${attention.length} need${attention.length === 1 ? "s" : ""} attention: ${what}`;
     color = colors.alert;
   } else if (!online) {
     text = pending > 0 ? `Offline. ${pending} waiting to send` : "Offline";
@@ -48,33 +52,64 @@ export function SyncBadge() {
   );
 }
 
-/** Records the office could not accept, with the reason and the choice to try again or drop them. */
+/** What the office shows for a trip, found out while the phone has a network (it asks only for items refused for being at the wrong step). */
+function useServerTripStatus(attention: QueueItem[]): Record<string, string> {
+  const [states, setStates] = useState<Record<string, string>>({});
+  const wanted = attention
+    .filter((i) => i.code === "wrong_status")
+    .map((i) => tripIdOf(i.payload))
+    .filter((id): id is string => id !== null);
+  const key = [...new Set(wanted)].join(",");
+  useEffect(() => {
+    for (const id of key ? key.split(",") : []) {
+      api
+        .trip(id)
+        .then((trip) => setStates((s) => ({ ...s, [id]: trip.status })))
+        .catch(() => undefined); // offline: the explanation just says less
+    }
+  }, [key]);
+  return states;
+}
+
+/** Records the office could not accept, with what happened, what to do, and the choice to try again or drop them. */
 export function AttentionList() {
   const t = useTheme();
-  const { attention, retry, discard } = useOffline();
+  const { attention, retry, discard, state } = useOffline();
+  const states = useServerTripStatus(attention);
   if (attention.length === 0) return null;
+  const mine = state.cache.trip;
   return (
     <View style={{ gap: 8 }}>
       <Body>These could not be sent:</Body>
-      {attention.map((item) => (
-        <View
-          key={item.id}
-          style={{ padding: 12, borderRadius: 12, backgroundColor: t.surface, gap: 6 }}
-        >
-          <Text style={{ color: t.text, fontSize: 17, fontWeight: "600" }}>
-            {TYPE_LABEL[item.type]}
-          </Text>
-          <Body muted>{item.message ?? "The office could not accept this."}</Body>
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            <View style={{ flex: 1 }}>
-              <Button label="Try again" kind="secondary" onPress={() => void retry(item.id)} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Button label="Delete" kind="danger" onPress={() => void discard(item.id)} />
+      {attention.map((item) => {
+        const tripId = tripIdOf(item.payload);
+        const e = explainRejection(item, tripId ? (states[tripId] ?? null) : null);
+        const where =
+          tripId && mine?.id === tripId && (mine.origin || mine.destination)
+            ? `${mine.origin ?? "?"} to ${mine.destination ?? "?"}`
+            : null;
+        return (
+          <View
+            key={item.id}
+            style={{ padding: 12, borderRadius: 12, backgroundColor: t.surface, gap: 6 }}
+          >
+            <Text style={{ color: t.text, fontSize: 17, fontWeight: "600" }}>
+              {TYPE_LABEL[item.type]}
+              {where ? ` (${where})` : ""}
+            </Text>
+            <Body>{e.why}</Body>
+            <Body muted>{e.hint}</Body>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <View style={{ flex: 1 }}>
+                <Button label="Try again" kind="secondary" onPress={() => void retry(item.id)} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Button label="Delete" kind="danger" onPress={() => void discard(item.id)} />
+              </View>
             </View>
           </View>
-        </View>
-      ))}
+        );
+      })}
     </View>
   );
 }

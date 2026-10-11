@@ -579,6 +579,16 @@ async def do_mark_delivered(db: AsyncSession, principal: Principal, trip_id: uui
     at = capture_time(body.captured_at)
     trip = await get_trip(db, principal, trip_id)
     require_actor(principal, trip)
+    if trip.status in (TripStatus.DELIVERED, TripStatus.COMPLETED):
+        # Already delivered (by this phone's earlier try that lost its reply, or by the office): there is nothing left to do, so this is not an
+        # error to leave on a driver's phone. Proof of delivery that was never attached is still taken.
+        has_pod = (await db.execute(select(ProofOfDelivery.id).where(ProofOfDelivery.trip_id == trip.id))).first() is not None
+        if body.pod is None or has_pod:
+            return trip
+        await confirm_pod(db, principal, trip, body.pod, at)
+        await invoice_for_trip(db, trip, principal.user.id)
+        await sync_job(db, trip.job_id)
+        return trip
     if trip.status != TripStatus.IN_PROGRESS:
         raise error(status.HTTP_409_CONFLICT, "wrong_status", "Only a trip in progress can be delivered.")
     _not_before_start(trip, at)

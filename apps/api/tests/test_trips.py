@@ -262,3 +262,19 @@ async def test_absurd_odometer_values_are_rejected(client, value):
     trip = await ready_trip(client, f)
     res = await start(client, f.driver, trip["id"], value=value)
     assert res.status_code == 422
+
+
+async def test_delivering_a_trip_that_is_already_delivered_or_ended_is_not_an_error(client):
+    f = await fleet(client)
+    trip = await ready_trip(client, f)
+    tid = trip["id"]
+    assert (await start(client, f.driver, tid)).status_code == 200
+    first = await client.post(f"/trips/{tid}/deliver", headers=bearer(f.driver))
+    assert first.status_code == 200 and first.json()["status"] == "delivered"
+    again = await client.post(f"/trips/{tid}/deliver", headers=bearer(f.driver))  # a resend after a lost reply, or the office got there first
+    assert again.status_code == 200 and again.json()["status"] == "delivered"
+    assert again.json()["delivered_at"] == first.json()["delivered_at"]  # the first delivery stands
+    ended = await client.post(f"/trips/{tid}/end", headers=bearer(f.driver), json={"photo_id": await photo_id(client, f.driver, "odometer"), "value": 125500})
+    assert ended.status_code == 200
+    after = await client.post(f"/trips/{tid}/deliver", headers=bearer(f.driver))
+    assert after.status_code == 200 and after.json()["status"] == "completed"  # still not pushed back to delivered

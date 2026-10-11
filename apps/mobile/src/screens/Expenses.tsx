@@ -7,7 +7,7 @@ import { CaptureScreen } from "../capture";
 import type { LocalPhoto } from "../offline/types";
 import { useOffline } from "../offline/runtime";
 import { Body, Button, ErrorText, errorMessage, Input, Title, useTheme } from "../ui";
-import { SyncBadge } from "./SyncStatus";
+import { AttentionList, SyncBadge } from "./SyncStatus";
 
 const CATEGORIES: { key: ExpenseCategory; label: string }[] = [
   { key: "toll", label: "Toll" },
@@ -192,6 +192,7 @@ export default function ExpensesScreen() {
     >
       <Title>Expenses</Title>
       <SyncBadge />
+      <AttentionList />
       <View style={{ padding: 18, borderRadius: 14, backgroundColor: t.surface, gap: 2 }}>
         <Body muted>Float balance</Body>
         <Text style={{ color: t.text, fontSize: 44, fontWeight: "800" }}>

@@ -56,9 +56,9 @@ function DriverHome() {
     >
       <Title>Hello, {me?.user.name.split(" ")[0]}</Title>
       <SyncBadge />
+      <AttentionList />
       <HelpCard />
       <RepairCard />
-      <AttentionList />
       <MyVehicleCard />
       <FloatCard />
       <TripPanel />
