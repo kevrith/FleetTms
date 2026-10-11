@@ -38,6 +38,8 @@ export const helpArticles: HelpArticle[] = [
       "To start, the driver photographs the odometer. The reading is checked against the photo and the last reading, so a wrong or repeated photo is flagged. Photos must be fresh: a picture from last week is refused.",
       "The driver records loading (and the weight if there is a weighbridge ticket), then delivery with proof: a one-time code sent to the client's phone, or a signature, and photos of the cargo and any damage. At the end another odometer photo closes the trip and gives the distance.",
       "No signal? The phone keeps everything safely and sends it when it can. A small badge shows what is waiting.",
+      "If a lorry's odometer is faulty or stuck, open the lorry under Vehicles, edit it, and under Distance comes from choose GPS. Its trips then take their distance from the driver's phone (or the tracker, when it has one) instead of the dial, and the lorry's running kilometres, service reminders and tyre mileage follow that. The driver still photographs the odometer, but whatever it shows is kept only as a record. A trip with no GPS has no distance rather than a wrong one. GPS reads a little short on winding roads, so keep the odometer for lorries where it works.",
+      "The Fuel use screen shows, for each lorry, driver and route, the litres per 100 km, the kilometres per litre and the shillings per kilometre, month by month. A lorry is marked when it uses more than the allowed margin above the consumption you entered for it. Drivers and routes count only fuel that can be tied to a trip, so give them a few trips before comparing.",
     ],
   },
   {

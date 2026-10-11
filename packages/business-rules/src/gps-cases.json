@@ -553,5 +553,43 @@
       "check": "no_gps",
       "suspect": null
     }
+  ],
+  "gps_trip_km": [
+    {
+      "name": "the tracker wins when it has enough fixes",
+      "phone_km": 475.4,
+      "phone_points": 600,
+      "tracker_km": 478.6,
+      "tracker_points": 900,
+      "km": 479,
+      "source": "tracker"
+    },
+    {
+      "name": "the phone is used when there is no tracker",
+      "phone_km": 475.4,
+      "phone_points": 600,
+      "tracker_km": null,
+      "tracker_points": 0,
+      "km": 475,
+      "source": "phone"
+    },
+    {
+      "name": "a tracker with too few fixes is passed over",
+      "phone_km": 120.5,
+      "phone_points": 200,
+      "tracker_km": 3,
+      "tracker_points": 2,
+      "km": 121,
+      "source": "phone"
+    },
+    {
+      "name": "too few fixes from both means no distance",
+      "phone_km": 5,
+      "phone_points": 2,
+      "tracker_km": null,
+      "tracker_points": 0,
+      "km": null,
+      "source": null
+    }
   ]
 }

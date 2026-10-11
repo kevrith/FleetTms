@@ -66,6 +66,7 @@ export default function Start() {
         expected_kmpl_loaded: vehicle.kmpl || null,
         expected_kmpl_empty: null,
         odometer_km: 0,
+        distance_source: "odometer",
         tracking_tier: "basic",
         depot_id: null,
         ownership_type: "owned",

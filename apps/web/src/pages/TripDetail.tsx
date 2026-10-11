@@ -54,11 +54,14 @@ function CapturePanel({
   trip,
   today,
   vehicleKm,
+  gpsDistance,
   onChanged,
 }: {
   trip: Trip;
   today: boolean;
   vehicleKm: number | null;
+  /** The dial is not trusted: the reading is kept as a record and compared with nothing. */
+  gpsDistance: boolean;
   onChanged: () => Promise<void>;
 }) {
   const { can } = useAuth();
@@ -98,9 +101,11 @@ function CapturePanel({
   }
 
   // The start reading is compared with the vehicle's last reading; the end reading with this trip's start.
-  const lastKnown = phase === "end" ? (startValue ?? 0) : vehicleKm;
+  const lastKnown = gpsDistance ? 0 : phase === "end" ? (startValue ?? 0) : vehicleKm;
   const problem =
-    value && lastKnown !== null ? odometerProblem(value, lastKnown, startValue) : null;
+    value && lastKnown !== null
+      ? odometerProblem(value, lastKnown, gpsDistance ? undefined : startValue)
+      : null;
   const readingReady = file && parseOdometer(value) !== null && !problem;
 
   const submitReading = () =>
@@ -413,13 +418,16 @@ export default function TripDetail() {
   const [inspection, setInspection] = useState<Inspection | null>(null);
   const [todayOk, setTodayOk] = useState(false);
   const [vehicleKm, setVehicleKm] = useState<number | null>(null);
+  const [gpsDistance, setGpsDistance] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       const t = await api.trip(id);
       setTrip(t);
-      setVehicleKm((await api.vehicle(t.vehicle_id).catch(() => null))?.odometer_km ?? null);
+      const vehicle = await api.vehicle(t.vehicle_id).catch(() => null);
+      setGpsDistance(vehicle?.distance_source === "gps");
+      setVehicleKm(vehicle?.distance_source === "gps" ? null : (vehicle?.odometer_km ?? null));
       const today = await api.inspectionToday(t.vehicle_id).catch(() => null);
       setTodayOk(today?.can_start_trip ?? false);
       if (today?.inspection) setInspection(today.inspection);
@@ -489,7 +497,13 @@ export default function TripDetail() {
       {trip.started_at && <ReplayCard tripId={trip.id} />}
       <TrackingLinksCard trip={trip} />
       <Delivery trip={trip} onChanged={load} />
-      <CapturePanel trip={trip} today={todayOk} vehicleKm={vehicleKm} onChanged={load} />
+      <CapturePanel
+        trip={trip}
+        today={todayOk}
+        vehicleKm={vehicleKm}
+        gpsDistance={gpsDistance}
+        onChanged={load}
+      />
     </>
   );
 }

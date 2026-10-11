@@ -3,6 +3,7 @@ import {
   distanceCheck,
   etaMinutes,
   goodFix,
+  gpsTripKm,
   haversineKm,
   pathDistanceKm,
   vehicleState,
@@ -68,6 +69,14 @@ describe("etaMinutes", () => {
   for (const c of cases.etas) {
     it(c.name, () => {
       expect(etaMinutes(c.remaining_km, c.speeds)).toBe(c.expected);
+    });
+  }
+});
+
+describe("gpsTripKm", () => {
+  for (const c of cases.gps_trip_km) {
+    it(c.name, () => {
+      expect(gpsTripKm(c)).toEqual({ km: c.km, source: c.source });
     });
   }
 });

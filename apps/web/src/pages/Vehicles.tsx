@@ -24,6 +24,7 @@ export const EMPTY_VEHICLE: VehicleInput = {
   expected_kmpl_loaded: null,
   expected_kmpl_empty: null,
   odometer_km: 0,
+  distance_source: "odometer",
   tracking_tier: "basic",
   depot_id: null,
   ownership_type: "owned",
@@ -132,6 +133,15 @@ export function VehicleForm({
           value={v.odometer_km}
           onChange={(e) => set("odometer_km", Number(e.target.value))}
         />
+      </Field>
+      <Field label="Distance comes from">
+        <select
+          value={v.distance_source}
+          onChange={(e) => set("distance_source", e.target.value as Vehicle["distance_source"])}
+        >
+          <option value="odometer">The odometer</option>
+          <option value="gps">GPS (the odometer is faulty)</option>
+        </select>
       </Field>
       <Field label="Tracking tier">
         <select

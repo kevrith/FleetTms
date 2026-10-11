@@ -105,3 +105,13 @@ def three_way(*, odometer_km: float | None, phone_km: float | None, phone_points
             if _agree(sources[others[0]], sources[others[1]]) and not _agree(sources[name], sources[others[0]]) and not _agree(sources[name], sources[others[1]]):
                 suspect = name
     return {"check": "mismatch", "suspect": suspect, "sources": sources}
+
+
+def gps_trip_km(*, phone_km: float | None, phone_points: int, tracker_km: float | None, tracker_points: int) -> tuple[int | None, str | None]:
+    """The distance of record for a lorry whose odometer cannot be trusted: the tracker's when it has enough fixes, else the phone's, else
+    nothing (a trip with no GPS has no distance rather than a wrong one). Whole kilometres, and which source it came from."""
+    if tracker_km is not None and tracker_points >= MIN_POINTS_FOR_CHECK:
+        return math.floor(tracker_km + 0.5), "tracker"  # half up, as the TypeScript copy rounds
+    if phone_km is not None and phone_points >= MIN_POINTS_FOR_CHECK:
+        return math.floor(phone_km + 0.5), "phone"
+    return None, None

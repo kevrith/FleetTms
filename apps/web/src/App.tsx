@@ -33,6 +33,7 @@ import Follow from "./pages/Follow";
 import LiveMap from "./pages/LiveMap";
 import Portal from "./pages/Portal";
 import Alerts from "./pages/Alerts";
+import FuelEfficiency from "./pages/FuelEfficiency";
 import Scorecards from "./pages/Scorecards";
 import Suppliers from "./pages/Suppliers";
 import Tracking from "./pages/Tracking";
@@ -160,6 +161,7 @@ export default function App() {
         <Route path="/tracking/*" element={<Tracking />} />
         <Route path="/alerts/*" element={<Alerts />} />
         <Route path="/scorecards" element={<Scorecards />} />
+        <Route path="/fuel-efficiency" element={<FuelEfficiency />} />
         <Route path="/settings/*" element={<Settings />} />
         <Route path="*" element={<Placeholder />} />
       </Route>

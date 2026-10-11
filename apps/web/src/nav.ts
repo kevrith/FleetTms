@@ -8,6 +8,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Trophy,
+  Fuel,
   Briefcase,
   Building2,
   FileText,
@@ -45,6 +46,7 @@ export const navItems: NavItem[] = [
   { path: "/map", label: "Live map", icon: MapPinned, permission: "livemap.view" },
   { path: "/alerts", label: "Alerts", icon: ShieldAlert, permission: "alerts.view" },
   { path: "/scorecards", label: "Driver scorecards", icon: Trophy, permission: "reports.view" },
+  { path: "/fuel-efficiency", label: "Fuel use", icon: Fuel, permission: "reports.view" },
   { path: "/tracking", label: "Trackers & alerts", icon: Radio, permission: "livemap.view" },
   { path: "/vehicles", label: "Vehicles", icon: Truck, permission: "vehicles.view" },
   {

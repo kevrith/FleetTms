@@ -407,7 +407,8 @@ class Vehicle(TenantMixin, Base):
     tank_litres: Mapped[int | None] = mapped_column(Integer)
     expected_kmpl_loaded: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     expected_kmpl_empty: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
-    odometer_km: Mapped[int] = mapped_column(Integer, default=0)
+    odometer_km: Mapped[int] = mapped_column(Integer, default=0)  # the last reading; for a "gps" vehicle, the kilometres its GPS trips have added to it
+    distance_source: Mapped[str] = mapped_column(String(10), default="odometer", server_default=text("'odometer'"))  # odometer, or gps when the dial cannot be trusted
     tracking_tier: Mapped[TrackingTier] = mapped_column(_enum(TrackingTier), default=TrackingTier.BASIC)
     plan: Mapped[str] = mapped_column(String(10), default="standard", server_default=text("'standard'"))  # starter, standard or premium: what this vehicle is billed as
     is_sample: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))  # made by "try it with sample data"
@@ -606,10 +607,11 @@ class Trip(TenantMixin, Base):
     overload_kg: Mapped[int | None] = mapped_column(Integer)  # how far over the legal limit the loaded lorry was, if it was
     gps_distance_km: Mapped[float | None] = mapped_column(Float)  # what the phone's GPS says the trip came to
     gps_points: Mapped[int | None] = mapped_column(Integer)  # how many good fixes that is worked out from
-    distance_check: Mapped[str | None] = mapped_column(String(10))  # ok, mismatch or no_gps: do odometer and GPS agree
+    distance_check: Mapped[str | None] = mapped_column(String(10))  # ok, mismatch, no_gps or gps_only: do odometer and GPS agree
     tracker_distance_km: Mapped[float | None] = mapped_column(Float)  # what the vehicle's tracker says the trip came to
     tracker_points: Mapped[int | None] = mapped_column(Integer)
     distance_detail: Mapped[dict | None] = mapped_column(JSONB)  # the three distances and which one disagrees, if one does
+    km_credited: Mapped[int | None] = mapped_column(Integer)  # kilometres of this trip already added to a gps vehicle's running total
     job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), index=True)
     # What was paid for a trip that has no invoice (a one-lorry owner who is simply paid cash or M-Pesa): profit counts it as the trip's income.
     received_cents: Mapped[int | None] = mapped_column(BigInteger)

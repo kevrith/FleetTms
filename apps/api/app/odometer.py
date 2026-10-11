@@ -18,15 +18,15 @@ def check_value(value: int) -> int:
 
 
 def reading_flags(
-    confirmed: int, auto_read: int | None, last_known_km: int, *, has_location: bool
+    confirmed: int, auto_read: int | None, last_known_km: int, *, has_location: bool, check_range: bool = True
 ) -> list[str]:
     """Reasons a reading deserves a second look. Flags never block the trip; fraud alerts use them in Sprint 13."""
     flags = []
     if auto_read is not None and auto_read != confirmed:
         flags.append("mismatch")  # what the number reader saw is not what was typed
-    if confirmed < last_known_km:
+    if check_range and confirmed < last_known_km:  # a lorry that takes its distance from GPS has a dial that proves nothing
         flags.append("backward")
-    elif confirmed - last_known_km > LARGE_JUMP_KM:
+    elif check_range and confirmed - last_known_km > LARGE_JUMP_KM:
         flags.append("large_jump")
     if not has_location:
         flags.append("no_location")

@@ -10,6 +10,15 @@ const CHECK: Record<string, string> = {
   ok: "The odometer and the GPS agree.",
   mismatch: "The odometer and the GPS disagree by more than they should. One of them is wrong.",
   no_gps: "Not enough GPS fixes to check the odometer.",
+  gps_only: "This lorry takes its distance from GPS. There is no odometer to compare it with.",
+};
+
+// For a lorry that takes its distance from GPS the odometer is not a source, so the phone and the tracker are what is compared.
+const GPS_CHECK: Record<string, string> = {
+  ok: "The phone and the tracker agree.",
+  mismatch: "The phone and the tracker disagree by more than they should.",
+  no_gps: "Not enough GPS fixes to work out the distance.",
+  gps_only: CHECK.gps_only!,
 };
 
 const SOURCE: Record<string, string> = {
@@ -66,7 +75,7 @@ export function TripTrackCard({ trip }: { trip: Trip }) {
             {track.gps_distance_km != null
               ? `${track.gps_distance_km.toLocaleString()} km`
               : "not worked out yet"}
-            {track.odometer_distance_km != null
+            {track.odometer_distance_km != null && !trip.distance_detail?.of_record
               ? `, odometer ${track.odometer_distance_km.toLocaleString()} km`
               : ""}
             .
@@ -87,7 +96,7 @@ export function TripTrackCard({ trip }: { trip: Trip }) {
         <p
           className={`status ${track.distance_check === "ok" ? "ok" : track.distance_check === "mismatch" ? "bad" : ""}`}
         >
-          {CHECK[track.distance_check]}
+          {(trip.distance_detail?.of_record ? GPS_CHECK : CHECK)[track.distance_check]}
         </p>
       )}
     </Card>

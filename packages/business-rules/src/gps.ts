@@ -151,3 +151,17 @@ export function threeWay(input: {
   }
   return { check: "mismatch", suspect, sources };
 }
+
+/** The distance of record for a lorry whose odometer cannot be trusted: the tracker's when it has enough fixes, else the phone's, else none. */
+export function gpsTripKm(input: {
+  phone_km: number | null;
+  phone_points: number;
+  tracker_km: number | null;
+  tracker_points: number;
+}): { km: number | null; source: "tracker" | "phone" | null } {
+  if (input.tracker_km !== null && input.tracker_points >= MIN_POINTS_FOR_CHECK)
+    return { km: Math.round(input.tracker_km), source: "tracker" };
+  if (input.phone_km !== null && input.phone_points >= MIN_POINTS_FOR_CHECK)
+    return { km: Math.round(input.phone_km), source: "phone" };
+  return { km: null, source: null };
+}

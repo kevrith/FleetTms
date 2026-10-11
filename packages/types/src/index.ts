@@ -150,6 +150,8 @@ export type ComplianceDocType =
   | "driving_licence"
   | "other";
 
+export type DistanceSource = "odometer" | "gps";
+
 export interface Vehicle {
   id: string;
   registration: string;
@@ -161,6 +163,8 @@ export interface Vehicle {
   expected_kmpl_loaded: string | null;
   expected_kmpl_empty: string | null;
   odometer_km: number;
+  /** "gps": the dial cannot be trusted, so trip distance and running kilometres come from GPS. */
+  distance_source: DistanceSource;
   tracking_tier: TrackingTier;
   depot_id: string | null;
   ownership_type: OwnershipType;
@@ -244,6 +248,7 @@ export interface MyVehicle {
     fuel_type: FuelType;
     tank_litres: number | null;
     odometer_km: number;
+    distance_source: DistanceSource;
     gvw_limit_kg: number | null;
     tare_kg: number | null;
   };
@@ -385,7 +390,7 @@ export interface Trip {
   received_note?: string | null;
   received_at?: string | null;
   gps_distance_km?: number | null;
-  distance_check?: "ok" | "mismatch" | "no_gps" | null;
+  distance_check?: "ok" | "mismatch" | "no_gps" | "gps_only" | null;
   tracker_distance_km?: number | null;
   distance_detail?: DistanceDetail | null;
   trust?: VehicleTrust | null;
@@ -1928,13 +1933,15 @@ export interface TripTrack {
   fixes: number;
   gps_distance_km: number | null;
   odometer_distance_km: number | null;
-  distance_check: "ok" | "mismatch" | "no_gps" | null;
+  distance_check: "ok" | "mismatch" | "no_gps" | "gps_only" | null;
   points: MapPosition[];
 }
 
 export interface DistanceDetail {
   suspect: "odometer" | "phone" | "tracker" | null;
   sources: Record<string, number>;
+  /** Set when the vehicle takes its distance from GPS: which source the trip's distance came from. */
+  of_record?: "phone" | "tracker" | null;
 }
 
 // ---- trackers, alerts, behaviour, mapped areas, replay, immobiliser ----
@@ -3156,4 +3163,48 @@ export interface JobScheduleInput {
   starts_on?: string | null;
   ends_on?: string | null;
   vehicle_id?: string | null;
+}
+
+// ---- fuel efficiency ----
+
+export interface FuelFigures {
+  km: number;
+  litres: number;
+  cost_cents: number;
+  km_per_litre: number | null;
+  l_per_100km: number | null;
+  cost_per_km_cents: number | null;
+}
+
+export interface FuelEfficiencyVehicle extends FuelFigures {
+  vehicle_id: string;
+  registration: string;
+  distance_source: DistanceSource;
+  trips: number;
+  expected_km_per_litre: number | null;
+  /** Litres per 100 km above (positive) or below (negative) what the lorry is expected to use. */
+  vs_expected_pct: number | null;
+  above_expected: boolean;
+  monthly: (FuelFigures & { month: string })[];
+}
+
+export interface FuelEfficiency {
+  from: string;
+  to: string;
+  months: string[];
+  /** The owner's limit, in percent, above which a lorry's fuel use is flagged. */
+  limit_pct: number;
+  vehicles: FuelEfficiencyVehicle[];
+  drivers: (FuelFigures & { membership_id: string; name: string; trips_counted: number })[];
+  routes: (FuelFigures & { route: string; trips_counted: number })[];
+  alerts: {
+    id: string;
+    kind: string;
+    severity: "red" | "amber";
+    status: string;
+    title: string;
+    vehicle_id: string | null;
+    trip_id: string | null;
+    occurred_at: string;
+  }[];
 }

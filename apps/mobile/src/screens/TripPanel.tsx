@@ -7,7 +7,7 @@ import {
   parseOdometer,
 } from "@fleettms/business-rules";
 import { useEffect, useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { Linking, Platform, ScrollView, Text, View } from "react-native";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { CaptureScreen } from "../capture";
@@ -238,7 +238,9 @@ export default function TripPanel() {
     );
   }
 
-  const lastKnown = vehicle?.vehicle.odometer_km ?? 0;
+  // A lorry that takes its distance from GPS has a dial that proves nothing, so the reading is not compared with anything.
+  const gpsVehicle = vehicle?.vehicle.distance_source === "gps";
+  const lastKnown = gpsVehicle ? 0 : (vehicle?.vehicle.odometer_km ?? 0);
   const today =
     inspection &&
     inspection.vehicleId === trip.vehicle_id &&
@@ -285,12 +287,15 @@ export default function TripPanel() {
     const problem = typed
       ? odometerProblem(
           typed,
-          mode.phase === "start" ? lastKnown : (startValue ?? lastKnown),
-          mode.phase === "end" ? startValue : undefined,
+          mode.phase === "start" || gpsVehicle ? lastKnown : (startValue ?? lastKnown),
+          mode.phase === "end" && !gpsVehicle ? startValue : undefined,
         )
       : null;
     const value = parseOdometer(typed);
-    const minimum = minimumReading(lastKnown, mode.phase === "end" ? startValue : undefined);
+    const minimum = minimumReading(
+      lastKnown,
+      mode.phase === "end" && !gpsVehicle ? startValue : undefined,
+    );
     const tooLow = isBelowMinimum(typed, minimum);
     const submit = () =>
       run(() =>
@@ -302,9 +307,11 @@ export default function TripPanel() {
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
         <Text style={{ color: t.text, fontSize: 22, fontWeight: "700" }}>Confirm the odometer</Text>
         <Body muted>
-          {mode.phase === "start" && lastKnown > 0
-            ? `The last reading, ${lastKnown.toLocaleString()} km, is filled in. If the odometer shows more, change it. It cannot be lower.`
-            : `Type the number you see on the odometer. It cannot be lower than ${minimum.toLocaleString()} km.`}
+          {gpsVehicle
+            ? "Type the number you see on the odometer, even if it is stuck or wrong. This lorry's distance is worked out from the phone's GPS."
+            : mode.phase === "start" && lastKnown > 0
+              ? `The last reading, ${lastKnown.toLocaleString()} km, is filled in. If the odometer shows more, change it. It cannot be lower.`
+              : `Type the number you see on the odometer. It cannot be lower than ${minimum.toLocaleString()} km.`}
         </Body>
         <Input
           label="Odometer (km)"
@@ -468,6 +475,20 @@ function TrackingNotice() {
           : "Your phone shares its position with your employer until you end the trip. It stops by itself then."}
         {s.waiting > 0 && !bad ? ` ${s.waiting} waiting to send.` : ""}
       </Body>
+      {Platform.OS === "android" && (
+        <>
+          <Body muted>
+            Many phones (Tecno, Infinix, Xiaomi, Samsung) stop apps that run with the screen off to
+            save battery. In the phone's settings, set Battery for FleetTms to "Unrestricted" so the
+            whole trip is recorded.
+          </Body>
+          <Button
+            label="Open phone settings"
+            kind="secondary"
+            onPress={() => void Linking.openSettings()}
+          />
+        </>
+      )}
     </View>
   );
 }

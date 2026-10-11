@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app import behaviour, fraud, geofences
-from app.gps_rules import good_fix, path_distance_km, three_way
+from app.gps_rules import good_fix, gps_trip_km, path_distance_km, three_way
 from app.models import LocationPoint, TrackingGap, Trip, TripStatus, Vehicle
 from app.tenancy import current_business_id
 
@@ -100,11 +100,32 @@ async def finalise(db: AsyncSession, trip: Trip) -> None:
         theirs = (await db.execute(select(LocationPoint).where(LocationPoint.vehicle_id == trip.vehicle_id, LocationPoint.source == "tracker", LocationPoint.recorded_at >= trip.started_at, LocationPoint.recorded_at <= end).order_by(LocationPoint.recorded_at))).scalars().all()
         t_km, t_used = path_distance_km([{"at": p.recorded_at, "lat": p.lat, "lng": p.lng, "accuracy_m": p.accuracy_m} for p in theirs])
     trip.tracker_distance_km, trip.tracker_points = (t_km if t_used else None), t_used
-    verdict = three_way(odometer_km=trip.distance_km, phone_km=km if used else None, phone_points=used, tracker_km=t_km if t_used else None, tracker_points=t_used)
-    trip.distance_check = verdict["check"]
-    trip.distance_detail = {"sources": verdict["sources"], "suspect": verdict["suspect"]}
+    vehicle = (await db.execute(select(Vehicle).where(Vehicle.id == trip.vehicle_id))).scalar_one()
+    if vehicle.distance_source == "gps":
+        await _gps_distance_of_record(trip, vehicle, phone_km=km if used else None, phone_points=used, tracker_km=t_km if t_used else None, tracker_points=t_used)
+    else:
+        verdict = three_way(odometer_km=trip.distance_km, phone_km=km if used else None, phone_points=used, tracker_km=t_km if t_used else None, tracker_points=t_used)
+        trip.distance_check = verdict["check"]
+        trip.distance_detail = {"sources": verdict["sources"], "suspect": verdict["suspect"]}
     if trip.ended_at is not None:
         await fraud.check_trip(db, trip)  # the fuel, distance and stop checks that need the finished trip
+
+
+async def _gps_distance_of_record(trip: Trip, vehicle: Vehicle, *, phone_km: float | None, phone_points: int, tracker_km: float | None, tracker_points: int) -> None:
+    """For a lorry whose odometer cannot be trusted, the GPS is the trip's distance and its kilometres add to the vehicle's running total
+    (which service reminders and tyre mileage follow). Late fixes from an offline phone change the distance, so only the difference from
+    what was already added is added, and a trip with no usable GPS has no distance at all."""
+    km, source = gps_trip_km(phone_km=phone_km, phone_points=phone_points, tracker_km=tracker_km, tracker_points=tracker_points)
+    if km is None and trip.km_credited:
+        return  # the fixes are gone (retention) after the distance was counted: keep what was counted
+    verdict = three_way(odometer_km=None, phone_km=phone_km, phone_points=phone_points, tracker_km=tracker_km, tracker_points=tracker_points)
+    trip.distance_check = "gps_only" if verdict["check"] == "no_gps" and km is not None else verdict["check"]
+    trip.distance_detail = {"sources": verdict["sources"], "suspect": verdict["suspect"], "of_record": source}
+    trip.distance_km = km
+    if trip.ended_at is not None:
+        now_km = km or 0
+        vehicle.odometer_km = max(0, vehicle.odometer_km + now_km - (trip.km_credited or 0))
+        trip.km_credited = now_km
 
 
 async def last_positions(db: AsyncSession, vehicle_ids: list[uuid.UUID], *, since: datetime | None = None) -> dict[uuid.UUID, LocationPoint]:

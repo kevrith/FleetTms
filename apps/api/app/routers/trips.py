@@ -427,7 +427,8 @@ async def _record_reading(
             check_value(body.auto_read_value)
     except OdometerError as exc:
         raise error(422, "invalid_odometer", str(exc)) from None
-    if body.value < vehicle.odometer_km:
+    gps_vehicle = vehicle.distance_source == "gps"  # its dial is not trusted: the reading is kept as a record, not as the distance
+    if body.value < vehicle.odometer_km and not gps_vehicle:
         # An odometer never goes backwards, so a lower number is refused (not just flagged): it is how kilometres get hidden.
         raise error(
             422, "odometer_backward",
@@ -445,7 +446,7 @@ async def _record_reading(
         trip_id=trip.id, vehicle_id=vehicle.id, phase=phase, photo_id=photo.id,
         auto_read_value=auto_read, confirmed_value=body.value,
         flags=reading_flags(
-            body.value, auto_read, vehicle.odometer_km, has_location=photo.lat is not None and photo.lng is not None
+            body.value, auto_read, vehicle.odometer_km, has_location=photo.lat is not None and photo.lng is not None, check_range=not gps_vehicle
         ),
         recorded_by_user_id=principal.user.id,
     )  # fmt: skip
@@ -502,7 +503,8 @@ async def do_start_trip(db: AsyncSession, principal: Principal, trip_id: uuid.UU
     trip.status = TripStatus.IN_PROGRESS
     trip.started_at = at
     trip.inspection_id = inspection.id
-    vehicle.odometer_km = max(vehicle.odometer_km, body.value)
+    if vehicle.distance_source != "gps":
+        vehicle.odometer_km = max(vehicle.odometer_km, body.value)
     await db.flush()
     audit.record(
         db, actor_user_id=principal.user.id, action="trip.started", entity_type="trip", entity_id=trip.id,
@@ -590,26 +592,30 @@ async def do_end_trip(db: AsyncSession, principal: Principal, trip_id: uuid.UUID
             select(OdometerReading).where(OdometerReading.trip_id == trip.id, OdometerReading.phase == ReadingPhase.START)
         )
     ).scalar_one()
-    try:
-        distance = trip_distance_km(start.confirmed_value, check_value(body.value))
-    except OdometerError as exc:
-        raise error(422, "odometer_backward", str(exc)) from None
+    gps_vehicle = vehicle.distance_source == "gps"
+    distance = None  # a GPS vehicle's distance comes from its fixes when the trip is finalised; its dial is only recorded
+    if not gps_vehicle:
+        try:
+            distance = trip_distance_km(start.confirmed_value, check_value(body.value))
+        except OdometerError as exc:
+            raise error(422, "odometer_backward", str(exc)) from None
 
     # The vehicle's last known reading is now the start of this trip, so only a jump within the trip is flagged.
     reading, photo = await _record_reading(db, principal, trip, vehicle, ReadingPhase.END, body, at)
     reading.flags = reading_flags(
         body.value, reading.auto_read_value, start.confirmed_value,
-        has_location=photo.lat is not None and photo.lng is not None,
+        has_location=photo.lat is not None and photo.lng is not None, check_range=not gps_vehicle,
     )  # fmt: skip
     trip.status = TripStatus.COMPLETED
     trip.ended_at = at
     trip.distance_km = distance
-    vehicle.odometer_km = max(vehicle.odometer_km, body.value)
+    if not gps_vehicle:
+        vehicle.odometer_km = max(vehicle.odometer_km, body.value)
     await db.flush()
     await tracking.finalise(db, trip)  # what the GPS saw, and whether the odometer agrees
     audit.record(
         db, actor_user_id=principal.user.id, action="trip.completed", entity_type="trip", entity_id=trip.id,
-        after={"odometer_km": body.value, "distance_km": distance, "flags": reading.flags},
+        after={"odometer_km": body.value, "distance_km": trip.distance_km, "flags": reading.flags},
     )  # fmt: skip
     await sync_job(db, trip.job_id)
     return trip

@@ -1,6 +1,7 @@
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Literal
 
 from email_validator import EmailNotValidError, validate_email
 from fastapi import APIRouter, Depends, status
@@ -34,7 +35,7 @@ router = APIRouter(tags=["vehicles"])
 
 VEHICLE_FIELDS = [
     "registration", "make", "model", "capacity_tonnes", "fuel_type", "tank_litres",
-    "expected_kmpl_loaded", "expected_kmpl_empty", "odometer_km", "tracking_tier", "depot_id",
+    "expected_kmpl_loaded", "expected_kmpl_empty", "odometer_km", "distance_source", "tracking_tier", "depot_id",
     "ownership_type", "party_id", "gvw_limit_kg", "tare_kg", "axle_config", "is_active",
 ]  # fmt: skip
 CREW_FIELDS = ["vehicle_id", "membership_id", "role", "started_at", "ended_at"]
@@ -60,6 +61,7 @@ class VehicleIn(BaseModel):
     expected_kmpl_loaded: Decimal | None = Field(default=None, gt=0, le=50)
     expected_kmpl_empty: Decimal | None = Field(default=None, gt=0, le=50)
     odometer_km: int = Field(default=0, ge=0, le=5_000_000)
+    distance_source: Literal["odometer", "gps"] = "odometer"
     tracking_tier: TrackingTier = TrackingTier.BASIC
     depot_id: uuid.UUID | None = None
     ownership_type: OwnershipType = OwnershipType.OWNED
@@ -402,7 +404,7 @@ async def my_vehicle(principal: Principal = Depends(require("trips.own")), db: A
         "vehicle": {
             "id": vehicle.id, "registration": vehicle.registration, "make": vehicle.make, "model": vehicle.model,
             "capacity_tonnes": vehicle.capacity_tonnes, "fuel_type": vehicle.fuel_type.value,
-            "tank_litres": vehicle.tank_litres, "odometer_km": vehicle.odometer_km,
+            "tank_litres": vehicle.tank_litres, "odometer_km": vehicle.odometer_km, "distance_source": vehicle.distance_source,
             "gvw_limit_kg": vehicle.gvw_limit_kg, "tare_kg": vehicle.tare_kg,
         },
         "my_role": mine.role.value,

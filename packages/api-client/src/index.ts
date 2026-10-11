@@ -60,6 +60,7 @@ import type {
   FraudAlert,
   FraudSettings,
   FraudSummary,
+  FuelEfficiency,
   FuelPrices,
   Onboarding,
   RouteSuggestion,
@@ -1116,6 +1117,10 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
       const qs = q.toString();
       return get<Scorecards>(`/scorecards${qs ? `?${qs}` : ""}`);
     },
+    fuelEfficiency: (months = 3, vehicleId?: string) =>
+      get<FuelEfficiency>(
+        `/fuel-efficiency?months=${months}${vehicleId ? `&vehicle_id=${vehicleId}` : ""}`,
+      ),
     fuelPrices: () => get<FuelPrices>("/fuel-prices"),
     saveFuelPrice: (input: {
       month: string;

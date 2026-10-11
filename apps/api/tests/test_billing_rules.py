@@ -181,7 +181,7 @@ def test_eta(case):
 # ---- trackers, geofences, behaviour, immobiliser (Sprint 12) ----
 
 from app import behaviour_rules, geofence_rules, immobiliser_rules
-from app.gps_rules import three_way
+from app.gps_rules import gps_trip_km, three_way
 
 BEHAVIOUR = json.loads((RULES / "behaviour-cases.json").read_text())
 GEOFENCE = json.loads((RULES / "geofence-cases.json").read_text())
@@ -225,6 +225,12 @@ def test_immobiliser_rules(case):
 def test_three_way_distance(case):
     got = three_way(odometer_km=case["odometer_km"], phone_km=case["phone_km"], phone_points=case["phone_points"], tracker_km=case["tracker_km"], tracker_points=case["tracker_points"])
     assert got["check"] == case["check"] and got["suspect"] == case["suspect"]
+
+
+@pytest.mark.parametrize("case", GPS["gps_trip_km"], ids=[c["name"] for c in GPS["gps_trip_km"]])
+def test_gps_trip_km(case):
+    got = gps_trip_km(phone_km=case["phone_km"], phone_points=case["phone_points"], tracker_km=case["tracker_km"], tracker_points=case["tracker_points"])
+    assert got == (case["km"], case["source"])
 
 
 # ---- fraud engine rules and driver scorecards (Sprint 13) ----

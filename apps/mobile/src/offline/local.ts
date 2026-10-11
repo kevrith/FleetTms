@@ -28,6 +28,7 @@ export function assertInspectionClears(cache: DriverCache, vehicleId: string, at
 
 /** An odometer never goes backwards: a reading below the vehicle's last one is refused, as the server does. */
 export function assertNotBelowOdometer(cache: DriverCache, value: number): void {
+  if (cache.vehicle?.vehicle.distance_source === "gps") return; // its dial is only a record: the distance comes from GPS
   const last = cache.vehicle?.vehicle.odometer_km ?? 0;
   if (value < last) {
     throw new LocalRuleError(
@@ -41,7 +42,7 @@ export function withOdometer(
   vehicle: DriverCache["vehicle"],
   value: number,
 ): DriverCache["vehicle"] {
-  if (!vehicle) return vehicle;
+  if (!vehicle || vehicle.vehicle.distance_source === "gps") return vehicle;
   return {
     ...vehicle,
     vehicle: { ...vehicle.vehicle, odometer_km: Math.max(vehicle.vehicle.odometer_km, value) },

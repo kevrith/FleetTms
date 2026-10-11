@@ -48,6 +48,7 @@ CHECKS = {
     "list_loans": ("GET", "/finance", None, "finance.view"),
     "list_ownership_costs": ("GET", "/ownership-costs", None, "finance.view"),
     "profit": ("GET", "/profit", None, "finance.view"),
+    "fuel_efficiency": ("GET", "/fuel-efficiency", None, "reports.view"),
     "payroll_runs": ("GET", "/payroll/runs", None, "payroll.view"),
     "list_suppliers": ("GET", "/suppliers", None, "workshop.manage"),
     "my_leases": ("GET", "/portal/leases", None, "lease.view_own"),

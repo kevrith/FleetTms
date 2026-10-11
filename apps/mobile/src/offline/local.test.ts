@@ -126,14 +126,23 @@ describe("displayBalance", () => {
 });
 
 describe("odometer on the phone", () => {
-  const withVehicle = (km: number) =>
+  const withVehicle = (km: number, distance_source = "odometer") =>
     ({
       ...emptyCache(),
-      vehicle: { vehicle: { id: "v1", odometer_km: km }, my_role: "driver", crew: [] },
+      vehicle: {
+        vehicle: { id: "v1", odometer_km: km, distance_source },
+        my_role: "driver",
+        crew: [],
+      },
     }) as never;
   it("refuses a reading below the vehicle's last one", () => {
     expect(() => assertNotBelowOdometer(withVehicle(125580), 125100)).toThrow(/lower than/);
     expect(() => assertNotBelowOdometer(withVehicle(125580), 125580)).not.toThrow();
+  });
+  it("accepts any reading for a vehicle that takes its distance from GPS, and leaves its total alone", () => {
+    const c = withVehicle(125000, "gps") as ReturnType<typeof emptyCache>;
+    expect(() => assertNotBelowOdometer(c, 40)).not.toThrow();
+    expect(withOdometer(c.vehicle, 200000)?.vehicle.odometer_km).toBe(125000);
   });
   it("moves the vehicle's odometer up with each reading, never down", () => {
     const c = withVehicle(125000) as ReturnType<typeof emptyCache>;
