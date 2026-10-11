@@ -44,7 +44,7 @@ First time setup:
 1. `cp .env.example .env`, then set `POSTGRES_PASSWORD` and put the same value into `DATABASE_URL`
    (`postgresql+asyncpg://fleettms:<password>@localhost:5442/fleettms`).
 2. `pnpm install`
-3. `cd apps/api && python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt`
+3. `cd apps/api && python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt -c constraints.txt`
 
 Daily:
 

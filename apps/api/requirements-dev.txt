@@ -1,6 +1,9 @@
 -r requirements.txt
-pytest>=8.3
-pytest-asyncio>=0.24
+# Test and lint tools, pinned exactly so a new release cannot turn CI red by itself (ruff did, when 0.17 flagged an old comment). Raise a
+# version on purpose: change it here, run `ruff check .` and `pytest`, and commit the two together. CI also installs with constraints.txt,
+# so it tests the same versions of the app's own dependencies that production runs.
+pytest==9.1.1
+pytest-asyncio==1.4.0
 httpx>=0.27
-ruff>=0.7
-moto[s3]>=5.0
+ruff==0.17.0
+moto[s3]==5.2.3
