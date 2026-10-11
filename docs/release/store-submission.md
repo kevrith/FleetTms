@@ -52,6 +52,7 @@ Data is encrypted in transit. Offline data on the phone is encrypted. A person c
 ## Before pressing submit
 
 - [ ] Developer accounts: Google Play Console (a one-off fee), Apple Developer Program (an annual fee), an Expo account.
+- [ ] Firebase config given to cloud builds as the `GOOGLE_SERVICES_JSON` EAS file secret (the file is not in the repository; see `docs/deployment.md`), and a new app build made, since this release adds the file picker (`expo-document-picker`).
 - [ ] Production API address set in `eas.json`, and the API live with a real SMS gateway (drivers cannot sign in without it).
 - [ ] Icon, splash and screenshots made.
 - [ ] Final legal documents approved and published at real addresses; the app's accepted versions bumped (`docs/legal/README.md`).

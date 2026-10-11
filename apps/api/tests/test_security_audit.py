@@ -127,6 +127,8 @@ SIGNED_IN_ONLY = {
     ("GET", "/subscription/banner"): "everyone should see a warning about the account",
     ("POST", "/me/data-requests"): "any person may ask their employer about their own data; it is always about themselves",
     ("GET", "/me/data-requests"): "a person sees only their own requests",
+    ("PUT", "/me/push-token"): "a person's own phone address; a phone that changes hands is taken off the last person who used it",
+    ("DELETE", "/me/push-token"): "a person's own phone address",
 }
 
 # Signed in but not through the second step yet, so only the routes that finish signing in.
@@ -249,12 +251,15 @@ AUDIT_EXEMPT = {
     ("POST", "/imports/clients"): "every client added is audited (client.added)",
     ("POST", "/imports/suppliers"): "every supplier added is audited (supplier.added)",
     ("POST", "/imports/balances"): "every opening balance is audited (invoice.opening_balance)",
+    ("POST", "/renewals/{renewal_id}/check"): "reads the proof and keeps the comparison on the renewal; the date on the record only changes when it is approved, which is audited",
     ("POST", "/odometer/suggest"): "reads a photo and answers with a number; nothing is saved",
     ("POST", "/platform/etims/connect"): "asks KRA whether the platform's device is registered; changes nothing here",
     ("POST", "/platform/etims/backfill"): "queues invoices already paid; each one is sent, and audited, when KRA accepts it",
     ("POST", "/imports/staff"): "every person added is audited when they are invited",
     ("POST", "/trips/{trip_id}/locations"): "a stream of positions; the points are the record",
     ("POST", "/me/messages/{message_id}/read"): "the read receipt is on the message",
+    ("PUT", "/me/push-token"): "a device address kept on the person's own user row; it is a delivery address, not a business record",
+    ("DELETE", "/me/push-token"): "the same",
     ("POST", "/hooks/c2b/{business_id}/{key}/validation"): "Safaricom's pre-check; the confirmation is audited as mpesa.payment_received",
     ("POST", "/photos"): "the photo row records who uploaded it, when, and its checks",
     ("POST", "/report-schedules/{schedule_id}/send-now"): "the delivery is recorded on the schedule",

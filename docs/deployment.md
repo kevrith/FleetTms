@@ -59,6 +59,7 @@ After the fixes, on that machine:
 - [ ] Legal documents approved, published, versions bumped; ODPC registration done (`docs/legal/odpc-registration-checklist.md`).
 - [ ] Partner and support details set: `SUPPORT_WHATSAPP`, `SUPPORT_EMAIL`, `SUPPORT_HOURS`; first partner approved and a test referral taken through to a payment.
 - [ ] Prices and the partner share decided (they are proposals in `plan_rules.py` and `config.py`).
+- [ ] Firebase push: `apps/mobile/google-services.json` is not in the repository. Download it from the Firebase console (Project settings, your Android app) and keep it somewhere safe. Cloud builds get it from an EAS file secret: `eas env:create --name GOOGLE_SERVICES_JSON --type file --value ./google-services.json --environment production` (and `preview`, `development`); `apps/mobile/app.config.js` reads it from there, and from `apps/mobile/google-services.json` for a build on your own machine. Also restrict the API key in the Google Cloud console to the Android app (package `com.kastra.fleettms` and the release signing certificate's SHA-1) and to Firebase Cloud Messaging only. The key was committed once (commit `01aeb05`) and stays in the history, so restrict it, or create a new one and download a fresh file.
 - [ ] The store builds (`docs/release/store-submission.md`).
 
 **Day one**
