@@ -33,7 +33,7 @@ def _exif_taken_at(img: Image.Image) -> datetime | None:
     if not raw:
         return None
     try:
-        taken = datetime.strptime(str(raw), "%Y:%m:%d %H:%M:%S")  # noqa: DTZ007 - zone is applied below
+        taken = datetime.strptime(str(raw), "%Y:%m:%d %H:%M:%S")  # the zone is applied below
     except ValueError:
         return None
     return taken.replace(tzinfo=NAIROBI).astimezone(UTC)
