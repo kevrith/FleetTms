@@ -324,6 +324,25 @@ on the dev machine.
   back a driver's day, and record a float (`money.ts` checks the form with the server's rules). Everything else for the owner (dispatch, clients, invoices,
   payroll, reports, settings) stays on the web app. Unverified: the new screens have not been run on the emulator.
 
+## Updating the phone app
+
+Two ways, for two kinds of change. Know which one a change needs before shipping it.
+
+- **Over the air (JavaScript only):** `expo-updates`. Run the **Mobile Update** workflow by hand after the change is on main. Phones fetch it in the
+  background (`apps/mobile/src/updates/provider.tsx`) and offer "Restart to update"; never during a trip. `runtimeVersion` is the app's `version` in
+  `app.json`. The workflow runs `scripts/mobile/native_changed.py` against the commit in `latest.json` and refuses if any dependency, `app.json` or
+  `app.config.js` changed: that needs an APK. Take a bad update back with `eas update:republish`.
+- **A new APK:** run the **Mobile Release** workflow. It builds the preview profile (`EXPO_PUBLIC_DISTRIBUTION=sideload`), reads the real version code
+  from the APK, and publishes `fleettms.apk` and `latest.json` to the `mobile-latest` release. The app reads `latest.json` (`updates/apk.ts`), shows an
+  Update button (More, and Home when there is one), downloads the file, checks its size and checksum, and opens Android's installer; the person taps
+  Install. Android refuses an APK signed by a different key, which is the real integrity check. Bump `version` in `app.json` whenever the native side
+  changes, so over-the-air updates never reach an app that lacks the native code they need.
+- **Google Play builds** (`EXPO_PUBLIC_DISTRIBUTION=play`) never self-install: Play updates them, and Google does not allow an app to install its own
+  APK, so the permission is left out (`app.config.js`) and the Update button is hidden.
+- **Forcing an update:** the app sends its build number as `X-App-Version-Code`; the API answers `426 app_outdated` to a build below
+  `MIN_APP_VERSION_CODE` (`http_security.py`) and the app shows `UpdateRequired`. A change to the sync format or an action the server drops needs
+  the new build out and then the minimum raised, never the other way round. Apps from before the header existed are never held back.
+
 ## Testing against a real phone/emulator
 
 - API tests use a separate `fleettms_test` database that they create and migrate themselves.

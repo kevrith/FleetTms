@@ -9,6 +9,15 @@ const path = require("path");
 const LOCAL = "./google-services.json";
 
 module.exports = ({ config }) => {
+  // An app installed from the download link updates itself by opening Android's installer, which needs this permission. Google Play
+  // restricts it and does its own updating, so a Play build (EXPO_PUBLIC_DISTRIBUTION=play) does not ask for it.
+  if (process.env.EXPO_PUBLIC_DISTRIBUTION === "sideload") {
+    const permissions = config.android?.permissions ?? [];
+    config.android = {
+      ...config.android,
+      permissions: [...new Set([...permissions, "android.permission.REQUEST_INSTALL_PACKAGES"])],
+    };
+  }
   const fromSecret = process.env.GOOGLE_SERVICES_JSON;
   if (fromSecret && fs.existsSync(fromSecret)) {
     config.android = { ...config.android, googleServicesFile: fromSecret };

@@ -1,6 +1,8 @@
 import { createApiClient, type TokenStore } from "@fleettms/api-client";
 import type { Tokens } from "@fleettms/types";
+import * as Application from "expo-application";
 import * as SecureStore from "expo-secure-store";
+import { signalUpgradeRequired } from "./updates/provider";
 
 const KEY = "fleettms.tokens";
 
@@ -30,9 +32,13 @@ export const onSignedOut = (fn: () => void) => {
 };
 
 // Android emulator reaches the host machine at 10.0.2.2; set EXPO_PUBLIC_API_URL for a real phone.
+// The build number goes with every request so the server can tell an app that is too old to be served (426) to update.
+const build = Application.nativeBuildVersion;
 export const api = createApiClient(process.env.EXPO_PUBLIC_API_URL ?? "http://10.0.2.2:8010", {
   store,
   onSignedOut: () => signedOutListener(),
+  headers: build && /^\d+$/.test(build) ? { "X-App-Version-Code": build } : {},
+  onUpgradeRequired: signalUpgradeRequired,
 });
 
 export const hasStoredTokens = async () => (await store.get()) !== null;

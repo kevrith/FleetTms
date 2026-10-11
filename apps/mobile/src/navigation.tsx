@@ -20,6 +20,8 @@ import TripPanel from "./screens/TripPanel";
 import { PartsScreen, WorkOrdersScreen } from "./screens/Workshop";
 import TwoFactorScreen from "./screens/TwoFactor";
 import VehiclesScreen from "./screens/Vehicles";
+import { UpdateRequired } from "./updates/UpdateRequired";
+import { useAppUpdate } from "./updates/provider";
 
 const Tab = createBottomTabNavigator();
 
@@ -131,6 +133,8 @@ function Tabs({ tabs }: { tabs: TabDef[] }) {
 
 function Gate() {
   const { me, loading, view } = useAuth();
+  const { required } = useAppUpdate();
+  if (required) return <UpdateRequired />;
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: "center" }}>

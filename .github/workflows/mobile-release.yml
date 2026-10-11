@@ -12,6 +12,10 @@ on:
     tags:
       - "mobile-v*"
   workflow_dispatch:
+    inputs:
+      notes:
+        description: "What changed, in a sentence a driver can read (shown on the Update button). Empty uses the last commit's title."
+        required: false
 
 permissions:
   contents: write # creates and updates the mobile-latest release
@@ -50,6 +54,19 @@ jobs:
       - name: Install EAS CLI
         run: npm install -g eas-cli
 
+      # Firebase's Android config is not in the repository. Put the whole contents of the downloaded google-services.json in the repository
+      # secret GOOGLE_SERVICES_JSON; it is written to the file the build reads (apps/mobile/app.config.js). Without it the APK still builds,
+      # just without push alerts on Android, and the run says so.
+      - name: Firebase config
+        env:
+          GOOGLE_SERVICES_JSON_CONTENT: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON_CONTENT" ]; then
+            printf '%s' "$GOOGLE_SERVICES_JSON_CONTENT" > apps/mobile/google-services.json
+          else
+            echo "::warning::The GOOGLE_SERVICES_JSON repository secret is not set, so this APK has no Android push alerts."
+          fi
+
       - name: Build the APK
         working-directory: apps/mobile
         env:
@@ -69,6 +86,33 @@ jobs:
             exit 1
           fi
 
+      # latest.json is what the app reads to offer an Update button: the build's real version code (read from the APK itself, because EAS
+      # numbers the builds), a checksum and size, and the notes. It is published only after the APK, so it never points at a missing file.
+      - name: Describe the build
+        env:
+          NOTES_INPUT: ${{ github.event.inputs.notes }}
+          REPO: ${{ github.repository }}
+        run: |
+          APK=apps/mobile/build/fleettms.apk
+          AAPT2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+          BADGING=$("$AAPT2" dump badging "$APK")
+          CODE=$(echo "$BADGING" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" | head -1)
+          NAME=$(echo "$BADGING" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -1)
+          [ -n "$CODE" ] && [ -n "$NAME" ] || { echo "::error::Could not read the version from the APK."; exit 1; }
+          NOTES="${NOTES_INPUT:-$(git log -1 --pretty=%s)}"
+          python3 - "$APK" "$CODE" "$NAME" "$NOTES" <<'PY'
+          import hashlib, json, os, sys
+          apk, code, name, notes = sys.argv[1:5]
+          with open(apk, "rb") as f:
+              digest = hashlib.md5(f.read()).hexdigest()
+          json.dump({
+              "version": name, "version_code": int(code), "md5": digest, "size_bytes": os.path.getsize(apk), "notes": notes[:300],
+              "apk_url": f"https://github.com/{os.environ['REPO']}/releases/download/mobile-latest/fleettms.apk",
+              "commit": os.environ.get("GITHUB_SHA", ""),
+          }, open("apps/mobile/build/latest.json", "w"), indent=2)
+          PY
+          cat apps/mobile/build/latest.json
+
       - name: Keep the APK with the run
         uses: actions/upload-artifact@v4
         with:
@@ -86,6 +130,7 @@ jobs:
           gh release view mobile-latest --repo "$REPO" >/dev/null 2>&1 || gh release create mobile-latest \
             --repo "$REPO" --title "FleetTms Android: latest build" --notes "Built by the Mobile Release workflow." --latest=false
           gh release upload mobile-latest apps/mobile/build/fleettms.apk --repo "$REPO" --clobber
+          gh release upload mobile-latest apps/mobile/build/latest.json --repo "$REPO" --clobber
           gh release edit mobile-latest --repo "$REPO" --notes "Direct download: https://github.com/$REPO/releases/download/mobile-latest/fleettms.apk
           Built from commit ${GITHUB_SHA::7} (${GITHUB_REF_NAME}). Run: $RUN_URL
           Install it on an Android phone, allowing installs from your browser or file manager if asked."

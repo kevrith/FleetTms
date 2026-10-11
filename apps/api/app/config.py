@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5180"
     # Rate limits (see ratelimit.py). Believe X-Forwarded-For only when a proxy you control sets it.
     rate_limits_enabled: bool = True
+    # The oldest Android app build (its versionCode) the server still talks to. 0 means every build. An app older than this is told to update
+    # (426 app_outdated) instead of sending things the server may no longer understand. Raise it only after the new build has been out a while.
+    min_app_version_code: int = 0
     trust_proxy_headers: bool = False
     rate_limit_per_minute: int = 1200  # a backstop for every address, far above what a busy office does
 

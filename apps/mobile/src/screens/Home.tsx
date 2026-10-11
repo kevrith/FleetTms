@@ -3,6 +3,7 @@ import { ScrollView, Text, View } from "react-native";
 import { useAuth } from "../auth";
 import { Body, Screen, Title, useTheme } from "../ui";
 import { useOffline } from "../offline/runtime";
+import { UpdateCard } from "../updates/UpdateCard";
 import { HelpCard } from "./Help";
 import OwnerHome from "./OwnerHome";
 import { RepairCard } from "./Repairs";
@@ -67,5 +68,10 @@ function DriverHome() {
 
 export default function HomeScreen() {
   const { view } = useAuth();
-  return <Screen>{view === "driver" ? <DriverHome /> : <OwnerHome />}</Screen>;
+  return (
+    <Screen>
+      <UpdateCard />
+      {view === "driver" ? <DriverHome /> : <OwnerHome />}
+    </Screen>
+  );
 }

@@ -212,6 +212,10 @@ export interface ApiClientOptions {
   /** Called when the session can no longer be refreshed, so the app can show the sign-in screen. */
   onSignedOut?: () => void;
   fetchImpl?: typeof fetch;
+  /** Sent with every request, for example the app's build number (X-App-Version-Code). */
+  headers?: Record<string, string>;
+  /** Called when the server says this build of the app is too old to be served (426 app_outdated). */
+  onUpgradeRequired?: () => void;
 }
 
 const GENERIC_ERROR = "Something went wrong. Please try again.";
@@ -238,7 +242,7 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
     accessToken?: string,
     extraHeaders?: Record<string, string>,
   ) {
-    const headers: Record<string, string> = { ...extraHeaders };
+    const headers: Record<string, string> = { ...options.headers, ...extraHeaders };
     const isForm = typeof FormData !== "undefined" && body instanceof FormData;
     if (body !== undefined && !isForm) headers["Content-Type"] = "application/json";
     if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
@@ -291,6 +295,7 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
       }
     }
     if (res.status === 204) return undefined as T;
+    if (res.status === 426) options.onUpgradeRequired?.();
     if (asBlob && res.ok) return (await res.blob()) as T;
     const data = await res.json().catch(() => null);
     if (!res.ok) throw toApiError(res.status, data);

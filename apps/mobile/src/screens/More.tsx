@@ -5,6 +5,7 @@ import { api } from "../api";
 import { useAuth } from "../auth";
 import { clearQuick } from "../quick";
 import { useOffline } from "../offline/runtime";
+import { UpdateCard } from "../updates/UpdateCard";
 import { FeedbackCard } from "./Feedback";
 import { HistoryCard } from "./History";
 import { MyDataCard } from "./MyData";
@@ -78,6 +79,7 @@ export default function MoreScreen() {
         <Title>{me?.user.name}</Title>
         <Body muted>{me?.roles.map((r) => ROLE_LABELS[r]).join(", ")}</Body>
         <ErrorText message={error} />
+        <UpdateCard always />
 
         {views.length > 1 && (
           <>

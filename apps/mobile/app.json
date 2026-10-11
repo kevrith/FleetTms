@@ -2,7 +2,7 @@
   "expo": {
     "name": "FleetTms",
     "slug": "fleettms",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "splash": {
@@ -52,6 +52,11 @@
     ],
     "runtimeVersion": {
       "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/51cbb482-04fa-45fc-8b8d-3f6fcd834364",
+      "fallbackToCacheTimeout": 0,
+      "checkAutomatically": "ON_LOAD"
     },
     "extra": {
       "eas": {

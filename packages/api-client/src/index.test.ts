@@ -92,4 +92,24 @@ describe("api client", () => {
     await api.login({ identifier: "a", password: "b" });
     expect(store.current).toEqual({ access_token: "A", refresh_token: "s.R" });
   });
+
+  it("sends the headers it was given with every request", async () => {
+    const fetchImpl = vi.fn(async () => json(200, { user: {} }));
+    await createApiClient("http://x", {
+      fetchImpl: fetchImpl as never,
+      headers: { "X-App-Version-Code": "7" },
+    }).health();
+    const init = (fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1];
+    expect((init.headers as Record<string, string>)["X-App-Version-Code"]).toBe("7");
+  });
+
+  it("tells the app when the server says its build is too old", async () => {
+    const onUpgradeRequired = vi.fn();
+    const fetchImpl = vi.fn(async () =>
+      json(426, { detail: { code: "app_outdated", message: "Old" } }),
+    );
+    const api = createApiClient("http://x", { fetchImpl: fetchImpl as never, onUpgradeRequired });
+    await expect(api.health()).rejects.toMatchObject({ status: 426, code: "app_outdated" });
+    expect(onUpgradeRequired).toHaveBeenCalledTimes(1);
+  });
 });

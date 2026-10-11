@@ -1,0 +1,77 @@
+name: Mobile Update (over the air)
+
+# Sends a change to the phone app's screens and logic to the phones that already have it, without a new APK. Run by hand from the Actions tab
+# after the change is on main. Each phone downloads it in the background and offers "Restart to update" (see apps/mobile/src/updates).
+#
+# It only carries JavaScript. A change to a dependency, app.json or app.config.js needs a new APK first (the Mobile Release workflow), so
+# this refuses when anything like that changed since the build the phones have. To take an update back, republish the previous one:
+#   npx eas-cli update:republish --channel preview --destination-channel preview
+#
+# Needs the repository secret EXPO_TOKEN, like the Mobile Release workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: "What this update changes, for the record (shown in Expo's list of updates)"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Publish to the preview channel
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --filter "@fleettms/mobile..."
+
+      # The commit the newest APK was built from is in latest.json (written by the Mobile Release workflow).
+      - name: Check that nothing native changed since the installed build
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          curl -fsSL "https://github.com/$REPO/releases/download/mobile-latest/latest.json" -o latest.json \
+            || { echo "::error::No APK has been published yet, so there is nothing for an update to go to. Run the Mobile Release workflow."; exit 1; }
+          SHA=$(python3 -c "import json;print(json.load(open('latest.json'))['commit'])")
+          [ -n "$SHA" ] || { echo "::error::latest.json has no commit."; exit 1; }
+          if ! python3 scripts/mobile/native_changed.py "$SHA"; then
+            echo "::error::Something native changed since the build phones have (commit $SHA). Run the Mobile Release workflow to make a new APK instead."
+            exit 1
+          fi
+
+      - name: Checks
+        run: |
+          pnpm --filter "@fleettms/mobile..." typecheck
+          pnpm --filter "@fleettms/mobile" test
+
+      # The update's JavaScript is built here, so it must be built with the same settings as the APK it goes to (the API address and how the
+      # app was installed). They are read from the preview profile in eas.json, so the two cannot drift.
+      - name: Publish
+        working-directory: apps/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          MESSAGE: ${{ github.event.inputs.message }}
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then echo "::error::The EXPO_TOKEN repository secret is not set."; exit 1; fi
+          python3 - >> "$GITHUB_ENV" <<'PY'
+          import json
+          for key, value in json.load(open("eas.json"))["build"]["preview"]["env"].items():
+              print(f"{key}={value}")
+          PY
+          set -a; . "$GITHUB_ENV"; set +a
+          npx eas-cli update --channel preview --platform android --message "$MESSAGE (${GITHUB_SHA::7})" --non-interactive

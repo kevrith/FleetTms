@@ -64,6 +64,10 @@ class RequestLimits:
             await _refuse(send, 413, "too_large", "That request is too large.")
             return
         path = scope["path"]
+        sent = headers.get(b"x-app-version-code", b"")
+        if settings.min_app_version_code and sent.isdigit() and int(sent) < settings.min_app_version_code and not path.startswith(("/health", "/ready")):
+            await _refuse(send, 426, "app_outdated", "This version of the app is too old. Update it to carry on.")
+            return
         if not path.startswith(UNLIMITED_PREFIXES):
             from starlette.requests import Request
 
