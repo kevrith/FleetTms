@@ -497,6 +497,7 @@ class RenewalRequest(TenantMixin, Base):
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     decision_note: Mapped[str | None] = mapped_column(String(200))
     document_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("compliance_documents.id", ondelete="SET NULL"))  # the record the approval changed
+    proof_check: Mapped[dict | None] = mapped_column(JSONB)  # what the proof was read as and how it compares with what was typed (app/renewal_check.py)
 
 
 class DocumentReminder(TenantMixin, Base):

@@ -3263,6 +3263,15 @@ export interface Renewal {
   submitted_at: string;
   decided_at: string | null;
   decision_note: string | null;
+  /** What the proof was read as, set against what was typed. Null until it has been read, or when reading is off. */
+  proof_check: RenewalCheck | null;
+}
+
+export interface RenewalCheck {
+  status: "ok" | "warn" | "unreadable";
+  findings: { level: "ok" | "warn" | "info"; text: string }[];
+  kind: string;
+  at: string;
 }
 
 export interface RenewalInput {

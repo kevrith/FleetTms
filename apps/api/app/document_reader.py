@@ -19,6 +19,8 @@ HINTS = {
     "delivery_note": "a signed delivery note. recipient_name is who received the goods; quantity is the number of units, bags or tonnes delivered; notes holds any shortage or damage written on it.",
     "insurance_certificate": "a motor insurance certificate. valid_from and valid_to are the cover period. cover_type is comprehensive or third party.",
     "odometer": "a photograph of a vehicle's dashboard odometer. reading is the total distance shown on the main odometer as a whole number, not the trip meter or the clock. unit is km or mi as shown or marked.",
+    "driving_licence": "a Kenyan digital driving licence issued by NTSA. holder_name is the licence holder's full name; licence_class is the class or classes it covers; valid_to is the date it expires. Do not record the ID number.",
+    "licence_receipt": "a payment receipt for renewing a Kenyan driving licence (NTSA, eCitizen or a bank or M-Pesa receipt). payer_name is who paid or the licence holder named on it; amount is in Kenya shillings; paid_on is the payment date; reference is the receipt or transaction number; description says what was paid for.",
     "logbook": "a Kenyan vehicle logbook (registration certificate). year is the year of manufacture.",
 }
 NUMBER_FIELDS = {"reading", "litres", "price_per_litre", "amount", "gross_kg", "tare_kg", "net_kg", "quantity", "year"}
@@ -66,7 +68,7 @@ class ClaudeReader:
             "tools": [{"name": "record_document", "description": f"Record what is written on {HINTS[kind]}", "input_schema": schema_for(kind)}],
             "tool_choice": {"type": "tool", "name": "record_document"},
             "messages": [{"role": "user", "content": [
-                {"type": "image", "source": {"type": "base64", "media_type": content_type, "data": base64.b64encode(image).decode()}},
+                {"type": "document" if content_type == "application/pdf" else "image", "source": {"type": "base64", "media_type": content_type, "data": base64.b64encode(image).decode()}},
                 {"type": "text", "text": f"This is {HINTS[kind]} Record exactly what is printed or written. Never guess a value you cannot see: use null."},
             ]}],
         }  # fmt: skip

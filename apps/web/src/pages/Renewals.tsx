@@ -159,6 +159,61 @@ function SendForm({ onSent }: { onSent: () => void }) {
   );
 }
 
+function ProofCheck({ r }: { r: Renewal }) {
+  const [check, setCheck] = useState(r.proof_check);
+  const [busy, setBusy] = useState(false);
+  const [asked, setAsked] = useState(false);
+  async function read(again: boolean) {
+    setBusy(true);
+    try {
+      setCheck((await api.checkRenewal(r.id, again)).proof_check);
+    } catch {
+      // reading is only a help; the approver can still look at the file
+    } finally {
+      setBusy(false);
+      setAsked(true);
+    }
+  }
+  // A renewal sent from a phone is read the first time an approver opens it.
+  useEffect(() => {
+    if (!check) void read(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  if (!check)
+    return (
+      <p className="muted">
+        {busy
+          ? "Reading the proof..."
+          : asked
+            ? "The proof could not be read automatically. Look at it yourself."
+            : ""}
+      </p>
+    );
+  return (
+    <>
+      <ul className="list">
+        {check.findings.map((f) => (
+          <li key={f.text}>
+            <span>{f.text}</span>
+            <span
+              className={`status ${f.level === "ok" ? "ok" : f.level === "warn" ? "warn" : ""}`}
+            >
+              {f.level === "ok" ? "agrees" : f.level === "warn" ? "check" : "note"}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="muted">
+        Read by a program from the file; it can be wrong, and a faked file can read perfectly. It
+        helps you look, it does not decide.{" "}
+        <button type="button" className="btn" disabled={busy} onClick={() => void read(true)}>
+          Read again
+        </button>
+      </p>
+    </>
+  );
+}
+
 function Row({ r, onChanged }: { r: Renewal; onChanged: () => void }) {
   const [date, setDate] = useState(r.new_expires_on);
   const [note, setNote] = useState("");
@@ -186,6 +241,7 @@ function Row({ r, onChanged }: { r: Renewal; onChanged: () => void }) {
         {r.reference ? ` ${r.reference}` : ""}
       </span>{" "}
       <ProofLink r={r} />
+      <ProofCheck r={r} />
       <div className="form-grid">
         <Field label="New expiry date (change it if the proof says otherwise)">
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />

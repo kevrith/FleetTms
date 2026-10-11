@@ -11,15 +11,18 @@ KINDS = {
     "delivery_note": ["reference", "recipient_name", "date", "description", "quantity", "notes"],
     "insurance_certificate": ["insurer", "policy_no", "registration", "cover_type", "valid_from", "valid_to"],
     "logbook": ["registration", "chassis_no", "engine_no", "make", "model", "year", "owner_name"],
+    "driving_licence": ["holder_name", "licence_class", "valid_to"],  # the NTSA digital licence; no ID number is read, so none is kept
+    "licence_receipt": ["payer_name", "amount", "paid_on", "reference", "description"],  # the receipt for paying a licence renewal fee
     "odometer": ["reading", "unit"],  # read from a dashboard photo when a trip starts or ends; not offered through /document-readings
 }
 REQUIRED = {
     "fuel_receipt": ["litres", "amount"], "weighbridge_ticket": ["gross_kg", "net_kg"], "delivery_note": ["recipient_name", "date"],
     "insurance_certificate": ["policy_no", "valid_to"], "logbook": ["registration"], "odometer": ["reading"],
+    "driving_licence": ["valid_to"], "licence_receipt": ["paid_on"],
 }  # fmt: skip
 NUMBERS = {"litres": 2, "price_per_litre": 2, "amount": 2, "gross_kg": 0, "tare_kg": 0, "net_kg": 0, "quantity": 2, "year": 0, "reading": 0}
-DATES = ("date", "valid_from", "valid_to")
-TEXTS = ("station", "fuel_type", "receipt_no", "ticket_no", "cargo", "reference", "recipient_name", "description", "notes", "insurer", "policy_no", "cover_type", "chassis_no", "engine_no", "make", "model", "owner_name")
+DATES = ("date", "valid_from", "valid_to", "paid_on")
+TEXTS = ("station", "fuel_type", "receipt_no", "ticket_no", "cargo", "reference", "recipient_name", "description", "notes", "insurer", "policy_no", "cover_type", "chassis_no", "engine_no", "make", "model", "owner_name", "holder_name", "licence_class", "payer_name", "description")
 
 
 def _number(raw) -> float | None:

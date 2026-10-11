@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit, push, renewal_rules
+from app import audit, push, renewal_check, renewal_rules
 from app.db import get_db
 from app.deps import Principal, error, require, require_any
 from app.models import (
@@ -95,7 +95,7 @@ async def _out(db: AsyncSession, r: RenewalRequest) -> dict:
         "subject": vehicle.registration if vehicle else (member.user.name if member else "Former staff"),
         "new_expires_on": r.new_expires_on, "current_expires_on": current.expires_on if current else None, "proof_kind": r.proof_kind, "reference": r.reference,
         "proof": {**photo_out(photo), "is_pdf": photo.content_type == "application/pdf"} if photo else None, "status": r.status,
-        "submitted_by": submitter.name if submitter else None, "submitted_at": r.submitted_at, "decided_at": r.decided_at, "decision_note": r.decision_note,
+        "submitted_by": submitter.name if submitter else None, "submitted_at": r.submitted_at, "decided_at": r.decided_at, "decision_note": r.decision_note, "proof_check": r.proof_check,
     }  # fmt: skip
 
 
@@ -149,10 +149,27 @@ async def announce(db: AsyncSession, r: RenewalRequest) -> None:
 @router.post("/renewals", status_code=status.HTTP_201_CREATED)
 async def submit(body: RenewalIn, principal: Principal = Depends(require_any("trips.own", "vehicles.manage", "staff.manage")), db: AsyncSession = Depends(get_db)):
     r = await do_submit_renewal(db, principal, body)
-    out = await _out(db, r)
     await db.commit()
+    if r.status == "pending":
+        try:
+            await renewal_check.run(db, r)  # best effort: the approver can ask again from the queue
+            await db.commit()
+        except Exception:  # noqa: BLE001 - a reading that fails must never lose the renewal that was just saved
+            await db.rollback()
     await announce(db, r)
-    return out
+    return await _out(db, r)
+
+
+@router.post("/renewals/{renewal_id}/check")
+async def check_proof(renewal_id: uuid.UUID, again: bool = False, principal: Principal = Depends(require("documents.approve")), db: AsyncSession = Depends(get_db)):
+    """Reads the proof and compares it with what was typed, if that has not been done (or `again`). The answer is for the approver to weigh;
+    it never approves or turns anything down. Without a reading service the renewal comes back with no check."""
+    r = (await db.execute(select(RenewalRequest).where(RenewalRequest.id == renewal_id))).scalar_one_or_none()
+    if r is None:
+        raise error(status.HTTP_404_NOT_FOUND, "not_found", "That renewal was not found.")
+    await renewal_check.run(db, r, again=again)
+    await db.commit()
+    return await _out(db, r)
 
 
 async def _apply(db: AsyncSession, r: RenewalRequest, principal: Principal, expires_on: date, note: str | None) -> None:

@@ -230,3 +230,21 @@ async def test_a_photo_of_a_certificate_needs_no_capture_time_and_uploading_it_a
     assert (await upload(client, f.driver, "receipt", data=receipt, source="web", captured_at=None, lat=None, lng=None)).status_code == 422  # evidence still needs its capture time
     old = await upload(client, f.owner, "document", data=jpeg(), source="camera", captured_at="2020-01-01T00:00:00+00:00")
     assert old.status_code == 201 and old.json()["late"] is False
+
+
+async def test_the_claude_reader_sends_a_pdf_as_a_document_block(monkeypatch):
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"content": [{"type": "tool_use", "name": "record_document", "input": {"valid_to": "2027-08-14", "confidence": 0.9}}]})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr("app.document_reader.httpx.AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    monkeypatch.setattr(settings, "anthropic_api_key", uuid.uuid4().hex)
+    monkeypatch.setattr(settings, "document_reader", "claude")
+    got = await document_reader.get_reader().read("driving_licence", b"%PDF-1.4 x %%EOF", "application/pdf")
+    assert got["valid_to"] == "2027-08-14"
+    block = seen["body"]["messages"][0]["content"][0]
+    assert block["type"] == "document" and block["source"]["media_type"] == "application/pdf"
+    assert "ID number" in seen["body"]["tools"][0]["description"] or "ID number" in seen["body"]["messages"][0]["content"][1]["text"]

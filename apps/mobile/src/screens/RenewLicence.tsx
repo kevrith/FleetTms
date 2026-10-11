@@ -1,3 +1,4 @@
+import * as DocumentPicker from "expo-document-picker";
 import { useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { CaptureScreen } from "../capture";
@@ -23,6 +24,8 @@ const PROOFS = [
  * The driver's own licence renewal: a photo of the receipt or of the digital licence on a screen, the new expiry date, and a reference. It goes to
  * the owner or a manager, who checks the proof; until they approve it nothing changes, so a date typed here cannot unblock a trip by itself.
  */
+const MAX_BYTES = 8 * 1024 * 1024; // the server's limit for one file
+
 export default function RenewLicence({
   onDone,
   onCancel,
@@ -43,16 +46,24 @@ export default function RenewLicence({
 
   if (capturing && !proof) {
     return (
-      <CaptureScreen
-        kind="document"
-        title="Photo of the proof"
-        hint="The payment receipt, or the digital licence on a screen. The whole page, in focus."
-        onCancel={onCancel}
-        onDone={(photo) => {
-          setProof(photo);
-          setCapturing(false);
-        }}
-      />
+      <View style={{ gap: 12 }}>
+        <Button
+          label="Choose a PDF or picture from my phone"
+          kind="secondary"
+          onPress={() => void pickFile()}
+        />
+        <ErrorText message={error} />
+        <CaptureScreen
+          kind="document"
+          title="Photo of the proof"
+          hint="The payment receipt, or the digital licence on a screen. The whole page, in focus."
+          onCancel={onCancel}
+          onDone={(photo) => {
+            setProof(photo);
+            setCapturing(false);
+          }}
+        />
+      </View>
     );
   }
   if (sent) {
@@ -66,6 +77,36 @@ export default function RenewLicence({
         <Button label="Done" onPress={onDone} />
       </View>
     );
+  }
+  // The digital licence NTSA sends arrives as a PDF in the phone's email or WhatsApp. A renewal paper is read for what it says and is not
+  // evidence of an event, so (unlike the odometer or cargo photos) it may come from the phone's files instead of the live camera.
+  async function pickFile() {
+    setError(null);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ["application/pdf", "image/jpeg", "image/png", "image/webp"],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      const file = result.canceled ? null : result.assets[0];
+      if (!file) return;
+      if (file.size != null && file.size > MAX_BYTES) {
+        setError("That file is too large. Choose one under 8 MB.");
+        return;
+      }
+      setProof(
+        await offline.capturePhoto({
+          kind: "document",
+          uri: file.uri,
+          capturedAt: new Date().toISOString(),
+          lat: null,
+          lng: null,
+        }),
+      );
+      setCapturing(false);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
   }
   const valid = DATE.test(date) && !Number.isNaN(Date.parse(date)) && proof !== null;
 

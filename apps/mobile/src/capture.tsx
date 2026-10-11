@@ -27,7 +27,7 @@ async function currentPosition(): Promise<{ lat: number; lng: number; mocked: bo
 }
 
 /**
- * Live camera only. There is deliberately no gallery picker anywhere in the app: every photo is taken on the spot,
+ * Live camera only. There is deliberately no gallery picker for evidence photos: every one is taken on the spot,
  * stamped with the time and GPS position, and kept encrypted on the phone until it can be sent (masterplan 5.4).
  * Nothing here needs the network.
  */

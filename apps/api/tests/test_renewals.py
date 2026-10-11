@@ -167,3 +167,89 @@ async def test_a_drivers_phone_sends_the_renewal_through_the_offline_queue_and_t
     again = await sync(client, f.driver, [{"client_id": str(action_id), "type": "renewal.submit", "captured_at": ago(minutes=5), "payload": payload}])
     assert again.json()["results"][0]["status"] == "duplicate"  # a resend after a lost reply makes no second renewal
     assert len((await client.get("/renewals", headers=bearer(f.owner))).json()) == 1
+
+
+# ---- the proof is read and set against what was typed ----------------------------------------------------------------------------
+
+from app import document_reader
+from app.config import settings
+from app.document_reader import fake_reader
+from app.renewal_check_rules import compare, same_person
+
+
+@pytest.fixture
+def reader():
+    settings.document_reader = "fake"
+    fake_reader().result, fake_reader().fail_with = None, None
+    fake_reader().calls.clear()
+    yield fake_reader()
+    settings.document_reader = ""
+
+
+def test_names_match_when_every_word_of_the_shorter_one_is_in_the_longer():
+    assert same_person("John Mwangi", "MWANGI JOHN KAMAU") is True
+    assert same_person("John Mwangi", "Peter Otieno") is False
+    assert same_person("John Mwangi", None) is None
+
+
+def test_the_insurance_certificate_is_set_against_the_date_and_plate_typed():
+    typed = {"new_expires_on": date(2027, 8, 14), "registration": "KCA 123A", "name": None, "reference": None}
+    same = compare(kind="insurance_certificate", fields={"valid_to": "2027-08-14", "registration": "KCA 123A", "policy_no": "P1"}, confidence=0.9, typed=typed, today=TODAY)
+    assert same["status"] == "ok" and [f["level"] for f in same["findings"]] == ["ok", "ok"]
+    other = compare(kind="insurance_certificate", fields={"valid_to": "2027-01-01", "registration": "KDD 555B"}, confidence=0.9, typed=typed, today=TODAY)
+    assert other["status"] == "warn" and "valid until 2027-01-01, but 2027-08-14 was typed" in other["findings"][0]["text"] and "not KCA 123A" in other["findings"][1]["text"]
+
+
+def test_a_receipt_is_checked_for_who_paid_when_and_which_number_but_the_new_date_is_taken_on_trust():
+    typed = {"new_expires_on": date(2029, 10, 20), "registration": None, "name": "John Mwangi", "reference": "ecit-8841"}
+    good = compare(kind="licence_receipt", fields={"payer_name": "MWANGI JOHN", "paid_on": "2026-10-05", "reference": "ECIT-8841", "amount": 3050}, confidence=0.8, typed=typed, today=TODAY)
+    assert good["status"] == "ok" and any("trusting" in f["text"] for f in good["findings"])
+    old = compare(kind="licence_receipt", fields={"payer_name": "Peter Otieno", "paid_on": "2026-05-01", "reference": "X9"}, confidence=0.8, typed=typed, today=TODAY)
+    assert old["status"] == "warn" and sum(f["level"] == "warn" for f in old["findings"]) == 3  # wrong name, too old, other number
+
+
+def test_an_unreadable_or_low_confidence_file_says_so():
+    typed = {"new_expires_on": date(2027, 8, 14), "registration": None, "name": None, "reference": None}
+    assert compare(kind="driving_licence", fields={"valid_to": None}, confidence=0.1, typed=typed, today=TODAY)["status"] == "unreadable"
+    shaky = compare(kind="driving_licence", fields={"valid_to": "2027-08-14", "holder_name": "A B"}, confidence=0.3, typed=typed, today=TODAY)
+    assert shaky["status"] == "warn" and "hard to read" in shaky["findings"][0]["text"]
+
+
+async def test_a_renewal_sent_with_a_pdf_is_read_and_the_approver_sees_how_it_compares(client, reader):
+    f = await fleet(client)
+    await document(client, f, "insurance", -10)
+    manager, _ = await staff_session(client, f.owner, "manager", "mgr@example.com")
+    new = nairobi_today() + timedelta(days=360)
+    reader.result = {"policy_no": "POL-77", "registration": "KCA 123A", "valid_to": new.isoformat(), "confidence": 0.95}
+    sent = await client.post("/renewals", headers=bearer(manager), json={"doc_type": "insurance", "vehicle_id": f.vehicle["id"], "new_expires_on": new.isoformat(), "proof_kind": "certificate", "photo_id": await document_photo(client, manager, data=PDF)})
+    assert sent.status_code == 201, sent.text
+    check = sent.json()["proof_check"]
+    assert check["status"] == "ok" and check["kind"] == "insurance_certificate" and check["read"]["policy_no"] == "POL-77"
+    assert reader.calls == [("insurance_certificate", len(PDF), "application/pdf")]  # the PDF itself went to the reader
+    # a date that disagrees with the certificate is pointed out, not refused
+    reader.result = {"registration": "KCA 123A", "valid_to": (new - timedelta(days=100)).isoformat(), "confidence": 0.95}
+    again = await client.post(f"/renewals/{sent.json()['id']}/check?again=true", headers=bearer(f.owner))
+    assert again.json()["proof_check"]["status"] == "warn"
+    assert (await client.post(f"/renewals/{sent.json()['id']}/approve", headers=bearer(f.owner), json={})).status_code == 200
+
+
+async def test_a_reading_that_fails_or_is_off_leaves_the_renewal_saved_without_a_check(client, reader):
+    f = await fleet(client)
+    reader.fail_with = "The document could not be read just now."
+    res = await client.post("/renewals", headers=bearer(f.driver), json=licence_renewal(f, await document_photo(client, f.driver)))
+    assert res.status_code == 201 and res.json()["proof_check"] is None and res.json()["status"] == "pending"
+    settings.document_reader = ""
+    settings.anthropic_api_key = ""
+    off = await client.post(f"/renewals/{res.json()['id']}/check", headers=bearer(f.owner))
+    assert off.status_code == 200 and off.json()["proof_check"] is None
+    assert (await client.post(f"/renewals/{res.json()['id']}/check", headers=bearer(f.driver))).status_code == 403  # only an approver asks
+
+
+async def test_a_licence_receipt_is_read_for_the_drivers_name_and_payment(client, reader):
+    f = await fleet(client)
+    reader.result = {"payer_name": "Somebody Else", "paid_on": nairobi_today().isoformat(), "reference": "ECIT-8841", "confidence": 0.9}
+    res = await client.post("/renewals", headers=bearer(f.driver), json=licence_renewal(f, await document_photo(client, f.driver)))
+    check = res.json()["proof_check"]
+    assert check["kind"] == "licence_receipt" and check["status"] == "warn"
+    assert any("but this is for" in x["text"] for x in check["findings"])
+    assert document_reader  # imported for the stand-in above

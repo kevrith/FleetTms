@@ -1130,6 +1130,8 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
     submitRenewal: (input: RenewalInput) => post<Renewal>("/renewals", input),
     approveRenewal: (id: string, input: { expires_on?: string; note?: string } = {}) =>
       post<Renewal>(`/renewals/${id}/approve`, input),
+    checkRenewal: (id: string, again = false) =>
+      post<Renewal>(`/renewals/${id}/check${again ? "?again=true" : ""}`),
     rejectRenewal: (id: string, note: string) => post<Renewal>(`/renewals/${id}/reject`, { note }),
     fuelEfficiency: (months = 3, vehicleId?: string) =>
       get<FuelEfficiency>(
