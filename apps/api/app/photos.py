@@ -76,19 +76,25 @@ async def ingest_photo(
             return again
     if len(data) > settings.max_photo_bytes:
         raise error(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "photo_too_large", "That photo is too large.")
-    try:
-        img = Image.open(io.BytesIO(data))
-        img.verify()
-        img = Image.open(io.BytesIO(data))  # verify() leaves the image unusable, so open it again
-    except (UnidentifiedImageError, OSError, SyntaxError):
-        raise error(422, "not_an_image", "That file is not a photo.") from None
-    if img.format not in ALLOWED:
-        raise error(422, "unsupported_image", "Use a JPEG, PNG or WebP photo.")
-    width, height = img.size
-    if min(width, height) < MIN_SHORT_SIDE or max(width, height) > MAX_SIDE:
-        raise error(422, "photo_quality", "That photo is too small or too blurry to read. Take a closer, clearer one.")
-    if _mostly_blank(img):
-        raise error(422, "photo_blank", "That photo is blank or too dark. Uncover the lens, add light, and try again.")
+    pdf = kind == PhotoKind.DOCUMENT and data.startswith(b"%PDF-")  # the NTSA digital licence and insurers' certificates arrive as PDFs
+    if pdf:
+        if b"%%EOF" not in data[-2048:]:
+            raise error(422, "not_an_image", "That PDF looks cut short. Download it again.")
+        img, width, height = None, 0, 0
+    else:
+        try:
+            img = Image.open(io.BytesIO(data))
+            img.verify()
+            img = Image.open(io.BytesIO(data))  # verify() leaves the image unusable, so open it again
+        except (UnidentifiedImageError, OSError, SyntaxError):
+            raise error(422, "not_an_image", "That file is not a photo.") from None
+        if img.format not in ALLOWED:
+            raise error(422, "unsupported_image", "Use a JPEG, PNG or WebP photo.")
+        width, height = img.size
+        if min(width, height) < MIN_SHORT_SIDE or max(width, height) > MAX_SIDE:
+            raise error(422, "photo_quality", "That photo is too small or too blurry to read. Take a closer, clearer one.")
+        if _mostly_blank(img):
+            raise error(422, "photo_blank", "That photo is blank or too dark. Uncover the lens, add light, and try again.")
     if lat is not None and not -90 <= lat <= 90 or lng is not None and not -180 <= lng <= 180:
         raise error(422, "invalid_location", "That location is not valid.")
 
@@ -123,7 +129,7 @@ async def ingest_photo(
             await db.commit()  # the photo is refused, but the owner is told someone tried to use it twice
         raise error(status.HTTP_409_CONFLICT, "duplicate_photo", "That exact photo was already used. Take a new one.")
 
-    content_type, ext = ALLOWED[img.format]
+    content_type, ext = (("application/pdf", "pdf") if pdf else ALLOWED[img.format])
     key = f"{principal.business_id}/{kind.value}/{uuid.uuid4()}.{ext}"
     photo = Photo(
         kind=kind, source=source, storage_key=key, content_type=content_type, size_bytes=len(data), sha256=digest,

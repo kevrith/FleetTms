@@ -384,7 +384,39 @@ export interface TripJob {
   billing_method: "per_trip" | "per_tonne" | "per_km" | "monthly_contract";
 }
 
+export interface ClearanceIssue {
+  doc_type: string;
+  label: string;
+  subject: "driver" | "vehicle";
+  name: string;
+  status: "missing" | "expired" | "today" | "soon" | "ends_during_trip";
+  expires_on: string | null;
+  days_left: number | null;
+  /** True when this alone stops the trip from starting (block mode). */
+  blocking: boolean;
+  /** The issue in plain words, ready to show. */
+  text: string;
+}
+
+/** What the business's document rule says about a trip that has not started yet. */
+export interface TripClearance {
+  mode: "off" | "warn" | "block";
+  blocked: boolean;
+  overridden: boolean;
+  issues: ClearanceIssue[];
+}
+
+export interface DocumentRule {
+  mode: "off" | "warn" | "block";
+  required: string[];
+  options: { doc_type: string; label: string; subject: "driver" | "vehicle" }[];
+}
+
 export interface Trip {
+  /** Only on a trip that has not started: null once it has. */
+  compliance?: TripClearance | null;
+  /** The owner allowed this trip although a required document had run out. */
+  compliance_override?: { reason: string; at: string } | null;
   /** What was paid for the trip when there is no invoice. Only for people who deal with money. */
   received_cents?: number | null;
   received_note?: string | null;
@@ -3207,4 +3239,38 @@ export interface FuelEfficiency {
     trip_id: string | null;
     occurred_at: string;
   }[];
+}
+
+// ---- renewals with proof ----
+
+export type RenewalProof = "digital_licence" | "receipt" | "certificate";
+
+export interface Renewal {
+  id: string;
+  doc_type: string;
+  label: string;
+  vehicle_id: string | null;
+  membership_id: string | null;
+  /** The registration, or the person's name. */
+  subject: string;
+  new_expires_on: string;
+  current_expires_on: string | null;
+  proof_kind: RenewalProof;
+  reference: string | null;
+  proof: (PhotoRef & { is_pdf: boolean }) | null;
+  status: "pending" | "approved" | "rejected";
+  submitted_by: string | null;
+  submitted_at: string;
+  decided_at: string | null;
+  decision_note: string | null;
+}
+
+export interface RenewalInput {
+  doc_type: string;
+  vehicle_id?: string;
+  membership_id?: string;
+  new_expires_on: string;
+  proof_kind: RenewalProof;
+  reference?: string;
+  photo_id: string;
 }

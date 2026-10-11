@@ -60,6 +60,9 @@ import type {
   FraudAlert,
   FraudSettings,
   FraudSummary,
+  DocumentRule,
+  Renewal,
+  RenewalInput,
   FuelEfficiency,
   FuelPrices,
   Onboarding,
@@ -1117,6 +1120,17 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
       const qs = q.toString();
       return get<Scorecards>(`/scorecards${qs ? `?${qs}` : ""}`);
     },
+    documentRule: () => get<DocumentRule>("/document-rule"),
+    saveDocumentRule: (input: { mode: DocumentRule["mode"]; required: string[] }) =>
+      request<DocumentRule>("PUT", "/document-rule", input),
+    overrideCompliance: (tripId: string, reason: string) =>
+      request<{ trip_id: string }>("POST", `/trips/${tripId}/compliance-override`, { reason }),
+    renewals: (status: Renewal["status"] | "all" = "pending") =>
+      get<Renewal[]>(`/renewals?status=${status}`),
+    submitRenewal: (input: RenewalInput) => post<Renewal>("/renewals", input),
+    approveRenewal: (id: string, input: { expires_on?: string; note?: string } = {}) =>
+      post<Renewal>(`/renewals/${id}/approve`, input),
+    rejectRenewal: (id: string, note: string) => post<Renewal>(`/renewals/${id}/reject`, { note }),
     fuelEfficiency: (months = 3, vehicleId?: string) =>
       get<FuelEfficiency>(
         `/fuel-efficiency?months=${months}${vehicleId ? `&vehicle_id=${vehicleId}` : ""}`,

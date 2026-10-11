@@ -3,6 +3,7 @@ import { useAuth } from "../auth";
 import Audit from "./Audit";
 import Checklist from "./Checklist";
 import Depots from "./Depots";
+import DocumentRulePage from "./DocumentRule";
 import FuelPricesPage from "./FuelPrices";
 import DataExport from "./DataExport";
 import ImportData from "./ImportData";
@@ -28,6 +29,7 @@ export default function Settings() {
       label: "Fuel prices",
       show: can("clients.manage") || can("vehicles.view"),
     },
+    { to: "documents", label: "Trip documents", show: can("business.manage") },
     { to: "import", label: "Import from Excel", show: can("data.import") },
     { to: "subscription", label: "Subscription", show: can("business.manage") },
     { to: "data", label: "Your data", show: can("business.manage") },
@@ -57,6 +59,7 @@ export default function Settings() {
         {(can("clients.manage") || can("vehicles.view")) && (
           <Route path="fuel-prices" element={<FuelPricesPage />} />
         )}
+        {can("business.manage") && <Route path="documents" element={<DocumentRulePage />} />}
         {can("data.import") && <Route path="import" element={<ImportData />} />}
         {can("business.manage") && <Route path="subscription" element={<SubscriptionPage />} />}
         {can("business.manage") && <Route path="data" element={<DataExport />} />}

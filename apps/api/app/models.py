@@ -225,6 +225,9 @@ class Business(Base):
     referred_by_partner_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("partners.id", ondelete="SET NULL"), index=True)  # the installer who brought it in
     referred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     suspended_reason: Mapped[str | None] = mapped_column(String(255))
+    # Whether a trip may start with an expired document: off, warn (said but never stopped) or block (see app/clearance.py).
+    document_rule: Mapped[str] = mapped_column(String(5), default="warn", server_default=text("'warn'"))
+    required_documents: Mapped[list[str]] = mapped_column(JSONB, default=lambda: ["insurance", "driving_licence"], server_default=text("""'["insurance", "driving_licence"]'::jsonb"""))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -474,6 +477,28 @@ class ComplianceDocument(TenantMixin, Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class RenewalRequest(TenantMixin, Base):
+    """A new expiry date for a licence or insurance, sent with its proof (the NTSA digital licence, the payment receipt, the insurer's
+    certificate). Nothing changes until a manager or the owner approves it: a driver cannot unblock themselves by typing a date."""
+
+    __tablename__ = "renewal_requests"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    doc_type: Mapped[str] = mapped_column(String(20))
+    vehicle_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True)
+    membership_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("memberships.id", ondelete="CASCADE"), index=True)
+    new_expires_on: Mapped[date] = mapped_column(Date)
+    proof_kind: Mapped[str] = mapped_column(String(20))  # digital_licence, receipt or certificate
+    reference: Mapped[str | None] = mapped_column(String(80))  # the receipt or policy number
+    photo_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("photos.id", ondelete="SET NULL"))
+    status: Mapped[str] = mapped_column(String(10), default="pending", index=True)  # pending, approved or rejected
+    submitted_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    decided_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decision_note: Mapped[str | None] = mapped_column(String(200))
+    document_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("compliance_documents.id", ondelete="SET NULL"))  # the record the approval changed
+
+
 class DocumentReminder(TenantMixin, Base):
     """One row per reminder sent, so a reminder never goes out twice."""
 
@@ -612,6 +637,10 @@ class Trip(TenantMixin, Base):
     tracker_points: Mapped[int | None] = mapped_column(Integer)
     distance_detail: Mapped[dict | None] = mapped_column(JSONB)  # the three distances and which one disagrees, if one does
     km_credited: Mapped[int | None] = mapped_column(Integer)  # kilometres of this trip already added to a gps vehicle's running total
+    # The owner letting a trip start although a document had run out (the reason is kept; it covers this trip only).
+    compliance_override_reason: Mapped[str | None] = mapped_column(String(200))
+    compliance_override_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL", name="fk_trips_compliance_override_by_user_id"))
+    compliance_override_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), index=True)
     # What was paid for a trip that has no invoice (a one-lorry owner who is simply paid cash or M-Pesa): profit counts it as the trip's income.
     received_cents: Mapped[int | None] = mapped_column(BigInteger)

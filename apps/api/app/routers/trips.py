@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit, fraud, odometer_reader, ratelimit, tracking
+from app import audit, clearance, fraud, odometer_reader, ratelimit, tracking
 from app.clock import capture_time
 from app.config import settings
 from app.db import get_db
@@ -36,7 +36,7 @@ from app.models import (
 from app.odometer import OdometerError, check_value, reading_flags, trip_distance_km
 from app.photos import claim_photo, photo_out
 from app.pod import PodIn, confirm_pod, request_code
-from app.reminders import NAIROBI
+from app.reminders import NAIROBI, nairobi_today
 from app.routers.inspections import OK_FOR_TRIP, latest_inspection_on
 from app.routers.vehicles import get_vehicle
 from app.scheduling import DEFAULT_TRIP_HOURS, ensure_available
@@ -106,7 +106,7 @@ def require_actor(principal: Principal, trip: Trip) -> None:
         raise error(status.HTTP_403_FORBIDDEN, "not_your_trip", "This is not your trip.")
 
 
-async def trip_out(db: AsyncSession, trip: Trip, *, money: bool = False) -> dict:
+async def trip_out(db: AsyncSession, trip: Trip, *, money: bool = False, with_clearance: bool = False) -> dict:
     readings = (await db.execute(select(OdometerReading).where(OdometerReading.trip_id == trip.id))).scalars().all()
     photo_ids = [r.photo_id for r in readings] + ([trip.cargo_photo_id] if trip.cargo_photo_id else [])
     photos = (
@@ -151,7 +151,12 @@ async def trip_out(db: AsyncSession, trip: Trip, *, money: bool = False) -> dict
                 "pickup_at": j.pickup_at, "deliver_by": j.deliver_by, "trips_planned": j.trips_planned,
                 "billing_method": j.billing_method.value,
             }  # fmt: skip
+    cleared = None
+    if with_clearance and trip.status == TripStatus.SCHEDULED:  # what the trip would be told if it started now; a few queries each, so only for one trip or a driver's own
+        cleared = await clearance.check(db, trip, today=nairobi_today())
     return {
+        "compliance": cleared,
+        "compliance_override": {"reason": trip.compliance_override_reason, "at": trip.compliance_override_at} if trip.compliance_override_at else None,
         **({"received_cents": trip.received_cents, "received_note": trip.received_note, "received_at": trip.received_at} if money else {}),
         "job": job,
         "pod": pod_out,
@@ -352,14 +357,14 @@ async def my_trips(principal: Principal = Depends(require("trips.own")), db: Asy
         )
         .order_by(Trip.scheduled_for.asc().nulls_last(), Trip.created_at)
     )
-    return [await trip_out(db, t) for t in (await db.execute(query)).scalars()]
+    return [await trip_out(db, t, with_clearance=True) for t in (await db.execute(query)).scalars()]  # a driver has a few trips at most
 
 
 @router.get("/trips/{trip_id}")
 async def read_trip(
     trip_id: uuid.UUID, principal: Principal = Depends(require_any("trips.view", "trips.own")), db: AsyncSession = Depends(get_db)
 ):
-    return await trip_out(db, await get_trip(db, principal, trip_id), money=sees_money(principal))
+    return await trip_out(db, await get_trip(db, principal, trip_id), money=sees_money(principal), with_clearance=True)
 
 
 def sees_money(principal: Principal) -> bool:
@@ -478,6 +483,16 @@ async def do_start_trip(db: AsyncSession, principal: Principal, trip_id: uuid.UU
     if trip.status != TripStatus.SCHEDULED:
         raise error(status.HTTP_409_CONFLICT, "wrong_status", "This trip has already started.")
     vehicle = await get_vehicle(db, principal, trip.vehicle_id)
+
+    if trip.compliance_override_at is None:
+        cleared = await clearance.check(db, trip, today=at.astimezone(NAIROBI).date())
+        if cleared["blocked"]:
+            await clearance.tell_managers(db, trip, cleared, vehicle.registration)
+            reasons = " ".join(i["text"] for i in cleared["issues"] if i["blocking"])
+            raise error(
+                status.HTTP_409_CONFLICT, "documents_expired",
+                f"This trip cannot start. {reasons} Renew and update the date, or ask the owner to allow this trip.",
+            )  # fmt: skip
 
     inspection = await latest_inspection_on(db, vehicle.id, at.astimezone(NAIROBI).date())
     if inspection is None:

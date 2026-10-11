@@ -185,6 +185,13 @@ export interface RepairFormInput {
   description: string;
   photo: LocalPhoto | null;
 }
+export interface LicenceRenewalInput {
+  proof: LocalPhoto;
+  proofKind: "receipt" | "digital_licence";
+  /** The new expiry date, as YYYY-MM-DD. */
+  newExpiresOn: string;
+  reference: string;
+}
 export interface FuelFormInput {
   vehicleId: string;
   tripId: string | null;
@@ -234,6 +241,8 @@ interface Offline {
   suggestOdometer: (photo: LocalPhoto) => Promise<number | null>;
   addExpense: (input: ExpenseFormInput) => Promise<void>;
   submitReconciliation: () => Promise<void>;
+  /** Sends the driver's own licence renewal with its proof for a manager to approve. Nothing changes until someone approves it. */
+  submitLicenceRenewal: (input: LicenceRenewalInput) => Promise<void>;
   /** The float balance with expenses still waiting to be sent already taken off. */
   balanceCents: () => number | null;
   syncNow: () => Promise<RunResult>;
@@ -656,6 +665,21 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
             },
             ...cache().expenses,
           ].slice(0, 10),
+        });
+      },
+
+      async submitLicenceRenewal(input) {
+        await queueAndSync({
+          type: "renewal.submit",
+          capturedAt: nowIso(),
+          photoIds: [input.proof.clientId],
+          payload: {
+            doc_type: "driving_licence",
+            new_expires_on: input.newExpiresOn,
+            proof_kind: input.proofKind,
+            reference: input.reference.trim() || null,
+            photo_client_id: input.proof.clientId,
+          },
         });
       },
 

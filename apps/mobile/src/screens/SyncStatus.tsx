@@ -15,6 +15,7 @@ const TYPE_LABEL: Record<ActionType, string> = {
   "reconciliation.submit": "End-of-day report",
   "incident.report": "Problem report",
   "repair.request": "Repair request",
+  "renewal.submit": "Licence renewal",
   "sos.send": "SOS",
 };
 

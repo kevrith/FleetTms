@@ -34,6 +34,7 @@ import LiveMap from "./pages/LiveMap";
 import Portal from "./pages/Portal";
 import Alerts from "./pages/Alerts";
 import FuelEfficiency from "./pages/FuelEfficiency";
+import Renewals from "./pages/Renewals";
 import Scorecards from "./pages/Scorecards";
 import Suppliers from "./pages/Suppliers";
 import Tracking from "./pages/Tracking";
@@ -162,6 +163,7 @@ export default function App() {
         <Route path="/alerts/*" element={<Alerts />} />
         <Route path="/scorecards" element={<Scorecards />} />
         <Route path="/fuel-efficiency" element={<FuelEfficiency />} />
+        <Route path="/renewals" element={<Renewals />} />
         <Route path="/settings/*" element={<Settings />} />
         <Route path="*" element={<Placeholder />} />
       </Route>

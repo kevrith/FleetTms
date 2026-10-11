@@ -21,6 +21,7 @@ export type ActionType =
   | "reconciliation.submit"
   | "incident.report"
   | "repair.request"
+  | "renewal.submit"
   | "sos.send";
 
 /** A photo taken on the phone, kept encrypted until it has been uploaded. */

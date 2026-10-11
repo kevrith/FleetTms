@@ -42,7 +42,7 @@ async def upload_photo(
 async def view_media(token: str):
     """Serves a photo to anyone holding a genuine, unexpired link. Links are only issued to people allowed to see it."""
     key = storage.key_from_token(token)
-    media_type = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp"}.get(key.rsplit(".", 1)[-1], "application/octet-stream") if key else None
+    media_type = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp", "pdf": "application/pdf"}.get(key.rsplit(".", 1)[-1], "application/octet-stream") if key else None
     response = await storage.serve(key, media_type, headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"}) if key else None
     if response is None:
         raise error(status.HTTP_404_NOT_FOUND, "not_found", "That link has expired.")

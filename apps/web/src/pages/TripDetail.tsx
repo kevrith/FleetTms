@@ -278,6 +278,68 @@ function ReceivedCard({
   );
 }
 
+/** What has run out or is about to, for the driver and lorry on a trip that has not started; the owner can allow one blocked trip. */
+function ClearanceCard({ trip, onChanged }: { trip: Trip; onChanged: () => void }) {
+  const { can } = useAuth();
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const c = trip.compliance;
+  if (!c || (c.issues.length === 0 && !trip.compliance_override)) return null;
+  async function allow() {
+    setError(null);
+    try {
+      await api.overrideCompliance(trip.id, reason.trim());
+      setReason("");
+      onChanged();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+  return (
+    <Card title="Documents">
+      <ErrorBanner message={error} />
+      <ul className="list">
+        {c.issues.map((i) => (
+          <li key={`${i.doc_type}-${i.subject}`}>
+            <span>{i.text}</span>
+            <span className={`status ${i.blocking ? "bad" : "warn"}`}>
+              {i.blocking ? "stops the trip" : "to renew"}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {trip.compliance_override && (
+        <p className="status warn">Allowed by the owner: {trip.compliance_override.reason}</p>
+      )}
+      {c.blocked && !trip.compliance_override && (
+        <>
+          <p className="muted">
+            This trip cannot start until the date is updated in the app
+            {can("compliance.override")
+              ? ", or you allow this one trip."
+              : ". Only the owner can allow it."}
+          </p>
+          {can("compliance.override") && (
+            <div className="form-grid">
+              <Field label="Why this trip may go (kept in the audit trail)">
+                <input value={reason} onChange={(e) => setReason(e.target.value)} />
+              </Field>
+              <button
+                type="button"
+                className="btn danger"
+                disabled={reason.trim().length < 5}
+                onClick={() => void allow()}
+              >
+                Allow this trip
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
 function Delivery({ trip, onChanged }: { trip: Trip; onChanged: () => void }) {
   const { can } = useAuth();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
@@ -496,6 +558,7 @@ export default function TripDetail() {
       <TripTrackCard trip={trip} />
       {trip.started_at && <ReplayCard tripId={trip.id} />}
       <TrackingLinksCard trip={trip} />
+      <ClearanceCard trip={trip} onChanged={load} />
       <Delivery trip={trip} onChanged={load} />
       <CapturePanel
         trip={trip}

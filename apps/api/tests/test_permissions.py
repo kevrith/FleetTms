@@ -49,6 +49,8 @@ CHECKS = {
     "list_ownership_costs": ("GET", "/ownership-costs", None, "finance.view"),
     "profit": ("GET", "/profit", None, "finance.view"),
     "fuel_efficiency": ("GET", "/fuel-efficiency", None, "reports.view"),
+    "read_document_rule": ("GET", "/document-rule", None, "vehicles.view"),
+    "save_document_rule": ("PUT", "/document-rule", {"mode": "warn", "required": ["insurance"]}, "business.manage"),
     "payroll_runs": ("GET", "/payroll/runs", None, "payroll.view"),
     "list_suppliers": ("GET", "/suppliers", None, "workshop.manage"),
     "my_leases": ("GET", "/portal/leases", None, "lease.view_own"),

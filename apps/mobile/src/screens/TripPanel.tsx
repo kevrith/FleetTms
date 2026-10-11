@@ -17,6 +17,7 @@ import { Body, Button, ErrorText, errorMessage, Input, useTheme } from "../ui";
 import Delivery from "./Delivery";
 import InspectionFlow from "./InspectionFlow";
 import Loading from "./Loading";
+import RenewLicence from "./RenewLicence";
 import { useTrackingStatus } from "../tracking/status";
 
 type Mode =
@@ -25,7 +26,8 @@ type Mode =
   | { kind: "odometer"; phase: "start" | "end" }
   | { kind: "reading"; phase: "start" | "end"; photo: LocalPhoto }
   | { kind: "cargo" }
-  | { kind: "delivery" };
+  | { kind: "delivery" }
+  | { kind: "renew" };
 
 /**
  * The driver's current trip and the one next step. Everything works with no network: each step is saved on the phone
@@ -247,6 +249,8 @@ export default function TripPanel() {
     inspection.day === nairobiDay(new Date());
   const status = today ? inspection.status : null;
   const blocked = status === "blocked";
+  // The server decides when the trip starts; this only saves the driver doing the odometer photo first. It is as old as the last sync.
+  const stoppedByDocuments = !!trip.compliance?.blocked && !trip.compliance_override;
   const cleared = status !== null && !blocked;
 
   if (mode.kind === "inspection") {
@@ -280,6 +284,7 @@ export default function TripPanel() {
       />
     );
   }
+  if (mode.kind === "renew") return <RenewLicence onDone={finish} onCancel={finish} />;
   if (mode.kind === "cargo") return <Loading onDone={finish} onCancel={finish} />;
   if (mode.kind === "delivery") return <Delivery onDone={finish} onCancel={finish} />;
   if (mode.kind === "reading") {
@@ -386,6 +391,26 @@ export default function TripPanel() {
       <ErrorText message={error} />
       {trip.status === "scheduled" && (
         <>
+          {trip.compliance?.issues.map((i) => (
+            <Body key={`${i.doc_type}-${i.subject}`} muted={!i.blocking}>
+              {i.text}
+            </Body>
+          ))}
+          {stoppedByDocuments && (
+            <Body>
+              This trip cannot start until the date is updated, or the owner allows it. Tell your
+              employer.
+            </Body>
+          )}
+          {trip.compliance?.issues.some(
+            (i) => i.subject === "driver" && i.status !== "ends_during_trip",
+          ) && (
+            <Button
+              label="Send my licence renewal"
+              kind="secondary"
+              onPress={() => setMode({ kind: "renew" })}
+            />
+          )}
           {blocked && (
             <Body>
               The inspection found a critical fault. A manager must clear it before you can start.
@@ -402,6 +427,7 @@ export default function TripPanel() {
           {cleared ? (
             <Button
               label="Start trip"
+              disabled={stoppedByDocuments}
               onPress={() => setMode({ kind: "odometer", phase: "start" })}
             />
           ) : (

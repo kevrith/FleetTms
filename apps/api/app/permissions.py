@@ -25,6 +25,8 @@ ALL = {
     "trips.own",
     "expenses.own",
     "inspections.override",
+    "documents.approve",  # look at a renewal's proof and put the new date on the record
+    "compliance.override",  # owner only: let a trip start although a required document has run out
     "floats.manage",
     "expenses.view",
     "expenses.manage",
@@ -69,6 +71,7 @@ ROLE_PERMISSIONS: dict[Role, set[str]] = {
         "trips.view",
         "trips.manage",
         "inspections.override",
+        "documents.approve",
         "floats.manage",
         "expenses.view",
         "expenses.manage",

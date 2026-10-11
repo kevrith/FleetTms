@@ -420,4 +420,32 @@ describe("sync engine", () => {
     expect(server.devices[0]?.device_id).toBe("pixel-1");
     expect(store.get().mockSeen).toBe(false);
   });
+
+  it("sends a licence renewal made offline once its proof photo has gone up", async () => {
+    const { store, server, engine, goOffline, goOnline } = await setup();
+    const proof = await store.addPhoto(bytes("receipt"), {
+      kind: "document",
+      capturedAt: "2026-10-02T07:00:00Z",
+      lat: null,
+      lng: null,
+    });
+    await store.enqueue({
+      type: "renewal.submit",
+      payload: {
+        doc_type: "driving_licence",
+        new_expires_on: "2029-10-15",
+        proof_kind: "receipt",
+        photo_client_id: proof.clientId,
+      },
+      capturedAt: "2026-10-02T07:00:00Z",
+      photoIds: [proof.clientId],
+    });
+    goOffline();
+    expect(await engine.run()).toEqual({ status: "offline" });
+    goOnline();
+    expect(await engine.run()).toMatchObject({ status: "done", applied: 1, rejected: 0 });
+    expect(server.photos.has(proof.clientId)).toBe(true);
+    expect(server.syncCalls[0]!.map((a) => a.type)).toEqual(["renewal.submit"]);
+    expect(store.get().queue).toEqual([]);
+  });
 });

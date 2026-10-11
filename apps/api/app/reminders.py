@@ -17,6 +17,7 @@ from app.db import get_sessionmaker
 from app.models import (
     Business,
     ComplianceDocument,
+    CrewAssignment,
     DocumentReminder,
     Membership,
     MembershipStatus,
@@ -45,6 +46,15 @@ def nairobi_today() -> date:
     return datetime.now(UTC).astimezone(NAIROBI).date()
 
 
+async def _crew_of(db: AsyncSession, members: dict) -> dict:
+    """The people now crewing each vehicle: they are told when its insurance or inspection is running out, because they are the ones stopped at the gate."""
+    crew: dict = {}
+    for c in (await db.execute(select(CrewAssignment).where(CrewAssignment.ended_at.is_(None)))).scalars():
+        if c.membership_id in members:
+            crew.setdefault(c.vehicle_id, []).append(members[c.membership_id])
+    return crew
+
+
 async def _send_for_business(db: AsyncSession, today: date) -> int:
     members = {m.id: m for m in (await db.execute(select(Membership))).scalars()}
     managers = [
@@ -55,6 +65,7 @@ async def _send_for_business(db: AsyncSession, today: date) -> int:
         and {r.role for r in m.roles} & {Role.OWNER, Role.MANAGER}
     ]
     vehicles = {v.id: v for v in (await db.execute(select(Vehicle))).scalars()}
+    crew = await _crew_of(db, members)
     sent_keys = {
         (r.document_id, r.expires_on, r.days_before) for r in (await db.execute(select(DocumentReminder))).scalars()
     }
@@ -79,6 +90,11 @@ async def _send_for_business(db: AsyncSession, today: date) -> int:
         tokens = {m.user.push_token for m in managers if m.user.push_token}
         if doc.vehicle_id is not None:
             subject = vehicles[doc.vehicle_id].registration if doc.vehicle_id in vehicles else "a vehicle"
+            for mate in crew.get(doc.vehicle_id, []):
+                if mate.user.phone:
+                    phones.add(mate.user.phone)
+                if mate.user.push_token:
+                    tokens.add(mate.user.push_token)
         else:
             holder = members.get(doc.membership_id)
             subject = holder.user.name if holder else "a staff member"
@@ -99,7 +115,7 @@ async def _send_for_business(db: AsyncSession, today: date) -> int:
             )  # fmt: skip
         for days in crossed:
             db.add(DocumentReminder(document_id=doc.id, expires_on=doc.expires_on, days_before=days))
-    await _nag_about_lapsed(db, today, managers, members, vehicles)  # pushes only: the count stays the texts sent
+    await _nag_about_lapsed(db, today, managers, members, vehicles, crew)  # pushes only: the count stays the texts sent
     await db.commit()
     return count
 
@@ -107,7 +123,7 @@ async def _send_for_business(db: AsyncSession, today: date) -> int:
 LAPSED_NAG_DAYS = 30  # a push every day for this long after a document runs out, unless it is renewed
 
 
-async def _nag_about_lapsed(db: AsyncSession, today: date, managers: list, members: dict, vehicles: dict) -> int:
+async def _nag_about_lapsed(db: AsyncSession, today: date, managers: list, members: dict, vehicles: dict, crew: dict) -> int:
     """A document that has run out and not been renewed: a push (no text, which costs money) every day, so a lapsed insurance cannot be
     forgotten. A renewed document is not nagged about, and neither is an old one left behind after a renewal. Returns how many were pushed."""
     docs = (await db.execute(select(ComplianceDocument).where(ComplianceDocument.expires_on < today))).scalars().all()
@@ -129,9 +145,12 @@ async def _nag_about_lapsed(db: AsyncSession, today: date, managers: list, membe
             continue  # nobody to tell yet; the day is not used up
         if doc.vehicle_id is not None:
             subject = vehicles[doc.vehicle_id].registration if doc.vehicle_id in vehicles else "a vehicle"
+            tokens |= {mate.user.push_token for mate in crew.get(doc.vehicle_id, []) if mate.user.push_token}
         else:
             holder = members.get(doc.membership_id)
             subject = holder.user.name if holder else "a staff member"
+            if holder is not None and holder.user.push_token:
+                tokens.add(holder.user.push_token)
         when = "today" if overdue == 0 else f"{overdue} day{'s' if overdue != 1 else ''} ago"
         await push.send(
             sorted(tokens), f"{LABELS[doc.doc_type.value]} for {subject} has expired", f"It ran out {when}. Renew it, then update the date in the app.",

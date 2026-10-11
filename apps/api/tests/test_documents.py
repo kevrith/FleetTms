@@ -146,3 +146,17 @@ async def test_reminders_never_cross_businesses(client):
     await send_document_reminders(TODAY)
     assert get_sms_sender().outbox == []
     del owner_a
+
+
+async def test_a_lorrys_crew_is_told_when_its_insurance_is_running_out_but_a_driver_not_on_it_is_not(client):
+    from tests.shots import fleet
+
+    f = await fleet(client)  # a driver (0712345678) and a turnboy (0722345678) crew the vehicle
+    stranger = await driver_session(client, f.owner, "0799000111")  # a driver with no vehicle
+    outbox = get_sms_sender().outbox
+    outbox.clear()
+    await add_doc(client, f.owner, f.vehicle["id"], TODAY + timedelta(days=7))
+    await send_document_reminders(TODAY)
+    texted = {phone for phone, message in outbox if "KCA 123A" in message}
+    assert {"+254712345678", "+254722345678"} <= texted and "+254799000111" not in texted
+    assert stranger  # signed in, and left alone

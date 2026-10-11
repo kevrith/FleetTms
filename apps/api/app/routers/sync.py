@@ -27,6 +27,7 @@ from app.routers.incidents import IncidentIn, do_report_incident
 from app.routers.inspections import InspectionIn, do_submit_inspection
 from app.routers.me import RepairIn, do_request_repair
 from app.routers.reconciliation import SubmitIn, do_submit_reconciliation
+from app.routers.renewals import RenewalIn, announce, do_submit_renewal
 from app.routers.sos import SosIn, do_send_sos
 from app.routers.trips import (
     ActionIn,
@@ -78,6 +79,12 @@ async def _expense(db: AsyncSession, who: Principal, p: dict) -> dict:
     return {"id": str(expense.id), "created": created, "status": expense.status.value}
 
 
+async def _renewal(db: AsyncSession, who: Principal, p: dict) -> dict:
+    r = await do_submit_renewal(db, who, RenewalIn.model_validate(p))
+    await announce(db, r)
+    return {"id": str(r.id), "status": r.status}
+
+
 async def _reconciliation(db: AsyncSession, who: Principal, p: dict) -> dict:
     record = await do_submit_reconciliation(db, who, SubmitIn.model_validate(p).day)
     return {"id": str(record.id), "day": record.day.isoformat()}
@@ -110,6 +117,7 @@ HANDLERS = {
     "expense.add": _expense,
     "reconciliation.submit": _reconciliation,
     "repair.request": _repair,
+    "renewal.submit": _renewal,
 }
 
 
