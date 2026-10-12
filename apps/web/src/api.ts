@@ -1,5 +1,7 @@
 import { createApiClient, type TokenStore } from "@fleettms/api-client";
 import type { Tokens } from "@fleettms/types";
+import { connection } from "./connection";
+import { createBrowserReadCache } from "./readCache";
 
 const KEY = "fleettms.tokens";
 
@@ -30,6 +32,8 @@ export const onSignedOut = (fn: () => void) => {
 
 export const api = createApiClient(import.meta.env.VITE_API_URL ?? "http://localhost:8010", {
   store,
+  readCache: createBrowserReadCache(),
+  ...connection.handlers,
   onSignedOut: () => signedOutListener(),
 });
 

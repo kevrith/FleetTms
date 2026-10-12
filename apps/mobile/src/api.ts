@@ -2,6 +2,8 @@ import { createApiClient, type TokenStore } from "@fleettms/api-client";
 import type { Tokens } from "@fleettms/types";
 import * as Application from "expo-application";
 import * as SecureStore from "expo-secure-store";
+import { connection } from "./connection";
+import { readCache } from "./readCache";
 import { signalUpgradeRequired } from "./updates/provider";
 
 const KEY = "fleettms.tokens";
@@ -36,6 +38,8 @@ export const onSignedOut = (fn: () => void) => {
 const build = Application.nativeBuildVersion;
 export const api = createApiClient(process.env.EXPO_PUBLIC_API_URL ?? "http://10.0.2.2:8010", {
   store,
+  readCache,
+  ...connection.handlers,
   onSignedOut: () => signedOutListener(),
   headers: build && /^\d+$/.test(build) ? { "X-App-Version-Code": build } : {},
   onUpgradeRequired: signalUpgradeRequired,

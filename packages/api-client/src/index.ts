@@ -207,8 +207,36 @@ export class ApiError extends Error {
   }
 }
 
+/** Thrown when the request never reached the server (no signal, server unreachable). It has no `status`, so callers can tell it from an ApiError. */
+export class NetworkError extends Error {
+  constructor(message = "You are offline. Check your connection and try again.") {
+    super(message);
+  }
+}
+
+/** One saved reply to a GET, kept so the page can still be shown when the network is gone. */
+export interface ReadCacheEntry {
+  /** When the reply was received (ISO time). */
+  at: string;
+  data: unknown;
+}
+export interface ReadCache {
+  get(key: string): Promise<ReadCacheEntry | null>;
+  set(key: string, entry: ReadCacheEntry): Promise<void>;
+  /** Forget everything: another person is signing in, or the company changed. */
+  clear(): Promise<void>;
+}
+
 export interface ApiClientOptions {
   store?: TokenStore;
+  /** Where GET replies are kept. When the network is down a GET is answered from here, and `onStale` says how old the copy is. */
+  readCache?: ReadCache;
+  /** A GET was answered from the saved copy made at `at`, because the server could not be reached. */
+  onStale?: (at: string) => void;
+  /** The server answered, so the network is back. */
+  onLive?: () => void;
+  /** How many requests are waiting for the server right now, for a loading indicator. */
+  onActivity?: (inFlight: number) => void;
   /** Called when the session can no longer be refreshed, so the app can show the sign-in screen. */
   onSignedOut?: () => void;
   fetchImpl?: typeof fetch;
@@ -231,9 +259,14 @@ function toApiError(status: number, body: unknown): ApiError {
   return new ApiError(status, "error", GENERIC_ERROR);
 }
 
+/** Replies that are never saved: sign-in and token calls (only the "who am I" call is). */
+const NOT_SAVED = /^\/auth\/(?!me(\?|$))/;
+
 export function createApiClient(baseUrl: string, options: ApiClientOptions = {}) {
   const doFetch = options.fetchImpl ?? fetch;
   let refreshing: Promise<boolean> | null = null;
+  let inFlight = 0;
+  const forgetSaved = () => options.readCache?.clear().catch(() => undefined);
 
   async function send(
     method: string,
@@ -284,12 +317,47 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
     auth = true,
     asBlob = false,
   ): Promise<T> {
+    inFlight++;
+    options.onActivity?.(inFlight);
+    try {
+      return await perform<T>(method, path, body, auth, asBlob);
+    } finally {
+      inFlight--;
+      options.onActivity?.(inFlight);
+    }
+  }
+
+  async function perform<T>(
+    method: string,
+    path: string,
+    body: unknown,
+    auth: boolean,
+    asBlob: boolean,
+  ): Promise<T> {
+    const cache =
+      method === "GET" && auth && !asBlob && !NOT_SAVED.test(path) ? options.readCache : undefined;
     let tokens = auth ? await options.store?.get() : null;
-    let res = await send(method, path, body, tokens?.access_token);
+    let res: Response;
+    try {
+      res = await send(method, path, body, tokens?.access_token);
+    } catch {
+      const saved = cache ? await cache.get(path).catch(() => null) : null;
+      if (saved) {
+        options.onStale?.(saved.at);
+        return saved.data as T;
+      }
+      throw new NetworkError();
+    }
+    options.onLive?.();
     if (auth && res.status === 401 && tokens) {
-      if (await refresh()) {
+      const renewed = await refresh().catch(() => {
+        throw new NetworkError();
+      });
+      if (renewed) {
         tokens = await options.store?.get();
-        res = await send(method, path, body, tokens?.access_token);
+        res = await send(method, path, body, tokens?.access_token).catch(() => {
+          throw new NetworkError();
+        });
       } else {
         options.onSignedOut?.();
       }
@@ -299,10 +367,12 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
     if (asBlob && res.ok) return (await res.blob()) as T;
     const data = await res.json().catch(() => null);
     if (!res.ok) throw toApiError(res.status, data);
+    if (cache) void cache.set(path, { at: new Date().toISOString(), data }).catch(() => undefined);
     return data as T;
   }
 
   async function startSession(res: TokenResponse): Promise<TokenResponse> {
+    await forgetSaved();
     await options.store?.set({ access_token: res.access_token, refresh_token: res.refresh_token });
     return res;
   }
@@ -370,6 +440,7 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
       try {
         await post<void>("/auth/logout");
       } finally {
+        await forgetSaved();
         await options.store?.set(null);
       }
     },
@@ -377,14 +448,19 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
       try {
         await post<void>("/auth/logout-all");
       } finally {
+        await forgetSaved();
         await options.store?.set(null);
       }
     },
     me: () => get<Me>("/auth/me"),
-    switchCompany: (businessId: string) =>
-      post<{ business_id: string; mfa_setup_required: boolean }>("/auth/switch-company", {
-        business_id: businessId,
-      }),
+    switchCompany: async (businessId: string) => {
+      const res = await post<{ business_id: string; mfa_setup_required: boolean }>(
+        "/auth/switch-company",
+        { business_id: businessId },
+      );
+      await forgetSaved(); // what was saved belongs to the company just left
+      return res;
+    },
     twoFactorSetup: () => post<{ secret: string; otpauth_uri: string }>("/auth/2fa/setup"),
     twoFactorConfirm: (code: string) => post<void>("/auth/2fa/confirm", { code }),
     smsTwoFactorSetup: () => post<{ message: string }>("/auth/2fa/sms/setup"),
@@ -1510,9 +1586,15 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
         note: note ?? null,
       }),
     platformSystem: () => get<PlatformSystem>("/platform/system"),
-    platformEnterSupport: (businessId: string) =>
-      post<{ business_id: string }>(`/platform/support/${businessId}/enter`, {}),
-    platformLeaveSupport: () => request<void>("POST", "/platform/support/leave", {}),
+    platformEnterSupport: async (businessId: string) => {
+      const res = await post<{ business_id: string }>(`/platform/support/${businessId}/enter`, {});
+      await forgetSaved();
+      return res;
+    },
+    platformLeaveSupport: async () => {
+      await request<void>("POST", "/platform/support/leave", {});
+      await forgetSaved();
+    },
     platformEtims: () => get<PlatformEtims>("/platform/etims"),
     platformEtimsConnect: () => post<{ connected: boolean }>("/platform/etims/connect", {}),
     platformEtimsBackfill: () => post<{ queued: number }>("/platform/etims/backfill", {}),
@@ -1575,3 +1657,6 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
 }
 
 export type ApiClient = ReturnType<typeof createApiClient>;
+
+export { createConnectionState } from "./connection";
+export type { ConnectionSnapshot, ConnectionState } from "./connection";

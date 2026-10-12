@@ -43,10 +43,10 @@ import {
   loadedTrip,
   startedTrip,
 } from "./local";
-import { files, keys } from "./device";
+import { readCache } from "../readCache";
+import { files, vault } from "./device";
 import { createStore } from "./store";
 import type { DriverCache, LocalPhoto, OfflineState, QueueItem } from "./types";
-import { createVault } from "./vault";
 import { setTrackingProblem } from "../tracking/status";
 import {
   clearTracking,
@@ -59,7 +59,7 @@ import {
 
 const store = createStore({
   files,
-  vault: createVault(keys, (n) => Crypto.getRandomBytes(n)),
+  vault,
   uuid: () => Crypto.randomUUID(),
   now: () => new Date(),
 });
@@ -705,6 +705,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
         loadedFor.current = null;
         await clearTracking();
         await store.clear();
+        await readCache.clear();
         setReady(false);
       },
     };

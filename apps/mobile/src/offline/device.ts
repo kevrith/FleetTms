@@ -1,8 +1,9 @@
+import * as Crypto from "expo-crypto";
 import * as FileSystem from "expo-file-system";
 import * as SecureStore from "expo-secure-store";
 import { toB64 } from "./bytes";
 import type { FileAdapter } from "./store";
-import type { KeyStore } from "./vault";
+import { createVault, type KeyStore } from "./vault";
 
 const KEY_NAME = "fleettms.vaultkey";
 const DIR = `${FileSystem.documentDirectory ?? ""}fleettms/`;
@@ -12,6 +13,9 @@ export const keys: KeyStore = {
   set: (v) => SecureStore.setItemAsync(KEY_NAME, v),
   clear: () => SecureStore.deleteItemAsync(KEY_NAME),
 };
+
+/** The one vault for everything kept on the phone (queued work and saved server replies), so the key is made only once. */
+export const vault = createVault(keys, (n) => Crypto.getRandomBytes(n));
 
 export const files: FileAdapter = {
   async read(name) {

@@ -4,6 +4,7 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import type { HealthResponse } from "@fleettms/types";
 import { api } from "./api";
 import { useAuth } from "./auth";
+import { LoadingBar, OfflineNotice, Splash } from "./ConnectionBar";
 import Layout from "./Layout";
 import { navItems } from "./nav";
 import Compliance from "./pages/Compliance";
@@ -95,7 +96,7 @@ function Placeholder() {
 function RequireAuth({ children }: { children: JSX.Element }) {
   const { me, loading } = useAuth();
   const { pathname } = useLocation();
-  if (loading) return <p className="main">Loading...</p>;
+  if (loading) return <Splash />;
   if (!me) return pathname === "/" ? <Landing /> : <Navigate to="/login" replace />;
   if (me.email_verification_pending && pathname !== "/verify-email")
     return <Navigate to="/verify-email" replace />;
@@ -105,6 +106,16 @@ function RequireAuth({ children }: { children: JSX.Element }) {
 }
 
 export default function App() {
+  return (
+    <>
+      <LoadingBar />
+      <OfflineNotice />
+      <AppRoutes />
+    </>
+  );
+}
+
+function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />

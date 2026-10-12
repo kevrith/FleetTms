@@ -3,7 +3,7 @@ import { colors, tapTarget } from "@fleettms/design-tokens";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { DarkTheme, DefaultTheme, NavigationContainer } from "@react-navigation/native";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, AppState, ScrollView, useColorScheme, View } from "react-native";
+import { AppState, ScrollView, useColorScheme, View } from "react-native";
 import { api } from "./api";
 import { useAuth } from "./auth";
 import { StatusBar } from "expo-status-bar";
@@ -21,6 +21,8 @@ import { PartsScreen, WorkOrdersScreen } from "./screens/Workshop";
 import TwoFactorScreen from "./screens/TwoFactor";
 import VehiclesScreen from "./screens/Vehicles";
 import { AttentionList, SyncBadge } from "./screens/SyncStatus";
+import { LoadingStrip, OfflineBanner, Splash } from "./ConnectionBar";
+import { readCache } from "./readCache";
 import { UpdateRequired } from "./updates/UpdateRequired";
 import { useAppUpdate } from "./updates/provider";
 
@@ -96,8 +98,19 @@ function useUnreadMessages(enabled: boolean) {
   return unread;
 }
 
+/** Writes the saved replies out when the app leaves the screen, so they are not lost if the system closes it. */
+function useSaveRepliesInBackground() {
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (s) => {
+      if (s !== "active") void readCache.flush().catch(() => undefined);
+    });
+    return () => sub.remove();
+  }, []);
+}
+
 function Tabs({ tabs }: { tabs: TabDef[] }) {
   const t = useTheme();
+  useSaveRepliesInBackground();
   const unread = useUnreadMessages(tabs.some((tab) => tab.name === "Messages"));
   return (
     <>
@@ -135,16 +148,20 @@ function Tabs({ tabs }: { tabs: TabDef[] }) {
 }
 
 function Gate() {
-  const { me, loading, view } = useAuth();
   const { required } = useAppUpdate();
   if (required) return <UpdateRequired />;
-  if (loading) {
-    return (
-      <View style={{ flex: 1, justifyContent: "center" }}>
-        <ActivityIndicator size="large" />
-      </View>
-    );
-  }
+  return (
+    <View style={{ flex: 1 }}>
+      <OfflineBanner />
+      <LoadingStrip />
+      <Screens />
+    </View>
+  );
+}
+
+function Screens() {
+  const { me, loading, view } = useAuth();
+  if (loading) return <Splash />;
   if (!me) return <LoginScreen />;
   if (me.mfa_setup_required) return <TwoFactorScreen />;
   if (me.pending_documents.length > 0) return <NoticesScreen docs={me.pending_documents} />;

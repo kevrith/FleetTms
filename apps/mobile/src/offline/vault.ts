@@ -16,18 +16,21 @@ const NONCE = 24;
  * tampering is detected on opening. Signing out destroys the key, which makes anything left on disk unreadable.
  */
 export function createVault(keys: KeyStore, random: RandomBytes) {
-  let key: Uint8Array | null = null;
+  // One load at a time: two things sealing before a key exists must not each make their own.
+  let loading: Promise<Uint8Array> | null = null;
 
-  async function loadKey(): Promise<Uint8Array> {
-    if (key) return key;
-    const saved = await keys.get();
-    if (saved) {
-      key = fromB64(saved);
-    } else {
-      key = random(32);
-      await keys.set(toB64(key));
-    }
-    return key;
+  function loadKey(): Promise<Uint8Array> {
+    loading ??= (async () => {
+      const saved = await keys.get();
+      if (saved) return fromB64(saved);
+      const fresh = random(32);
+      await keys.set(toB64(fresh));
+      return fresh;
+    })().catch((e) => {
+      loading = null;
+      throw e;
+    });
+    return loading;
   }
 
   return {
@@ -46,7 +49,7 @@ export function createVault(keys: KeyStore, random: RandomBytes) {
       );
     },
     async destroy(): Promise<void> {
-      key = null;
+      loading = null;
       await keys.clear();
     },
   };
