@@ -156,6 +156,7 @@ export interface ExpenseFormInput {
   mpesaCode: string;
   receipt: LocalPhoto | null;
 }
+const siteBody = (s: SiteToSave) => ({ name: s.name.trim(), lat: s.lat, lng: s.lng });
 export interface DeliveryInput {
   recipientName: string;
   method: "code" | "signature";
@@ -167,6 +168,14 @@ export interface DeliveryInput {
   shortageUnit: string;
   damageNotes: string;
   damagePhoto: LocalPhoto | null;
+  lat: number | null;
+  lng: number | null;
+  /** "This is where the client takes deliveries": saved for next time, as the office's to confirm. */
+  saveSite?: SiteToSave | null;
+}
+/** The place to save for the trip's client. Without lat and lng the server uses where the proof of delivery was taken. */
+export interface SiteToSave {
+  name: string;
   lat: number | null;
   lng: number | null;
 }
@@ -232,8 +241,9 @@ interface Offline {
     position: { lat: number; lng: number; accuracy_m: number | null } | null,
   ) => Promise<void>;
   startTrip: (photo: LocalPhoto, value: number) => Promise<void>;
-  markDelivered: () => Promise<void>;
-  endTrip: (photo: LocalPhoto, value: number) => Promise<void>;
+  markDelivered: (saveSite?: SiteToSave | null) => Promise<void>;
+  /** `awayReason`: why the lorry is not at the depot after delivering, when the driver says. */
+  endTrip: (photo: LocalPhoto, value: number, awayReason?: string | null) => Promise<void>;
   addFuel: (input: FuelFormInput) => Promise<void>;
   /** Reads a fuel receipt photo (needs a connection): suggests litres, price, total, station and M-Pesa code to check and correct. */
   readReceipt: (photo: LocalPhoto, vehicleId: string) => Promise<DocumentReading>;
@@ -481,7 +491,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
 
       async deliver(input) {
         const at = nowIso();
-        const trip = deliveredTrip(cache().trip, at);
+        const trip = deliveredTrip(cache().trip, at, input.saveSite);
         const damage = input.damageNotes.trim() ? input.damagePhoto : null;
         await queueAndSync({
           type: "trip.deliver",
@@ -507,24 +517,25 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
               lat: input.lat,
               lng: input.lng,
             },
+            ...(input.saveSite ? { save_site: siteBody(input.saveSite) } : {}),
           },
         });
         await setCache({ trip });
       },
 
-      async markDelivered() {
+      async markDelivered(saveSite) {
         const at = nowIso();
-        const trip = deliveredTrip(cache().trip, at);
+        const trip = deliveredTrip(cache().trip, at, saveSite);
         await queueAndSync({
           type: "trip.deliver",
           capturedAt: at,
           photoIds: [],
-          payload: { trip_id: trip.id },
+          payload: { trip_id: trip.id, ...(saveSite ? { save_site: siteBody(saveSite) } : {}) },
         });
         await setCache({ trip });
       },
 
-      async endTrip(photo, value) {
+      async endTrip(photo, value, awayReason) {
         const at = nowIso();
         assertNotBelowOdometer(cache(), value);
         const trip = endedTrip(cache().trip, value, at);
@@ -532,7 +543,12 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
           type: "trip.end",
           capturedAt: at,
           photoIds: [photo.clientId],
-          payload: { trip_id: trip.id, photo_client_id: photo.clientId, value },
+          payload: {
+            trip_id: trip.id,
+            photo_client_id: photo.clientId,
+            value,
+            ...(awayReason?.trim() ? { away_reason: awayReason.trim() } : {}),
+          },
         });
         await setCache({ trip, vehicle: withOdometer(cache().vehicle, value) });
       },

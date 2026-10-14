@@ -44,6 +44,7 @@ from app.models import (
 )
 from app.notify import get_email_sender
 from app.reminders import NAIROBI
+from app.sites import trip_spot
 from app.sms import get_sms_sender
 from app.tenancy import current_business_id
 from app.trust import flag_summary, trust_out
@@ -289,11 +290,9 @@ async def _expected_km(db: AsyncSession, trip: Trip, t: Thresholds) -> tuple[flo
 async def _places(db: AsyncSession, trip: Trip) -> list[dict]:
     """Where a long stop needs no explaining: depots, client sites and fuel stations, and the delivery site."""
     out = [g.shape for g in (await db.execute(select(Geofence).where(Geofence.is_active.is_(True), Geofence.kind.in_(("depot", "client_site", "fuel_station"))))).scalars() if not g.vehicle_ids or str(trip.vehicle_id) in g.vehicle_ids]
-    if trip.job_id:
-        job = (await db.execute(select(Job).where(Job.id == trip.job_id))).scalar_one_or_none()
-        route = (await db.execute(select(SavedRoute).where(SavedRoute.id == job.route_id))).scalar_one_or_none() if job and job.route_id else None
-        if route and route.dropoff_lat is not None and route.dropoff_lng is not None:
-            out.append({"type": "circle", "lat": route.dropoff_lat, "lng": route.dropoff_lng, "radius_m": route.site_radius_m or 500})
+    spot = await trip_spot(db, trip)
+    if spot is not None and spot.confirmed:
+        out.append({"type": "circle", "lat": spot.lat, "lng": spot.lng, "radius_m": spot.radius_m or 500})
     return out
 
 

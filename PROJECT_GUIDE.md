@@ -324,6 +324,24 @@ on the dev machine.
   back a driver's day, and record a float (`money.ts` checks the form with the server's rules). Everything else for the owner (dispatch, clients, invoices,
   payroll, reports, settings) stays on the web app. Unverified: the new screens have not been run on the emulator.
 
+- **Client sites and choosing the client.** `ClientSite` (`app/sites.py`, migration 0038) is a place a client takes deliveries (lat, lng, radius, `confirmed` or
+  `unconfirmed`). The office adds them (`POST /clients/{id}/sites`, `PUT /sites/{id}`, `POST /sites/{id}/confirm`, permission `clients.manage`); a driver saves
+  one at delivery by sending `save_site` with `trip.deliver` (online or in the offline queue; `do_mark_delivered` calls `sites.save_site`), which makes it
+  `unconfirmed` unless the saver holds `clients.manage`. `sites.trip_spot(trip)` is the one place that says where a delivery is expected: the trip's own site,
+  else its job route's `site_id`, else the route's old `dropoff_lat/lng`; proof of delivery, the fraud engine's known places and the tracking link ETA all use
+  it. Only a `confirmed` spot raises `outside_site` or counts as a place a long stop needs no explaining; an unconfirmed one only guides. `Trip.client_id` is the
+  job's client, or the one a driver picked (`GET /me/clients`, then `client_id`, `site_id` or `new_client_name` on `POST /me/trips`; a name that is not on the
+  list makes a `Client` with `needs_review`, cleared when the office saves it). Pricing a phone-made trip still needs `jobs.manage`. Dashboard alerts
+  `sites_unconfirmed` and `clients_to_check`. Mobile: `ClientPicker.tsx`, `SaveSite.tsx`, the `place` step in `TripPanel.tsx` for a client trip with no proof
+  of delivery. Web: `SitesCard` in `Clients.tsx`.
+- **Return trips (loaded and empty kilometres).** A round trip is one trip, ended where the lorry parks. `app/leg_rules.py` `split_legs` shares the trip's distance
+  (odometer, or GPS for a GPS-distance lorry) at `delivered_at` using the GPS path (the tracker's when it has enough fixes, else the phone's): `Trip.loaded_km` and
+  `empty_km`, set by `tracking.finalise`, left null when the GPS cannot place the delivery. `app/returns.py`: a depot is a `Geofence` of kind `depot`; `trip_out`
+  gives a running trip its `depots` so the phone shows "you are back" offline (`ReturnNotice` in `TripPanel.tsx`, a reminder only). `do_end_trip` adds the reading flag
+  `away_from_depot` and keeps `ended_away_reason` (from `away_reason` on the end reading) when a trip that delivered ends away from every mapped depot; it never
+  blocks. A return load is a new trip. Unverified: the new phone and web screens (client picker, saving a place, return notice, away reason, sites card) have not been
+  run on the emulator or in a browser.
+
 ## Updating the phone app
 
 Two ways, for two kinds of change. Know which one a change needs before shipping it.

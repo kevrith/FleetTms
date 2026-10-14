@@ -50,6 +50,27 @@ describe("local trip rules", () => {
       distance_km: 480,
     });
   });
+  it("shows the place a driver saves at delivery as unconfirmed, and keeps a known place as it was", () => {
+    const started = startedTrip(trip(), 125100, at);
+    const saved = deliveredTrip(started, at, { name: "Ruiru depot", lat: -1.2, lng: 36.9 });
+    expect(saved.site).toMatchObject({ name: "Ruiru depot", status: "unconfirmed", id: null });
+    const known = {
+      id: "s1",
+      name: "Yard",
+      address: null,
+      lat: 1,
+      lng: 2,
+      radius_m: 300,
+      status: "confirmed" as const,
+    };
+    expect(
+      deliveredTrip({ ...started, site: known }, at, { name: "Other", lat: 3, lng: 4 }).site,
+    ).toBe(known);
+    expect(
+      deliveredTrip(started, at, { name: "No fix", lat: null, lng: null }).site,
+    ).toBeUndefined();
+    expect(deliveredTrip(started, at).site).toBeUndefined();
+  });
   it("lets the cargo be weighed before the lorry leaves, and remembers an overload", () => {
     const weighed = loadedTrip(trip(), at, { weightKg: 11500, overloadKg: 1500 });
     expect(weighed).toMatchObject({

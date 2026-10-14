@@ -76,6 +76,7 @@ export const FLAG_TEXT: Record<string, string> = {
   backward: "Lower than the vehicle's last reading",
   large_jump: "Far above the vehicle's last reading",
   no_location: "No GPS location on the photo",
+  away_from_depot: "Taken away from the depot after the delivery",
 };
 export const fmtTime = (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-KE") : "");
 

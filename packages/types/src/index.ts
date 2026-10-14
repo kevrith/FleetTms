@@ -371,6 +371,58 @@ export interface ProofOfDeliveryInput {
   lng?: number | null;
 }
 
+/** Where a trip's delivery is expected. `id` is null when it comes from a route's own coordinates. Unconfirmed: a driver saved it and the office has not yet. */
+export interface TripSite {
+  id: string | null;
+  name: string | null;
+  address: string | null;
+  lat: number;
+  lng: number;
+  radius_m: number;
+  status: "confirmed" | "unconfirmed";
+}
+
+/** A mapped depot: a circle or a polygon of [lat, lng] corners. */
+export interface TripDepot {
+  name: string;
+  shape:
+    | { type: "circle"; lat: number; lng: number; radius_m: number }
+    | { type: "polygon"; points: [number, number][] };
+}
+
+/** A place a client takes deliveries. */
+export interface ClientSite {
+  id: string;
+  client_id?: string;
+  name: string;
+  address: string | null;
+  lat: number;
+  lng: number;
+  radius_m: number;
+  status: "confirmed" | "unconfirmed";
+  verified_by_code?: boolean;
+  is_active?: boolean;
+  saved_by_user_id?: string | null;
+  confirmed_at?: string | null;
+}
+
+/** A client a driver can pick for a trip, with the places saved for it. Nothing about money. */
+export interface DeliveryClient {
+  id: string;
+  name: string;
+  needs_review: boolean;
+  has_phone: boolean;
+  sites: ClientSite[];
+}
+
+/** "This is where the client takes deliveries": sent with the delivery. Without lat and lng the place of the proof of delivery is used. */
+export interface SaveSiteInput {
+  name: string;
+  address?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+}
+
 /** The job a trip belongs to, as the driver needs to see it. */
 export interface TripJob {
   id: string;
@@ -428,6 +480,17 @@ export interface Trip {
   trust?: VehicleTrust | null;
   id: string;
   job?: TripJob | null;
+  /** Who the delivery is for: the job's client, or the one the driver picked. */
+  client?: { id: string; name: string; has_phone: boolean } | null;
+  /** Where the delivery is expected, when known. A client with no place here is asked for one at delivery. */
+  site?: TripSite | null;
+  /** Of `distance_km`: driven before the delivery (with the load) and after it (the empty return). Null when the GPS could not place the delivery. */
+  loaded_km?: number | null;
+  empty_km?: number | null;
+  /** Why the trip ended away from the depot, if the driver said. */
+  ended_away_reason?: string | null;
+  /** The depots a running trip can come home to, so the phone can say "you are back" with no signal. Empty once the trip is over. */
+  depots?: TripDepot[];
   planned_end?: string | null;
   status: TripStatus;
   vehicle_id: string;
@@ -462,12 +525,16 @@ export interface TripInput {
   origin?: string | null;
   destination?: string | null;
   scheduled_for?: string | null;
+  client_id?: string | null;
+  site_id?: string | null;
 }
 
 export interface ReadingInput {
   photo_id: string;
   value: number;
   auto_read_value?: number | null;
+  /** Ending a trip that delivered, away from the depot: why. Never required. */
+  away_reason?: string | null;
 }
 
 export interface PhotoUpload {
@@ -786,6 +853,11 @@ export interface MyTripInput {
   /** Who pays and what the trip pays (whole cents), for the owner or a manager. A small job is made behind the scenes. */
   client_name?: string | null;
   price_cents?: number | null;
+  /** A client picked from the business's list (see `myClients`), and one of its saved places. */
+  client_id?: string | null;
+  site_id?: string | null;
+  /** A client that is not on the list; the office is asked to check it. */
+  new_client_name?: string | null;
 }
 
 /** An insurance or inspection that runs out within 14 days, or already has: shown as a banner at the top of the owner's home. */
@@ -1169,9 +1241,14 @@ export interface Client {
   notes: string | null;
   is_active: boolean;
   reminders_enabled: boolean;
+  /** Added by a driver from the phone and not yet checked by the office. */
+  needs_review: boolean;
   routes: number;
   open_jobs: number;
+  sites: number;
+  unconfirmed_sites: number;
   route_list?: SavedRoute[];
+  site_list?: ClientSite[];
 }
 
 export interface SavedRoute {
@@ -1184,6 +1261,7 @@ export interface SavedRoute {
   dropoff_lat: number | null;
   dropoff_lng: number | null;
   site_radius_m: number;
+  site_id: string | null;
   path_notes: string | null;
   distance_km: number;
   expected_hours: number;

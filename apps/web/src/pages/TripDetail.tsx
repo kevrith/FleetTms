@@ -520,6 +520,27 @@ export default function TripDetail() {
           {[trip.origin, trip.destination].filter(Boolean).join(" to ") || "No route set"}
           {trip.cargo_description ? `, ${trip.cargo_description}` : ""}
         </p>
+        {(trip.client || trip.job) && (
+          <p>
+            For {trip.client?.name ?? trip.job?.client_name}
+            {trip.site && (
+              <>
+                {", "}
+                {trip.site.name ?? "the client's place"}{" "}
+                <a
+                  href={`https://www.openstreetmap.org/?mlat=${trip.site.lat}&mlon=${trip.site.lng}#map=17/${trip.site.lat}/${trip.site.lng}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  on the map
+                </a>
+                {trip.site.status === "unconfirmed" && (
+                  <span className="muted"> (saved by a driver, not yet confirmed)</span>
+                )}
+              </>
+            )}
+          </p>
+        )}
         <p className="muted">
           Started {fmtTime(trip.started_at) || "not yet"}
           {trip.ended_at ? `, ended ${fmtTime(trip.ended_at)}` : ""}
@@ -529,6 +550,16 @@ export default function TripDetail() {
             <CheckCircle2 size={16} /> {trip.distance_km.toLocaleString()} km driven (end reading
             minus start reading)
           </p>
+        )}
+        {trip.loaded_km != null && trip.empty_km != null && (
+          <p>
+            {trip.loaded_km.toLocaleString()} km loaded to the delivery,{" "}
+            {trip.empty_km.toLocaleString()} km empty on the way back. The split follows where the
+            GPS says the delivery was.
+          </p>
+        )}
+        {trip.ended_away_reason && (
+          <p className="muted">Ended away from the depot: {trip.ended_away_reason}</p>
         )}
       </Card>
       <Card title="Pre-trip inspection">

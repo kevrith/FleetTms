@@ -13,7 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app import behaviour, fraud, geofences
-from app.gps_rules import good_fix, gps_trip_km, path_distance_km, three_way
+from app.gps_rules import MIN_POINTS_FOR_CHECK, good_fix, gps_trip_km, path_distance_km, three_way
+from app.leg_rules import split_legs
 from app.models import LocationPoint, TrackingGap, Trip, TripStatus, Vehicle
 from app.tenancy import current_business_id
 
@@ -93,7 +94,7 @@ async def finalise(db: AsyncSession, trip: Trip) -> None:
     points = await trip_points(db, trip.id)
     km, used = path_distance_km([{"at": p.recorded_at, "lat": p.lat, "lng": p.lng, "accuracy_m": p.accuracy_m} for p in points if p.source == "phone"])
     trip.gps_distance_km, trip.gps_points = (km if used else None), used
-    t_km, t_used = 0.0, 0
+    t_km, t_used, theirs = 0.0, 0, []
     if trip.started_at is not None:
         end = trip.ended_at or datetime.now(UTC)
         # A tracker reports all the time, not only on trips, so its part of the trip is found by time, whenever it arrived.
@@ -107,6 +108,11 @@ async def finalise(db: AsyncSession, trip: Trip) -> None:
         verdict = three_way(odometer_km=trip.distance_km, phone_km=km if used else None, phone_points=used, tracker_km=t_km if t_used else None, tracker_points=t_used)
         trip.distance_check = verdict["check"]
         trip.distance_detail = {"sources": verdict["sources"], "suspect": verdict["suspect"]}
+    trackers = [{"at": p.recorded_at, "lat": p.lat, "lng": p.lng, "accuracy_m": p.accuracy_m} for p in theirs]
+    phone = [{"at": p.recorded_at, "lat": p.lat, "lng": p.lng, "accuracy_m": p.accuracy_m} for p in points if p.source == "phone"]
+    fixes = trackers if t_used >= MIN_POINTS_FOR_CHECK else phone  # the tracker's path when it has one: it reports all the time
+    legs = split_legs(trip.distance_km, fixes, trip.delivered_at) if trip.ended_at is not None else None
+    trip.loaded_km, trip.empty_km = legs if legs else (None, None)
     if trip.ended_at is not None:
         await fraud.check_trip(db, trip)  # the fuel, distance and stop checks that need the finished trip
 

@@ -176,6 +176,8 @@ import type {
   StatementLine,
   ProofOfDeliveryInput,
   Client,
+  ClientSite,
+  DeliveryClient,
   SavedRoute,
   Quote,
   QuoteDefaults,
@@ -830,6 +832,13 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
     addClient: (input: Record<string, unknown>) => post<Client>("/clients", input),
     updateClient: (id: string, input: Record<string, unknown>) =>
       request<Client>("PUT", `/clients/${id}`, input),
+    addSite: (clientId: string, input: Record<string, unknown>) =>
+      post<ClientSite>(`/clients/${clientId}/sites`, input),
+    updateSite: (id: string, input: Record<string, unknown>) =>
+      request<ClientSite>("PUT", `/sites/${id}`, input),
+    confirmSite: (id: string) => post<ClientSite>(`/sites/${id}/confirm`, {}),
+    /** The clients a driver can pick for a trip, with their saved places. */
+    myClients: () => get<DeliveryClient[]>("/me/clients"),
     routes: () => get<SavedRoute[]>("/routes"),
     addRoute: (clientId: string, input: Record<string, unknown>) =>
       post<SavedRoute>(`/clients/${clientId}/routes`, input),

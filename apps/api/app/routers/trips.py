@@ -17,6 +17,7 @@ from app.load_rules import overload_kg
 from app.models import (
     BillingMethod,
     Client,
+    ClientSite,
     CrewAssignment,
     CrewRole,
     Inspection,
@@ -37,9 +38,11 @@ from app.odometer import OdometerError, check_value, reading_flags, trip_distanc
 from app.photos import claim_photo, photo_out
 from app.pod import PodIn, confirm_pod, request_code
 from app.reminders import NAIROBI, nairobi_today
+from app.returns import at_a_depot, depots_for
 from app.routers.inspections import OK_FOR_TRIP, latest_inspection_on
 from app.routers.vehicles import get_vehicle
 from app.scheduling import DEFAULT_TRIP_HOURS, ensure_available
+from app.sites import SaveSiteIn, save_site, trip_spot
 from app.trust import flag_summary, trust_out
 from app.vehicle_scope import scope_vehicles, vehicle_in_scope
 
@@ -56,6 +59,8 @@ class TripIn(BaseModel):
     origin: str | None = Field(default=None, max_length=160)
     destination: str | None = Field(default=None, max_length=160)
     scheduled_for: datetime | None = None
+    client_id: uuid.UUID | None = None  # who the delivery is for, when there is no job; a job's own client wins
+    site_id: uuid.UUID | None = None  # which of that client's places
 
 
 class ReadingIn(BaseModel):
@@ -64,6 +69,7 @@ class ReadingIn(BaseModel):
     value: int  # what the person confirmed
     auto_read_value: int | None = None  # what the number reader saw, when it ran
     captured_at: datetime | None = None  # when the driver did it; missing means now
+    away_reason: str | None = Field(default=None, max_length=200)  # ending a trip that delivered, away from the depot: why
 
 
 class LoadingIn(BaseModel):
@@ -78,6 +84,7 @@ class LoadingIn(BaseModel):
 class ActionIn(BaseModel):
     captured_at: datetime | None = None
     pod: PodIn | None = None  # proof of delivery, which a trip for a client job must have
+    save_site: SaveSiteIn | None = None  # "this is where the client takes deliveries": saved for next time
 
 
 def _is_crew(principal: Principal, trip: Trip) -> bool:
@@ -151,6 +158,14 @@ async def trip_out(db: AsyncSession, trip: Trip, *, money: bool = False, with_cl
                 "pickup_at": j.pickup_at, "deliver_by": j.deliver_by, "trips_planned": j.trips_planned,
                 "billing_method": j.billing_method.value,
             }  # fmt: skip
+    # Where the lorry parks, for the phone to tell the driver "you are back" while there may be no signal. Only while a trip is running.
+    depots = [{"name": g.name, "shape": g.shape} for g in await depots_for(db, trip.vehicle_id)] if trip.status in (TripStatus.IN_PROGRESS, TripStatus.DELIVERED) else []
+    client_ref = None
+    if trip.client_id:
+        client_row = (await db.execute(select(Client.id, Client.name, Client.phone).where(Client.id == trip.client_id))).first()
+        if client_row is not None:
+            client_ref = {"id": client_row[0], "name": client_row[1], "has_phone": bool(client_row[2])}
+    spot = await trip_spot(db, trip) if trip.client_id or trip.job_id else None
     cleared = None
     if with_clearance and trip.status == TripStatus.SCHEDULED:  # what the trip would be told if it started now; a few queries each, so only for one trip or a driver's own
         cleared = await clearance.check(db, trip, today=nairobi_today())
@@ -159,6 +174,8 @@ async def trip_out(db: AsyncSession, trip: Trip, *, money: bool = False, with_cl
         "compliance_override": {"reason": trip.compliance_override_reason, "at": trip.compliance_override_at} if trip.compliance_override_at else None,
         **({"received_cents": trip.received_cents, "received_note": trip.received_note, "received_at": trip.received_at} if money else {}),
         "job": job,
+        "client": client_ref,
+        "site": spot.out() if spot else None,
         "pod": pod_out,
         "overload_kg": trip.overload_kg,
         "weighbridge_photo": photo_out(ticket),
@@ -180,6 +197,10 @@ async def trip_out(db: AsyncSession, trip: Trip, *, money: bool = False, with_cl
         "delivered_at": trip.delivered_at,
         "ended_at": trip.ended_at,
         "distance_km": trip.distance_km,
+        "loaded_km": trip.loaded_km,
+        "empty_km": trip.empty_km,
+        "ended_away_reason": trip.ended_away_reason,
+        "depots": depots,
         "gps_distance_km": trip.gps_distance_km,
         "tracker_distance_km": trip.tracker_distance_km,
         "trust": trust_out(vehicle, (await flag_summary(db, [trip.vehicle_id])).get(trip.vehicle_id, {})) if vehicle else None,
@@ -227,11 +248,13 @@ async def do_create_trip(
     planned_end = body.scheduled_for + timedelta(hours=hours or DEFAULT_TRIP_HOURS) if body.scheduled_for else None
     window = (body.scheduled_for, planned_end) if body.scheduled_for and planned_end else None
     await ensure_available(db, vehicle.id, [m for m in (driver_id, turnboy_id) if m], window)
+    client_id, site_id = await _client_and_site(db, job_id, body.client_id, body.site_id)
 
     trip = Trip(
         vehicle_id=vehicle.id, driver_membership_id=driver_id, turnboy_membership_id=turnboy_id,
         cargo_description=body.cargo_description, origin=body.origin, destination=body.destination,
-        scheduled_for=body.scheduled_for, planned_end=planned_end, job_id=job_id, created_by_user_id=principal.user.id,
+        scheduled_for=body.scheduled_for, planned_end=planned_end, job_id=job_id, client_id=client_id, site_id=site_id,
+        created_by_user_id=principal.user.id,
     )  # fmt: skip
     db.add(trip)
     await db.flush()
@@ -241,6 +264,20 @@ async def do_create_trip(
     )  # fmt: skip
     await sync_job(db, job_id)
     return trip
+
+
+async def _client_and_site(db: AsyncSession, job_id: uuid.UUID | None, client_id: uuid.UUID | None, site_id: uuid.UUID | None) -> tuple[uuid.UUID | None, uuid.UUID | None]:
+    """The client a trip is for (a job's own client wins) and the place at that client, checked to be theirs."""
+    if job_id is not None:
+        job_client = (await db.execute(select(Job.client_id).where(Job.id == job_id))).scalar_one_or_none()
+        client_id = job_client or client_id
+    if client_id is not None and (await db.execute(select(Client.id).where(Client.id == client_id))).first() is None:
+        raise error(status.HTTP_404_NOT_FOUND, "not_found", "That client was not found.")
+    if site_id is not None:
+        site = (await db.execute(select(ClientSite).where(ClientSite.id == site_id, ClientSite.is_active.is_(True)))).scalar_one_or_none()
+        if site is None or site.client_id != client_id:
+            raise error(422, "wrong_site", "That place does not belong to this client.")
+    return client_id, site_id
 
 
 @router.post("/trips", status_code=status.HTTP_201_CREATED)
@@ -259,6 +296,11 @@ class MyTripIn(BaseModel):
     # What the trip pays and who pays it. Only the owner or a manager may say (a hired driver naming a price would be naming the trip's income).
     client_name: str | None = Field(default=None, min_length=2, max_length=160)
     price_cents: int | None = Field(default=None, ge=1, le=10_000_000_000)
+    # Who the delivery is for, picked from the business's clients; with no price this is open to any driver. A name that is not on the list
+    # makes a client the office is asked to check.
+    client_id: uuid.UUID | None = None
+    new_client_name: str | None = Field(default=None, min_length=2, max_length=160)
+    site_id: uuid.UUID | None = None
 
 
 @router.post("/me/trips", status_code=status.HTTP_201_CREATED)
@@ -284,36 +326,56 @@ async def start_my_trip(body: MyTripIn, principal: Principal = Depends(require("
     ).first()
     if busy is not None:
         raise error(status.HTTP_409_CONFLICT, "already_has_trip", "You already have a trip. Finish or cancel it before making another.")
-    priced = body.client_name is not None or body.price_cents is not None
-    if priced and (body.client_name is None or body.price_cents is None):
+    if sum(x is not None for x in (body.client_name, body.client_id, body.new_client_name)) > 1:
+        raise error(422, "one_client", "Choose one client.")
+    priced = body.price_cents is not None
+    if body.client_name is not None and body.price_cents is None or priced and not (body.client_name or body.client_id or body.new_client_name):
         raise error(422, "client_and_price", "Give both who is paying and what the trip pays, or neither.")
     if priced and "jobs.manage" not in principal.permissions:
         raise error(status.HTTP_403_FORBIDDEN, "forbidden", "Only the owner or a manager can say what a trip pays.")
+    if body.site_id is not None and body.client_id is None:
+        raise error(422, "wrong_site", "Choose the client first.")
+    chosen = await _client_for_trip(db, principal, body)
     job_id = None
     if priced:
-        job_id = (await _job_for_trip(db, principal, body)).id  # a small job behind the scenes, so invoicing and profit work as for any other
+        job_id = (await _job_for_trip(db, principal, body, chosen)).id  # a small job behind the scenes, so invoicing and profit work as for any other
     trip = await do_create_trip(
         db, principal,
-        TripIn(vehicle_id=mine.vehicle_id, driver_membership_id=principal.membership_id, origin=body.origin.strip(), destination=body.destination.strip(), cargo_description=body.cargo_description),
+        TripIn(vehicle_id=mine.vehicle_id, driver_membership_id=principal.membership_id, origin=body.origin.strip(), destination=body.destination.strip(), cargo_description=body.cargo_description,
+               client_id=chosen.id if chosen else None, site_id=body.site_id),
         job_id=job_id,
     )  # fmt: skip
     await db.commit()
     return await trip_out(db, trip, money=sees_money(principal))
 
 
-async def _job_for_trip(db: AsyncSession, principal: Principal, body: MyTripIn) -> Job:
-    """The client (found by name, else made) and a one-trip job at the price given, charged per trip. Nothing is committed: if the trip
-    cannot be made after all, none of this is kept."""
-    from app.models import BillingMethod, Client
-    from app.numbering import create_numbered
-
-    name = (body.client_name or "").strip()
+async def _client_for_trip(db: AsyncSession, principal: Principal, body: MyTripIn) -> Client | None:
+    """The client a phone-made trip is for: picked by id, or found by the name typed, else made. A client made by someone who cannot manage
+    clients is marked for the office to check. Nothing is committed."""
+    if body.client_id is not None:
+        client = (await db.execute(select(Client).where(Client.id == body.client_id, Client.is_active.is_(True)))).scalar_one_or_none()
+        if client is None:
+            raise error(status.HTTP_404_NOT_FOUND, "not_found", "That client was not found.")
+        if body.site_id is not None:
+            await _client_and_site(db, None, client.id, body.site_id)
+        return client
+    name = (body.client_name or body.new_client_name or "").strip()
+    if not name:
+        return None
     client = (await db.execute(select(Client).where(func.lower(Client.name) == name.lower()))).scalars().first()
     if client is None:
-        client = Client(name=name, billing_method=BillingMethod.PER_TRIP, rate_cents=body.price_cents)
+        client = Client(name=name, billing_method=BillingMethod.PER_TRIP, rate_cents=body.price_cents or 0, needs_review="clients.manage" not in principal.permissions)
         db.add(client)
         await db.flush()
         audit.record(db, actor_user_id=principal.user.id, action="client.added", entity_type="client", entity_id=client.id, after={"name": client.name}, note="Made with a trip from the phone")
+    return client
+
+
+async def _job_for_trip(db: AsyncSession, principal: Principal, body: MyTripIn, client: Client) -> Job:
+    """A one-trip job for the client at the price given, charged per trip. Nothing is committed: if the trip cannot be made after all, none
+    of this is kept."""
+    from app.numbering import create_numbered
+
     job = await create_numbered(
         db, Job, "J", client_id=client.id, cargo_description=body.cargo_description, trips_planned=1, billing_method=BillingMethod.PER_TRIP,
         rate_cents=body.price_cents, price_cents=body.price_cents, created_by_user_id=principal.user.id,
@@ -583,11 +645,12 @@ async def do_mark_delivered(db: AsyncSession, principal: Principal, trip_id: uui
         # Already delivered (by this phone's earlier try that lost its reply, or by the office): there is nothing left to do, so this is not an
         # error to leave on a driver's phone. Proof of delivery that was never attached is still taken.
         has_pod = (await db.execute(select(ProofOfDelivery.id).where(ProofOfDelivery.trip_id == trip.id))).first() is not None
-        if body.pod is None or has_pod:
-            return trip
-        await confirm_pod(db, principal, trip, body.pod, at)
-        await invoice_for_trip(db, trip, principal.user.id)
-        await sync_job(db, trip.job_id)
+        pod = None
+        if body.pod is not None and not has_pod:
+            pod = await confirm_pod(db, principal, trip, body.pod, at)
+            await invoice_for_trip(db, trip, principal.user.id)
+            await sync_job(db, trip.job_id)
+        await _save_delivery_site(db, principal, trip, body, pod)
         return trip
     if trip.status != TripStatus.IN_PROGRESS:
         raise error(status.HTTP_409_CONFLICT, "wrong_status", "Only a trip in progress can be delivered.")
@@ -597,11 +660,21 @@ async def do_mark_delivered(db: AsyncSession, principal: Principal, trip_id: uui
     trip.status = TripStatus.DELIVERED
     trip.delivered_at = at
     audit.record(db, actor_user_id=principal.user.id, action="trip.delivered", entity_type="trip", entity_id=trip.id)
+    pod = None
     if body.pod is not None:
-        await confirm_pod(db, principal, trip, body.pod, at)
+        pod = await confirm_pod(db, principal, trip, body.pod, at)
         await invoice_for_trip(db, trip, principal.user.id)  # the invoice follows the proof of delivery
+    await _save_delivery_site(db, principal, trip, body, pod)
     await sync_job(db, trip.job_id)
     return trip
+
+
+async def _save_delivery_site(db: AsyncSession, principal: Principal, trip: Trip, body: ActionIn, pod: ProofOfDelivery | None) -> None:
+    """If the driver said "this is where the client takes deliveries", saves the place for next time (see app.sites)."""
+    if body.save_site is None:
+        return
+    fallback = (pod.lat, pod.lng) if pod is not None else (None, None)
+    await save_site(db, principal, trip, body.save_site, fallback=fallback, by_code=pod is not None and pod.method == "code")
 
 
 async def do_end_trip(db: AsyncSession, principal: Principal, trip_id: uuid.UUID, body: ReadingIn) -> Trip:
@@ -631,6 +704,13 @@ async def do_end_trip(db: AsyncSession, principal: Principal, trip_id: uuid.UUID
         body.value, reading.auto_read_value, start.confirmed_value,
         has_location=photo.lat is not None and photo.lng is not None, check_range=not gps_vehicle,
     )  # fmt: skip
+    away = False
+    if trip.delivered_at is not None and photo.lat is not None and photo.lng is not None:
+        depots = await depots_for(db, trip.vehicle_id)
+        away = bool(depots) and not at_a_depot(depots, photo.lat, photo.lng)  # the lorry did not come home; a note, never a block
+    if away:
+        reading.flags = [*reading.flags, "away_from_depot"]
+        trip.ended_away_reason = (body.away_reason or "").strip() or None
     trip.status = TripStatus.COMPLETED
     trip.ended_at = at
     trip.distance_km = distance
@@ -640,7 +720,7 @@ async def do_end_trip(db: AsyncSession, principal: Principal, trip_id: uuid.UUID
     await tracking.finalise(db, trip)  # what the GPS saw, and whether the odometer agrees
     audit.record(
         db, actor_user_id=principal.user.id, action="trip.completed", entity_type="trip", entity_id=trip.id,
-        after={"odometer_km": body.value, "distance_km": trip.distance_km, "flags": reading.flags},
+        after={"odometer_km": body.value, "distance_km": trip.distance_km, "flags": reading.flags, "away_reason": trip.ended_away_reason},
     )  # fmt: skip
     await sync_job(db, trip.job_id)
     return trip

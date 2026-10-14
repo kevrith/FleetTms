@@ -21,7 +21,6 @@ from app.models import (
     Client,
     Job,
     LocationPoint,
-    SavedRoute,
     TrackingLink,
     Trip,
     TripStatus,
@@ -29,6 +28,7 @@ from app.models import (
 from app.phone import normalize_phone
 from app.routers.trips import get_trip
 from app.security import new_secret_token, sha256
+from app.sites import trip_spot
 from app.sms import get_sms_sender
 from app.tenancy import current_business_id
 
@@ -72,6 +72,8 @@ async def create_link(trip_id: uuid.UUID, body: LinkIn, principal: Principal = D
         elif trip.job_id:
             row = (await db.execute(select(Client.phone).join(Job, Job.client_id == Client.id).where(Job.id == trip.job_id))).first()
             phone = row[0] if row else None
+        elif trip.client_id:
+            phone = (await db.execute(select(Client.phone).where(Client.id == trip.client_id))).scalar_one_or_none()
         if not phone:
             raise error(422, "no_phone", "The client has no phone number on file. Enter one to send the link to.")
         business = (await db.execute(select(Business).where(Business.id == principal.business_id))).scalar_one()
@@ -139,10 +141,10 @@ async def follow(token: str, db: AsyncSession = Depends(get_db)):
             last = recent[0]
             age = (now - last.recorded_at).total_seconds()
             out["position"] = {"lat": last.lat, "lng": last.lng, "updated_at": last.recorded_at, "stale": age > STALE_SECONDS}
-            route = (await db.execute(select(SavedRoute).join(Job, Job.route_id == SavedRoute.id).where(Job.id == trip.job_id))).scalar_one_or_none() if trip.job_id else None
-            if route is not None and route.dropoff_lat is not None and route.dropoff_lng is not None:
-                remaining = haversine_km(last.lat, last.lng, route.dropoff_lat, route.dropoff_lng) * ROAD_FACTOR
-                total = haversine_km(first.lat, first.lng, route.dropoff_lat, route.dropoff_lng) * ROAD_FACTOR if first else remaining
+            spot = await trip_spot(db, trip)
+            if spot is not None:
+                remaining = haversine_km(last.lat, last.lng, spot.lat, spot.lng) * ROAD_FACTOR
+                total = haversine_km(first.lat, first.lng, spot.lat, spot.lng) * ROAD_FACTOR if first else remaining
                 out["progress_pct"] = max(0, min(100, round(100 * (1 - remaining / total)))) if total > 0 else 100
                 if age <= STALE_SECONDS:
                     minutes = eta_minutes(remaining, [p.speed_kmh for p in recent if p.speed_kmh is not None and (now - p.recorded_at).total_seconds() <= FRESH_SECONDS * 3])

@@ -20,6 +20,8 @@ from app.gps_rules import vehicle_state
 from app.models import (
     COUNTED,
     BillingMethod,
+    Client,
+    ClientSite,
     Defect,
     EtimsSubmission,
     Expense,
@@ -269,6 +271,13 @@ async def dashboard(
     last_month = None
     if "invoices.manage" in perms:
         alerts += await money_alerts(db, today)
+    if "clients.manage" in perms:
+        waiting_sites = (await db.execute(select(func.count()).select_from(ClientSite).where(ClientSite.status == "unconfirmed", ClientSite.is_active.is_(True)))).scalar_one()
+        if waiting_sites:
+            alerts.append(alert("sites_unconfirmed", "amber", f"{waiting_sites} client place{'s' if waiting_sites != 1 else ''} saved by drivers to confirm", "Until you confirm one, a delivery away from it is not flagged.", "/clients"))
+        new_clients = (await db.execute(select(func.count()).select_from(Client).where(Client.needs_review.is_(True)))).scalar_one()
+        if new_clients:
+            alerts.append(alert("clients_to_check", "amber", f"{new_clients} client{'s' if new_clients != 1 else ''} added by a driver to check", "Check the name and add the phone number and billing details.", "/clients"))
     if "finance.view" in perms:
         last_month = await last_month_profit(db, today)
         alerts += await lease_alerts(db, today, [v["registration"] for v in last_month["vehicles"] if v["lease_not_paying"]])

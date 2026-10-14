@@ -4,7 +4,7 @@ import {
   tripDistanceKm,
   type InspectionOutcome,
 } from "@fleettms/business-rules";
-import type { Trip } from "@fleettms/types";
+import type { Trip, TripSite } from "@fleettms/types";
 import type { DriverCache, QueueItem } from "./types";
 
 /**
@@ -79,8 +79,25 @@ export function loadedTrip(
   };
 }
 
-export function deliveredTrip(trip: Trip | null, at: string): Trip {
-  return { ...must(trip, "in_progress"), status: "delivered", delivered_at: at };
+/** `saved` is the place the driver said to save for the client: shown at once as unconfirmed, and replaced by the office's record on the next refresh. */
+export function deliveredTrip(
+  trip: Trip | null,
+  at: string,
+  saved?: { name: string; lat: number | null; lng: number | null } | null,
+): Trip {
+  const t = must(trip, "in_progress");
+  const delivered: Trip = { ...t, status: "delivered", delivered_at: at };
+  if (!saved || saved.lat === null || saved.lng === null || t.site) return delivered;
+  const site: TripSite = {
+    id: null,
+    name: saved.name,
+    address: null,
+    lat: saved.lat,
+    lng: saved.lng,
+    radius_m: 300,
+    status: "unconfirmed",
+  };
+  return { ...delivered, site };
 }
 
 export function endedTrip(trip: Trip | null, value: number, at: string): Trip {

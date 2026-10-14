@@ -18,8 +18,9 @@ from app import audit
 from app.db import get_sessionmaker
 from app.deps import Principal, error
 from app.geo import distance_m
-from app.models import Client, Job, PhotoKind, PodCode, ProofOfDelivery, SavedRoute, Trip
+from app.models import Client, Job, PhotoKind, PodCode, ProofOfDelivery, Trip
 from app.photos import claim_photo
+from app.sites import trip_spot
 from app.sms import get_sms_sender
 
 log = logging.getLogger(__name__)
@@ -54,7 +55,8 @@ def _hash(code: str) -> str:
 async def request_code(db: AsyncSession, principal: Principal, trip: Trip) -> dict:
     """Texts a one-time code to the client's phone. The recipient gives it to the driver once the cargo has arrived."""
     job = (await db.execute(select(Job).where(Job.id == trip.job_id))).scalar_one_or_none() if trip.job_id else None
-    client = (await db.execute(select(Client).where(Client.id == job.client_id))).scalar_one_or_none() if job else None
+    client_id = job.client_id if job else trip.client_id
+    client = (await db.execute(select(Client).where(Client.id == client_id))).scalar_one_or_none() if client_id else None
     if client is None or not client.phone:
         raise error(422, "client_has_no_phone", "This client has no phone number on file, so use the signature instead.")
     now = datetime.now(UTC)
@@ -65,7 +67,7 @@ async def request_code(db: AsyncSession, principal: Principal, trip: Trip) -> di
     db.add(PodCode(trip_id=trip.id, code_hash=_hash(code), sent_to=client.phone, expires_at=now + CODE_TTL))
     await db.flush()
     try:
-        await get_sms_sender().send(client.phone, f"FleetTms: your delivery code for job {job.number} is {code}. Give it to the driver only once your cargo has arrived.")
+        await get_sms_sender().send(client.phone, f"FleetTms: your delivery code{f' for job {job.number}' if job else ''} is {code}. Give it to the driver only once your cargo has arrived.")
     except Exception:
         log.exception("Could not text the delivery code for trip %s", trip.id)
         raise error(502, "sms_failed", "The code could not be sent. Try again, or use the signature.") from None
@@ -137,10 +139,9 @@ async def confirm_pod(db: AsyncSession, principal: Principal, trip: Trip, body: 
     if lat is None or lng is None:
         flags.append("no_location")
     else:
-        job = (await db.execute(select(Job).where(Job.id == trip.job_id))).scalar_one_or_none() if trip.job_id else None
-        route = (await db.execute(select(SavedRoute).where(SavedRoute.id == job.route_id))).scalar_one_or_none() if job and job.route_id else None
-        if route and route.dropoff_lat is not None and route.dropoff_lng is not None and distance_m(lat, lng, route.dropoff_lat, route.dropoff_lng) > route.site_radius_m:
-            flags.append("outside_site")  # delivered somewhere other than the client's site
+        spot = await trip_spot(db, trip)
+        if spot is not None and spot.confirmed and distance_m(lat, lng, spot.lat, spot.lng) > spot.radius_m:
+            flags.append("outside_site")  # delivered somewhere other than the client's site; a place only a driver saved is not held against anyone
     if shortage:
         flags.append("shortage")
     if damage_notes:

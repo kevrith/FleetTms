@@ -1,5 +1,5 @@
-import type { BillingMethod, Client, SavedRoute } from "@fleettms/types";
-import { Compass, Plus } from "lucide-react";
+import type { BillingMethod, Client, ClientSite, SavedRoute } from "@fleettms/types";
+import { Check, Compass, MapPin, Plus } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link, NavLink, Route, Routes, useParams } from "react-router-dom";
 import { api } from "../api";
@@ -175,6 +175,7 @@ function ClientList() {
                   <th>Contact</th>
                   <th>Charged</th>
                   <th>Saved routes</th>
+                  <th>Delivery places</th>
                   <th>Open jobs</th>
                 </tr>
               </thead>
@@ -183,12 +184,21 @@ function ClientList() {
                   <tr key={c.id}>
                     <td>
                       <Link to={`view/${c.id}`}>{c.name}</Link>
+                      {c.needs_review && (
+                        <span className="muted"> (added by a driver, check it)</span>
+                      )}
                     </td>
                     <td>{[c.contact_name, c.phone].filter(Boolean).join(", ")}</td>
                     <td>
                       {BILLING_METHOD[c.billing_method]} {c.rate_cents > 0 && kes(c.rate_cents)}
                     </td>
                     <td>{c.routes}</td>
+                    <td>
+                      {c.sites}
+                      {c.unconfirmed_sites > 0 && (
+                        <span className="muted"> ({c.unconfirmed_sites} to confirm)</span>
+                      )}
+                    </td>
                     <td>{c.open_jobs}</td>
                   </tr>
                 ))}
@@ -223,6 +233,7 @@ interface RouteForm {
   lat: string;
   lng: string;
   radius: string;
+  site_id: string;
   path_notes: string;
 }
 const emptyRoute: RouteForm = {
@@ -237,6 +248,7 @@ const emptyRoute: RouteForm = {
   lat: "",
   lng: "",
   radius: "500",
+  site_id: "",
   path_notes: "",
 };
 const routePayload = (f: RouteForm) => ({
@@ -251,10 +263,19 @@ const routePayload = (f: RouteForm) => ({
   dropoff_lat: f.lat ? Number(f.lat) : null,
   dropoff_lng: f.lng ? Number(f.lng) : null,
   site_radius_m: Number(f.radius || 500),
+  ...(f.site_id ? { site_id: f.site_id } : {}),
   path_notes: f.path_notes || null,
 });
 
-function RouteFields({ f, set }: { f: RouteForm; set: (f: RouteForm) => void }) {
+function RouteFields({
+  f,
+  set,
+  sites,
+}: {
+  f: RouteForm;
+  set: (f: RouteForm) => void;
+  sites: ClientSite[];
+}) {
   const [hint, setHint] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const on = (k: keyof RouteForm) => (e: { target: { value: string } }) =>
@@ -317,6 +338,18 @@ function RouteFields({ f, set }: { f: RouteForm; set: (f: RouteForm) => void }) 
       <Field label="Other costs per trip (KES)">
         <input type="number" min="0" step="0.01" value={f.other} onChange={on("other")} />
       </Field>
+      {sites.length > 0 && (
+        <Field label="Delivery place">
+          <select value={f.site_id} onChange={on("site_id")}>
+            <option value="">Use the coordinates below</option>
+            {sites.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
       <Field label="Client site latitude">
         <input
           type="number"
@@ -342,6 +375,189 @@ function RouteFields({ f, set }: { f: RouteForm; set: (f: RouteForm) => void }) 
         <input value={f.path_notes} onChange={on("path_notes")} />
       </Field>
     </div>
+  );
+}
+
+interface SiteForm {
+  name: string;
+  address: string;
+  lat: string;
+  lng: string;
+  radius: string;
+}
+const emptySite: SiteForm = { name: "", address: "", lat: "", lng: "", radius: "300" };
+const mapLink = (s: { lat: number; lng: number }) =>
+  `https://www.openstreetmap.org/?mlat=${s.lat}&mlon=${s.lng}#map=17/${s.lat}/${s.lng}`;
+
+/**
+ * The places a client takes deliveries. A driver can save the place they delivered to; it guides the next driver but is not held
+ * against anyone (a delivery away from it is not flagged) until it is confirmed here.
+ */
+function SitesCard({
+  client,
+  sites,
+  run,
+}: {
+  client: Client;
+  sites: ClientSite[];
+  run: (action: () => Promise<unknown>, after?: () => void) => Promise<void>;
+}) {
+  const [form, setForm] = useState<SiteForm>(emptySite);
+  const [editing, setEditing] = useState<string | null>(null);
+  const on = (k: keyof SiteForm) => (e: { target: { value: string } }) =>
+    setForm({ ...form, [k]: e.target.value });
+  const body = () => ({
+    name: form.name,
+    address: form.address || null,
+    lat: Number(form.lat),
+    lng: Number(form.lng),
+    radius_m: Number(form.radius || 300),
+    is_active: sites.find((x) => x.id === editing)?.is_active !== false,
+  });
+  const valid =
+    form.name.trim().length >= 2 &&
+    form.lat !== "" &&
+    form.lng !== "" &&
+    Number.isFinite(Number(form.lat)) &&
+    Number.isFinite(Number(form.lng));
+  const reset = () => {
+    setForm(emptySite);
+    setEditing(null);
+  };
+  return (
+    <Card title="Delivery places">
+      <p className="muted">
+        Where {client.name} takes deliveries. A place a driver saved shows as waiting: it guides the
+        next driver, and a delivery away from it is only flagged once you confirm it.
+      </p>
+      {sites.length === 0 && <p className="muted">No places yet.</p>}
+      {sites.length > 0 && (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Place</th>
+                <th>Position</th>
+                <th>Radius</th>
+                <th>Status</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {sites.map((s) => (
+                <tr key={s.id} className={s.is_active === false ? "muted" : undefined}>
+                  <td>
+                    {s.name}
+                    {s.address && (
+                      <>
+                        <br />
+                        <span className="muted">{s.address}</span>
+                      </>
+                    )}
+                  </td>
+                  <td>
+                    <a href={mapLink(s)} target="_blank" rel="noreferrer">
+                      <MapPin size={14} /> {s.lat.toFixed(5)}, {s.lng.toFixed(5)}
+                    </a>
+                  </td>
+                  <td>{s.radius_m} m</td>
+                  <td>
+                    {s.is_active === false
+                      ? "Not in use"
+                      : s.status === "confirmed"
+                        ? "Confirmed"
+                        : s.verified_by_code
+                          ? "Saved by a driver, delivery confirmed by the client's code"
+                          : "Saved by a driver, to confirm"}
+                  </td>
+                  <td className="actions">
+                    {s.status === "unconfirmed" && s.is_active !== false && (
+                      <button
+                        className="btn primary"
+                        onClick={() => run(() => api.confirmSite(s.id))}
+                      >
+                        <Check size={16} /> Confirm
+                      </button>
+                    )}{" "}
+                    <button
+                      className="btn"
+                      onClick={() => {
+                        setEditing(s.id);
+                        setForm({
+                          name: s.name,
+                          address: s.address ?? "",
+                          lat: String(s.lat),
+                          lng: String(s.lng),
+                          radius: String(s.radius_m),
+                        });
+                      }}
+                    >
+                      Edit
+                    </button>{" "}
+                    <button
+                      className="btn"
+                      onClick={() => {
+                        void run(
+                          () =>
+                            api.updateSite(s.id, {
+                              name: s.name,
+                              address: s.address,
+                              lat: s.lat,
+                              lng: s.lng,
+                              radius_m: s.radius_m,
+                              is_active: s.is_active === false,
+                            }),
+                          reset,
+                        );
+                      }}
+                    >
+                      {s.is_active === false ? "Use again" : "Stop using"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <h4>{editing ? "Change this place" : "Add a place"}</h4>
+      <div className="form-grid">
+        <Field label="Name">
+          <input value={form.name} onChange={on("name")} placeholder="Ruiru depot" />
+        </Field>
+        <Field label="Address or directions">
+          <input value={form.address} onChange={on("address")} />
+        </Field>
+        <Field label="Latitude">
+          <input type="number" step="0.00001" value={form.lat} onChange={on("lat")} />
+        </Field>
+        <Field label="Longitude">
+          <input type="number" step="0.00001" value={form.lng} onChange={on("lng")} />
+        </Field>
+        <Field label="Radius (metres)">
+          <input type="number" min="50" value={form.radius} onChange={on("radius")} />
+        </Field>
+      </div>
+      <p className="actions">
+        <button
+          className="btn primary"
+          disabled={!valid}
+          onClick={() =>
+            run(
+              () => (editing ? api.updateSite(editing, body()) : api.addSite(client.id, body())),
+              reset,
+            )
+          }
+        >
+          <Plus size={16} /> {editing ? "Save the change" : "Save place"}
+        </button>
+        {editing && (
+          <button className="btn" onClick={reset}>
+            Cancel
+          </button>
+        )}
+      </p>
+    </Card>
   );
 }
 
@@ -377,6 +593,7 @@ function ClientDetail() {
   }
   if (!client) return <ErrorBanner message={error} />;
   const routes: SavedRoute[] = client.route_list ?? [];
+  const sites: ClientSite[] = client.site_list ?? [];
   return (
     <>
       <p>
@@ -384,6 +601,12 @@ function ClientDetail() {
       </p>
       <ErrorBanner message={error} />
       <Card title={client.name}>
+        {client.needs_review && (
+          <p className="muted">
+            A driver added this client from the phone. Check the name, add the phone number and
+            billing details, then save to confirm it.
+          </p>
+        )}
         <ClientFields f={form} set={setForm} />
         <p className="actions">
           <button
@@ -400,6 +623,7 @@ function ClientDetail() {
           {saved && <span className="muted">Saved.</span>}
         </p>
       </Card>
+      <SitesCard client={client} sites={sites} run={run} />
       <Card title="Saved routes">
         <p className="muted">Stored once, then reused on every quote and job for this client.</p>
         {routes.length === 0 && <p className="muted">No routes yet.</p>}
@@ -436,7 +660,7 @@ function ClientDetail() {
           </div>
         )}
         <h4>Add a route</h4>
-        <RouteFields f={route} set={setRoute} />
+        <RouteFields f={route} set={setRoute} sites={sites.filter((s) => s.is_active)} />
         <p className="actions">
           <button
             className="btn primary"

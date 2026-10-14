@@ -7,8 +7,9 @@ import { useOffline } from "../offline/runtime";
 import type { LocalPhoto } from "../offline/types";
 import { Body, Button, ErrorText, errorMessage, Input, useTheme } from "../ui";
 import { SignaturePad, type Strokes } from "./SignaturePad";
+import { SaveSiteChoice, siteToSave, useSaveSite } from "./SaveSite";
 
-async function here(): Promise<{ lat: number; lng: number } | null> {
+export async function currentPlace(): Promise<{ lat: number; lng: number } | null> {
   try {
     const perm = await Location.getForegroundPermissionsAsync();
     if (!perm.granted) return null;
@@ -52,6 +53,7 @@ export default function Delivery({
   const [shortageQty, setShortageQty] = useState("");
   const [shortageUnit, setShortageUnit] = useState("");
   const [damage, setDamage] = useState("");
+  const saveSite = useSaveSite(trip);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -96,14 +98,15 @@ export default function Delivery({
     cargo !== null &&
     note !== null &&
     (method === "signature" ? signature !== null : /^\d{6}$/.test(code.trim())) &&
-    (!damage.trim() || damagePhoto !== null);
+    (!damage.trim() || damagePhoto !== null) &&
+    saveSite.valid;
 
   async function confirm() {
     if (!cargo || !note) return;
     setBusy(true);
     setError(null);
     try {
-      const where = await here();
+      const where = await currentPlace();
       await offline.deliver({
         recipientName: name,
         method,
@@ -117,6 +120,7 @@ export default function Delivery({
         damagePhoto,
         lat: where?.lat ?? null,
         lng: where?.lng ?? null,
+        saveSite: siteToSave(saveSite, where),
       });
       onDone();
     } catch (e) {
@@ -133,11 +137,13 @@ export default function Delivery({
       scrollEnabled
     >
       <Text style={{ color: t.text, fontSize: 22, fontWeight: "700" }}>Proof of delivery</Text>
-      {trip?.job && (
+      {trip?.job ? (
         <Body muted>
           Job {trip.job.number} for {trip.job.client_name}
         </Body>
-      )}
+      ) : trip?.client ? (
+        <Body muted>Delivery for {trip.client.name}</Body>
+      ) : null}
       <Button
         label={cargo ? "Cargo photo taken. Retake" : "Photo of the cargo delivered"}
         kind="secondary"
@@ -212,6 +218,7 @@ export default function Delivery({
           onPress={() => setTaking("damage")}
         />
       ) : null}
+      <SaveSiteChoice trip={trip} state={saveSite} />
       <ErrorText message={error} />
       <Button label="Confirm delivery" onPress={confirm} busy={busy} disabled={!ready} />
       <Button label="Cancel" kind="secondary" onPress={onCancel} disabled={busy} />

@@ -1,5 +1,6 @@
 import {
   formatKes,
+  insideShape,
   isBelowMinimum,
   minimumReading,
   nairobiDay,
@@ -14,11 +15,15 @@ import { CaptureScreen } from "../capture";
 import type { LocalPhoto } from "../offline/types";
 import { useOffline } from "../offline/runtime";
 import { Body, Button, ErrorText, errorMessage, Input, useTheme } from "../ui";
+import { ClientPicker, hasClient, noClient, type ClientChoice } from "./ClientPicker";
 import Delivery from "./Delivery";
 import InspectionFlow from "./InspectionFlow";
 import Loading from "./Loading";
 import RenewLicence from "./RenewLicence";
+import { SaveSiteChoice, siteToSave, useSaveSite } from "./SaveSite";
 import { useTrackingStatus } from "../tracking/status";
+import { currentPlace } from "./Delivery";
+import type { Trip, TripSite } from "@fleettms/types";
 
 type Mode =
   | { kind: "idle" }
@@ -27,6 +32,7 @@ type Mode =
   | { kind: "reading"; phase: "start" | "end"; photo: LocalPhoto }
   | { kind: "cargo" }
   | { kind: "delivery" }
+  | { kind: "place" }
   | { kind: "renew" };
 
 /**
@@ -56,10 +62,11 @@ function NewTrip({ onMade }: { onMade: () => Promise<unknown> }) {
   const [origin, setOrigin] = useState("");
   const [destination, setDestination] = useState("");
   const [cargo, setCargo] = useState("");
-  const [client, setClient] = useState("");
+  const [client, setClient] = useState<ClientChoice>(noClient);
   const [price, setPrice] = useState("");
   const priceCents = Math.round(Number(price) * 100);
-  const halfPriced = canPrice && client.trim().length > 0 !== price.trim().length > 0;
+  // A price needs someone to pay it.
+  const halfPriced = canPrice && price.trim().length > 0 && !hasClient(client);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -71,9 +78,12 @@ function NewTrip({ onMade }: { onMade: () => Promise<unknown> }) {
         origin: origin.trim(),
         destination: destination.trim(),
         cargo_description: cargo.trim() || null,
-        ...(canPrice && client.trim() && priceCents > 0
-          ? { client_name: client.trim(), price_cents: priceCents }
-          : {}),
+        ...(client.clientId
+          ? { client_id: client.clientId, ...(client.siteId ? { site_id: client.siteId } : {}) }
+          : client.newName
+            ? { new_client_name: client.newName }
+            : {}),
+        ...(canPrice && hasClient(client) && priceCents > 0 ? { price_cents: priceCents } : {}),
       });
       await onMade();
     } catch (e) {
@@ -94,14 +104,9 @@ function NewTrip({ onMade }: { onMade: () => Promise<unknown> }) {
         onChangeText={setCargo}
         placeholder="Cement, 400 bags"
       />
+      <ClientPicker value={client} onChange={setClient} />
       {canPrice && (
         <>
-          <Input
-            label="Who is paying? (optional)"
-            value={client}
-            onChangeText={setClient}
-            placeholder="Bamburi Cement"
-          />
           <Input
             label="What the trip pays, in KES (optional)"
             value={price}
@@ -109,9 +114,7 @@ function NewTrip({ onMade }: { onMade: () => Promise<unknown> }) {
             keyboardType="decimal-pad"
             placeholder="12000"
           />
-          {halfPriced && (
-            <Body muted>Fill in both who is paying and what it pays, or neither.</Body>
-          )}
+          {halfPriced && <Body muted>Choose who is paying, or leave the price out.</Body>}
         </>
       )}
       <Body muted>Needs an internet connection.</Body>
@@ -129,6 +132,93 @@ function NewTrip({ onMade }: { onMade: () => Promise<unknown> }) {
       />
       <Button label="Cancel" kind="secondary" onPress={() => setOpen(false)} disabled={busy} />
     </View>
+  );
+}
+
+/** True when the trip has delivered, a depot is mapped, and the phone is somewhere else (an unknown position counts as not away). */
+async function notAtDepot(trip: Trip | null): Promise<boolean> {
+  if (!trip?.delivered_at || !trip.depots?.length) return false;
+  const where = await currentPlace();
+  if (!where) return false;
+  return !trip.depots.some((d) => insideShape(d.shape, where.lat, where.lng));
+}
+
+/**
+ * After the delivery: where the lorry goes home to, and "you are back" when the phone is inside a depot. Only a reminder: the trip is
+ * ended with the closing odometer photo, and nothing here ends it by itself.
+ */
+function ReturnNotice({ trip }: { trip: Trip }) {
+  const depots = trip.depots ?? [];
+  const [here, setHere] = useState<string | null>(null);
+  useEffect(() => {
+    if (depots.length === 0) return;
+    let live = true;
+    const look = async () => {
+      const where = await currentPlace();
+      if (!live) return;
+      const found = where ? depots.find((d) => insideShape(d.shape, where.lat, where.lng)) : null;
+      setHere(found ? found.name : null);
+    };
+    void look();
+    const timer = setInterval(() => void look(), 30_000);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trip.id, depots.length]);
+  if (depots.length === 0) return null;
+  return here ? (
+    <Body>You are at {here}. Park, then end the trip with the closing odometer photo.</Body>
+  ) : (
+    <Body muted>
+      Delivered. Take the lorry back to {depots.map((d) => d.name).join(" or ")}, then end the trip
+      with the closing odometer photo.
+    </Body>
+  );
+}
+
+/** A map link for the place: the maps app opens with a pin on it. */
+const mapsUrl = (s: TripSite) =>
+  Platform.OS === "ios"
+    ? `maps:?q=${encodeURIComponent(s.name ?? "Delivery")}&ll=${s.lat},${s.lng}`
+    : `geo:${s.lat},${s.lng}?q=${s.lat},${s.lng}(${encodeURIComponent(s.name ?? "Delivery")})`;
+
+/**
+ * A trip for a client with no proof of delivery to take: asks whether to save this place as the client's delivery site, then marks it
+ * delivered. Saved on the phone and sent when there is a network.
+ */
+function PlacePrompt({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const t = useTheme();
+  const offline = useOffline();
+  const trip = offline.state.cache.trip;
+  const saveSite = useSaveSite(trip);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function confirm() {
+    setBusy(true);
+    setError(null);
+    try {
+      const where = saveSite.offered && saveSite.save ? await currentPlace() : null;
+      await offline.markDelivered(siteToSave(saveSite, where));
+      onDone();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
+      <Text style={{ color: t.text, fontSize: 22, fontWeight: "700" }}>Mark delivered</Text>
+      {trip?.client ? <Body muted>Delivery for {trip.client.name}</Body> : null}
+      <SaveSiteChoice trip={trip} state={saveSite} />
+      <ErrorText message={error} />
+      <Button label="Mark delivered" onPress={confirm} busy={busy} disabled={!saveSite.valid} />
+      <Button label="Cancel" kind="secondary" onPress={onCancel} disabled={busy} />
+    </ScrollView>
   );
 }
 
@@ -200,6 +290,8 @@ export default function TripPanel() {
   const [mode, setMode] = useState<Mode>({ kind: "idle" });
   const [typed, setTyped] = useState("");
   const [suggested, setSuggested] = useState<number | null>(null); // what the server read from the photo, if it could
+  const [away, setAway] = useState(false); // ending a delivered trip away from the depot: the driver may say why
+  const [awayReason, setAwayReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -207,6 +299,8 @@ export default function TripPanel() {
     setMode({ kind: "idle" });
     setTyped("");
     setSuggested(null);
+    setAway(false);
+    setAwayReason("");
   };
 
   async function run(action: () => Promise<unknown>) {
@@ -269,6 +363,8 @@ export default function TripPanel() {
           const initial = mode.phase === "start" && lastKnown > 0 ? String(lastKnown) : "";
           setTyped(initial);
           setSuggested(null);
+          setAway(false);
+          if (mode.phase === "end") void notAtDepot(trip).then(setAway);
           setMode({ kind: "reading", phase: mode.phase, photo });
           // With a connection, the server reads the photo and offers the number. It only fills the box if the driver has not typed anything, and
           // the driver still confirms it; with no connection nothing changes.
@@ -287,6 +383,7 @@ export default function TripPanel() {
   if (mode.kind === "renew") return <RenewLicence onDone={finish} onCancel={finish} />;
   if (mode.kind === "cargo") return <Loading onDone={finish} onCancel={finish} />;
   if (mode.kind === "delivery") return <Delivery onDone={finish} onCancel={finish} />;
+  if (mode.kind === "place") return <PlacePrompt onDone={finish} onCancel={finish} />;
   if (mode.kind === "reading") {
     const startValue = trip.start_reading?.value;
     const problem = typed
@@ -306,7 +403,7 @@ export default function TripPanel() {
       run(() =>
         mode.phase === "start"
           ? offline.startTrip(mode.photo, value as number)
-          : offline.endTrip(mode.photo, value as number),
+          : offline.endTrip(mode.photo, value as number, away ? awayReason : null),
       );
     return (
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
@@ -329,6 +426,21 @@ export default function TripPanel() {
           <Body muted>Read from the photo. Check it matches what the odometer shows.</Body>
         )}
         {problem && <Body muted>{problem}</Body>}
+        {mode.phase === "end" && away && (
+          <>
+            <Body muted>
+              You are not at the depot. You can still end the trip. If you like, say why, so the
+              office knows.
+            </Body>
+            <Input
+              label="Why is the lorry not at the depot? (optional)"
+              value={awayReason}
+              onChangeText={setAwayReason}
+              placeholder="Waiting to offload, breakdown, slept at the client"
+              maxLength={200}
+            />
+          </>
+        )}
         <ErrorText message={error} />
         <Button
           label={mode.phase === "start" ? "Start trip" : "End trip"}
@@ -358,11 +470,26 @@ export default function TripPanel() {
         <Text style={{ color: t.text, fontSize: 20, fontWeight: "600" }}>
           {[trip.origin, trip.destination].filter(Boolean).join(" to ") || trip.registration}
         </Text>
-        {trip.job && (
+        {trip.job ? (
           <Body muted>
             Job {trip.job.number} for {trip.job.client_name}
           </Body>
-        )}
+        ) : trip.client ? (
+          <Body muted>For {trip.client.name}</Body>
+        ) : null}
+        {trip.site && trip.status !== "completed" ? (
+          <>
+            <Body>
+              Deliver to {trip.site.name ?? "the client's place"}
+              {trip.site.status === "unconfirmed" ? " (saved by a driver)" : ""}
+            </Body>
+            <Button
+              label="Open in maps"
+              kind="secondary"
+              onPress={() => void Linking.openURL(mapsUrl(trip.site as TripSite))}
+            />
+          </>
+        ) : null}
         {trip.cargo_description && <Body>{trip.cargo_description}</Body>}
         {trip.job?.pickup_at && (
           <Body muted>
@@ -383,7 +510,11 @@ export default function TripPanel() {
           {stateText}
           {trip.start_reading ? `, started at ${trip.start_reading.value.toLocaleString()} km` : ""}
           {trip.distance_km != null ? `, ${trip.distance_km.toLocaleString()} km driven` : ""}
+          {trip.loaded_km != null && trip.empty_km != null
+            ? ` (${trip.loaded_km.toLocaleString()} km loaded, ${trip.empty_km.toLocaleString()} km empty on the way back)`
+            : ""}
         </Body>
+        {trip.status === "delivered" && <ReturnNotice trip={trip} />}
         {waiting && (
           <Body muted>Saved on this phone. It will be sent when there is a connection.</Body>
         )}
@@ -451,7 +582,11 @@ export default function TripPanel() {
             label="Mark delivered"
             kind="secondary"
             onPress={() =>
-              trip.job ? setMode({ kind: "delivery" }) : void run(() => offline.markDelivered())
+              trip.job
+                ? setMode({ kind: "delivery" })
+                : trip.client && !trip.site
+                  ? setMode({ kind: "place" })
+                  : void run(() => offline.markDelivered())
             }
             busy={busy}
           />

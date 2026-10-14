@@ -629,6 +629,9 @@ class Trip(TenantMixin, Base):
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     distance_km: Mapped[int | None] = mapped_column(Integer)  # end odometer minus start odometer
+    loaded_km: Mapped[int | None] = mapped_column(Integer)  # of distance_km, driven before the delivery (with the load); the GPS says where the split falls
+    empty_km: Mapped[int | None] = mapped_column(Integer)  # of distance_km, driven after the delivery (the return); loaded plus empty is distance_km
+    ended_away_reason: Mapped[str | None] = mapped_column(String(200))  # why the trip ended away from every depot, when the driver said
     weighbridge_photo_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("photos.id", ondelete="SET NULL"))
     overload_kg: Mapped[int | None] = mapped_column(Integer)  # how far over the legal limit the loaded lorry was, if it was
     gps_distance_km: Mapped[float | None] = mapped_column(Float)  # what the phone's GPS says the trip came to
@@ -643,6 +646,8 @@ class Trip(TenantMixin, Base):
     compliance_override_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL", name="fk_trips_compliance_override_by_user_id"))
     compliance_override_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), index=True)
+    client_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("clients.id", ondelete="SET NULL"), index=True)  # who the delivery is for; a trip with a job takes it from the job
+    site_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("client_sites.id", ondelete="SET NULL"))  # where at the client
     # What was paid for a trip that has no invoice (a one-lorry owner who is simply paid cash or M-Pesa): profit counts it as the trip's income.
     received_cents: Mapped[int | None] = mapped_column(BigInteger)
     received_note: Mapped[str | None] = mapped_column(String(200))
@@ -1177,6 +1182,31 @@ class Client(TenantMixin, Base):
     reminders_enabled: Mapped[bool] = mapped_column(Boolean, default=True)  # False: never send this client payment reminders
     notes: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    needs_review: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))  # added by a driver from the phone; the office checks the name and details
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ClientSite(TenantMixin, Base):
+    """A place a client takes deliveries: a warehouse, a shop, a yard. A client can have several. The office adds them, or a driver
+    saves the place they delivered to; a driver's is unconfirmed (it guides the next driver but is not held against anyone) until
+    the office confirms it."""
+
+    __tablename__ = "client_sites"
+    __table_args__ = (UniqueConstraint("business_id", "client_id", "name"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    address: Mapped[str | None] = mapped_column(String(255))
+    lat: Mapped[float] = mapped_column(Float)
+    lng: Mapped[float] = mapped_column(Float)
+    radius_m: Mapped[int] = mapped_column(Integer, default=300)
+    status: Mapped[str] = mapped_column(String(12), default="confirmed")  # confirmed, or unconfirmed when a driver saved it
+    saved_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    saved_from_trip_id: Mapped[uuid.UUID | None] = mapped_column()  # no foreign key: trips point at sites too
+    verified_by_code: Mapped[bool] = mapped_column(Boolean, default=False)  # saved from a delivery the client's own phone confirmed by SMS code
+    confirmed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -1194,6 +1224,7 @@ class SavedRoute(TenantMixin, Base):
     dropoff_lat: Mapped[float | None] = mapped_column(Float)  # the client's site, so a delivery elsewhere can be flagged
     dropoff_lng: Mapped[float | None] = mapped_column(Float)
     site_radius_m: Mapped[int] = mapped_column(Integer, default=500)
+    site_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("client_sites.id", ondelete="SET NULL"))  # the client's site this route ends at; wins over the coordinates above
     path_notes: Mapped[str | None] = mapped_column(Text)  # the preferred path
     distance_km: Mapped[int] = mapped_column(Integer, default=0)
     expected_hours: Mapped[float] = mapped_column(Float, default=12)
